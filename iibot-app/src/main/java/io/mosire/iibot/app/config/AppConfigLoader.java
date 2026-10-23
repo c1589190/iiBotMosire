@@ -1,5 +1,6 @@
 package io.mosire.iibot.app.config;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -16,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -33,11 +35,14 @@ public final class AppConfigLoader {
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            // JSON 对象里重复键不能静默“后者覆盖前者”；route 名与其它配置键都要求唯一。
+            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
 
     private static final Set<String> ROOT_FIELDS = Set.of(
             "dataDir", "publicGroupId", "maxTurnMinutes", "napcat", "players", "directors",
-            "world", "llm", "dispatcher", "outbox", "scheduler", "control");
+            "world", "llm", "llmRoutes", "agentRoutes", "dispatcher", "outbox",
+            "scheduler", "control");
     private static final Set<String> NAPCAT_FIELDS = Set.of(
             "eventWebSocketUri", "httpBaseUri", "accessTokenEnv", "accountId",
             "suppressSelfMessages", "requestTimeoutSeconds", "maxTextLength");
@@ -46,6 +51,8 @@ public final class AppConfigLoader {
     private static final Set<String> LLM_FIELDS = Set.of(
             "baseUrl", "model", "apiKeyEnv", "connectTimeoutSeconds", "readTimeoutSeconds",
             "echoReasoningContent");
+    private static final Set<String> AGENT_ROUTE_FIELDS = Set.of(
+            AppConfig.AGENT_SECRETARY, AppConfig.AGENT_ADJUDICATOR, AppConfig.AGENT_GM_AIDE);
     private static final Set<String> DISPATCHER_FIELDS = Set.of(
             "maxConcurrentSessions", "maxPendingPerUser", "dedupeCapacity");
     private static final Set<String> OUTBOX_FIELDS = Set.of("sendTimeoutSeconds");
@@ -76,6 +83,10 @@ public final class AppConfigLoader {
             root = MAPPER.readTree(Files.readString(file));
         } catch (JsonProcessingException e) {
             // 不回显解析器片段：配置文件可能含敏感值；只给稳定的可操作错误。
+            String detail = e.getOriginalMessage();
+            if (detail != null && detail.contains("Duplicate field")) {
+                throw new ConfigException("配置文件包含重复字段（route 名必须唯一）: " + file);
+            }
             throw new ConfigException("配置文件不是合法 JSON: " + file);
         } catch (IOException e) {
             throw new ConfigException("读取配置文件失败: " + file);
@@ -95,7 +106,12 @@ public final class AppConfigLoader {
         List<AppConfig.Account> players = parseAccounts(requiredArray(root, "players", "配置根"), "players");
         List<AppConfig.Account> directors = parseAccounts(requiredArray(root, "directors", "配置根"), "directors");
         AppConfig.World world = parseWorld(requiredObject(root, "world", "配置根"), baseDir);
-        Optional<AppConfig.Llm> llm = optionalObject(root, "llm", "配置根").map(AppConfigLoader::parseLlm);
+        Optional<AppConfig.Llm> llm = optionalObject(root, "llm", "配置根")
+                .map(node -> parseLlm(node, "llm"));
+        Optional<Map<String, AppConfig.Llm>> llmRoutes = parseLlmRoutes(
+                optionalObject(root, "llmRoutes", "配置根").orElse(null));
+        Optional<AppConfig.AgentRoutes> agentRoutes = parseAgentRoutes(
+                optionalObject(root, "agentRoutes", "配置根").orElse(null));
         AppConfig.Dispatcher dispatcher = optionalObject(root, "dispatcher", "配置根")
                 .map(AppConfigLoader::parseDispatcher)
                 .orElseGet(AppConfig.Dispatcher::defaults);
@@ -110,7 +126,7 @@ public final class AppConfigLoader {
                 .orElseGet(ControlMcpConfig::disabled);
 
         return new AppConfig(dataDir, publicGroupId, maxTurnMinutes, napcat, players, directors,
-                world, llm, dispatcher, outbox, scheduler, control);
+                world, llm, llmRoutes, agentRoutes, dispatcher, outbox, scheduler, control);
     }
 
     private static AppConfig.NapCat parseNapcat(JsonNode node) {
@@ -161,15 +177,59 @@ public final class AppConfigLoader {
         return new AppConfig.World(promptVersion, factsFile);
     }
 
-    private static AppConfig.Llm parseLlm(JsonNode node) {
-        rejectUnknown(node, LLM_FIELDS, "llm");
-        String baseUrl = requiredText(node, "baseUrl", "llm");
-        String model = requiredText(node, "model", "llm");
-        Optional<String> apiKeyEnv = optionalText(node, "apiKeyEnv", "llm");
-        int connect = optionalInt(node, "connectTimeoutSeconds", "llm", 10);
-        int read = optionalInt(node, "readTimeoutSeconds", "llm", 60);
-        boolean echo = optionalBoolean(node, "echoReasoningContent", "llm", false);
+    private static AppConfig.Llm parseLlm(JsonNode node, String location) {
+        rejectUnknown(node, LLM_FIELDS, location);
+        String baseUrl = requiredText(node, "baseUrl", location);
+        String model = requiredText(node, "model", location);
+        Optional<String> apiKeyEnv = optionalText(node, "apiKeyEnv", location);
+        int connect = optionalInt(node, "connectTimeoutSeconds", location, 10);
+        int read = optionalInt(node, "readTimeoutSeconds", location, 60);
+        boolean echo = optionalBoolean(node, "echoReasoningContent", location, false);
         return new AppConfig.Llm(baseUrl, model, apiKeyEnv, connect, read, echo);
+    }
+
+    /**
+     * 解析命名路由。route 名在进入 AppConfig 前先做安全字符集校验；这里不回显任何
+     * 配置值，重复键由 ObjectMapper 的 STRICT_DUPLICATE_DETECTION 提前拒绝。
+     */
+    private static Optional<Map<String, AppConfig.Llm>> parseLlmRoutes(JsonNode node) {
+        if (node == null) {
+            return Optional.empty();
+        }
+        java.util.regex.Pattern safe = java.util.regex.Pattern.compile("[A-Za-z0-9_.-]+");
+        Map<String, AppConfig.Llm> routes = new java.util.LinkedHashMap<>();
+        Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> entry = fields.next();
+            String routeName = entry.getKey();
+            if (!safe.matcher(routeName).matches()) {
+                throw new ConfigException(
+                        "llmRoutes 的 route 名必须是安全字符集（[A-Za-z0-9_.-]+）");
+            }
+            if (AppConfig.DEFAULT_LLM_ROUTE.equals(routeName)) {
+                throw new ConfigException(
+                        "llmRoutes 不得重复定义保留路由 " + AppConfig.DEFAULT_LLM_ROUTE);
+            }
+            String location = "llmRoutes." + routeName;
+            requireObject(entry.getValue(), location);
+            routes.put(routeName, parseLlm(entry.getValue(), location));
+        }
+        return routes.isEmpty() ? Optional.empty()
+                : Optional.of(java.util.Collections.unmodifiableMap(routes));
+    }
+
+    private static Optional<AppConfig.AgentRoutes> parseAgentRoutes(JsonNode node) {
+        if (node == null) {
+            return Optional.empty();
+        }
+        rejectUnknown(node, AGENT_ROUTE_FIELDS, "agentRoutes");
+        String secretary = optionalText(node, AppConfig.AGENT_SECRETARY, "agentRoutes")
+                .orElse(AppConfig.DEFAULT_LLM_ROUTE);
+        String adjudicator = optionalText(node, AppConfig.AGENT_ADJUDICATOR, "agentRoutes")
+                .orElse(AppConfig.DEFAULT_LLM_ROUTE);
+        String gmAide = optionalText(node, AppConfig.AGENT_GM_AIDE, "agentRoutes")
+                .orElse(AppConfig.DEFAULT_LLM_ROUTE);
+        return Optional.of(new AppConfig.AgentRoutes(secretary, adjudicator, gmAide));
     }
 
     private static AppConfig.Dispatcher parseDispatcher(JsonNode node) {

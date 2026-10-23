@@ -1,5 +1,7 @@
 package io.mosire.iibot.taskflow.agent;
 
+import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,6 +29,22 @@ public final class SecretarySessionRegistry {
     public SecretarySession require(String playerId) {
         return find(playerId).orElseThrow(
                 () -> new IllegalStateException("玩家没有秘书会话: " + playerId));
+    }
+
+    /**
+     * 已注册会话的不可变快照，按 playerId 稳定排序。
+     */
+    public List<SecretarySession> all() {
+        return sessions.values().stream()
+                .sorted(Comparator.comparing(SecretarySession::playerId))
+                .toList();
+    }
+
+    /**
+     * 已注册玩家 ID 的不可变快照，按 playerId 稳定排序。
+     */
+    public List<String> playerIds() {
+        return all().stream().map(SecretarySession::playerId).toList();
     }
 
     public int size() {

@@ -5,6 +5,7 @@ import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.LlmClientFactory;
 import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.delivery.OutboxSender;
+import io.mosire.iibot.app.delivery.PostDistributor;
 import io.mosire.iibot.app.delivery.TurnResultDistributor;
 import io.mosire.iibot.app.dispatch.AckPolicy;
 import io.mosire.iibot.app.dispatch.InboundDispatcher;
@@ -12,6 +13,7 @@ import io.mosire.iibot.app.event.AgentLibEventSink;
 import io.mosire.iibot.app.event.SqliteEventReadPort;
 import io.mosire.iibot.app.event.TaskflowSnapshotStore;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
+import io.mosire.iibot.app.publication.JsonPostStore;
 import io.mosire.iibot.app.world.WorldDocs;
 import io.mosire.iibot.app.world.WorldFactsLoader;
 import io.mosire.iibot.connect.core.MessagingAdapter;
@@ -26,12 +28,15 @@ import io.mosire.iibot.taskflow.TurnView;
 import io.mosire.iibot.taskflow.WorldDelta;
 import io.mosire.iibot.taskflow.WorldFact;
 import io.mosire.iibot.taskflow.agent.AdjudicationService;
+import io.mosire.iibot.taskflow.agent.GmAideAgent;
 import io.mosire.iibot.taskflow.agent.InteractionTaskflowService;
 import io.mosire.iibot.taskflow.agent.LlmBriefingService;
 import io.mosire.iibot.taskflow.agent.MappedIdentity;
 import io.mosire.iibot.taskflow.agent.SecretarySession;
 import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
 import io.mosire.iibot.taskflow.event.EventSink;
+import io.mosire.iibot.taskflow.post.PostService;
+import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
 import io.mosire.iibot.taskflow.snapshot.TaskflowStateSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +46,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,15 +90,23 @@ public final class AppBootstrap {
         if (napcatToken != null) {
             knownSecrets.add(napcatToken);
         }
-        config.llm().flatMap(AppConfig.Llm::apiKeyEnv).flatMap(secrets::lookup)
+        config.effectiveLlmRoutes().values().stream()
+                .flatMap(route -> route.apiKeyEnv().stream())
+                .flatMap(env -> secrets.lookup(env).stream())
                 .filter(value -> !value.isBlank())
-                .ifPresent(knownSecrets::add);
-        LlmClient llm = options.llm();
-        if (llm == null) {
-            AppConfig.Llm llmConfig = config.llm().orElseThrow(() -> new IllegalStateException(
-                    "LLM 配置缺失：真实启动必须提供 llm 配置块；拒绝在无模型时启动玩家聊天"));
-            llm = LlmClientFactory.create(llmConfig, secrets);
-        }
+                .forEach(knownSecrets::add);
+        Map<String, LlmClient> llmClients = resolveLlmClients(config, options, secrets);
+        LlmClient defaultLlm = llmClients.get(AppConfig.DEFAULT_LLM_ROUTE);
+        String secretaryRoute = config.agentRoute(AppConfig.AGENT_SECRETARY);
+        String adjudicatorRoute = config.agentRoute(AppConfig.AGENT_ADJUDICATOR);
+        String gmAideRoute = config.agentRoute(AppConfig.AGENT_GM_AIDE);
+        LlmClient secretaryLlm = routeClient(llmClients, secretaryRoute, defaultLlm);
+        LlmClient adjudicatorLlm = routeClient(llmClients, adjudicatorRoute, defaultLlm);
+        LlmClient gmAideLlm = routeClient(llmClients, gmAideRoute, defaultLlm);
+        config.effectiveLlmRoutes().forEach((route, routeConfig) ->
+                LOG.info("LLM route={} model={}", route, routeConfig.model()));
+        LOG.info("Agent route 装配 secretary={} adjudicator={} gmAide={}",
+                secretaryRoute, adjudicatorRoute, gmAideRoute);
 
         Path dataDir = config.dataDir();
         Path dbFile = dataDir.resolve("events.db");
@@ -107,6 +121,7 @@ public final class AppBootstrap {
             // 读写两个 SQLite 连接都先建立；即使不启用 MCP，也为控制面保留只读端口。
             eventReadPort = new SqliteEventReadPort(dbFile);
             TaskflowSnapshotStore snapshotStore = new TaskflowSnapshotStore(dataDir);
+            PostService postService = new PostService(new JsonPostStore(dataDir), clock);
 
             Optional<TaskflowStateSnapshot> snapshot = snapshotStore.load();
             long lastStoredSeq = eventReadPort.lastStoredSeq();
@@ -169,14 +184,21 @@ public final class AppBootstrap {
             }
 
             // 所有后续消费者都读取引擎动态事实，而不是启动时的静态列表。
-            LlmBriefingService briefingService = new LlmBriefingService(llm);
+            SecretaryWorkspaceStore secretaryWorkspaceStore = SecretaryWorkspaceStore.open(
+                    config.dataDir(),
+                    config.players().stream().map(AppConfig.Account::actorId).toList());
+            LlmBriefingService briefingService = new LlmBriefingService(secretaryLlm);
             SecretarySessionRegistry secretaryRegistry = new SecretarySessionRegistry();
             for (AppConfig.Account player : config.players()) {
                 Actor actor = new Actor(player.actorId(), ActorRole.PLAYER);
                 secretaryRegistry.register(new SecretarySession(player.actorId(), actor, engine,
-                        llm, briefingService, bootstrapDirector, clock));
+                        secretaryLlm, briefingService, bootstrapDirector, clock,
+                        secretaryWorkspaceStore, postService));
             }
-            AdjudicationService adjudicationService = new AdjudicationService(engine, llm);
+            AdjudicationService adjudicationService =
+                    new AdjudicationService(engine, adjudicatorLlm);
+            GmAideAgent gmAideAgent = new GmAideAgent(engine, gmAideLlm, eventReadPort,
+                    secretaryWorkspaceStore, postService);
             Map<String, MappedIdentity> identities = buildIdentities(config);
             InteractionTaskflowService interactionService = new InteractionTaskflowService(
                     engine, identities, secretaryRegistry, adjudicationService,
@@ -190,6 +212,8 @@ public final class AppBootstrap {
                     Duration.ofSeconds(config.outbox().sendTimeoutSeconds()));
             TurnResultDistributor resultDistributor = new TurnResultDistributor(
                     engine, outbox, config.publicGroupId(), playerQqById(config));
+            PostDistributor postDistributor = new PostDistributor(postService, outbox,
+                    config.publicGroupId(), playerQqById(config));
             AckPolicy ackPolicy = buildAckPolicy(config);
             dispatcher = new InboundDispatcher(interactionService::handle, outbox,
                     resultDistributor, ackPolicy,
@@ -206,7 +230,8 @@ public final class AppBootstrap {
 
             ControlPlane controlPlane = resolveControlPlane(
                     options, config, engine, eventReadPort, secrets, clock,
-                    adjudicationService, resultDistributor);
+                    adjudicationService, gmAideAgent, resultDistributor, postDistributor,
+                    secretaryWorkspaceStore, secretaryRegistry, postService);
             runtime = new AppRuntime(config, engine, interactionService, adapter, dispatcher,
                     outbox, scheduler, eventSink, eventReadPort, snapshotStore, worldDocs,
                     controlPlane);
@@ -223,6 +248,42 @@ public final class AppBootstrap {
             closeQuietly("eventSink", eventSink);
             throw failure;
         }
+    }
+
+    /**
+     * 构造 default + llmRoutes 映射；测试注入的 Fake 客户端优先，未覆盖的命名 route
+     * 回退 default。生产路径由 LlmClientFactory 对每条真实 route 分别 fail-closed。
+     */
+    private static Map<String, LlmClient> resolveLlmClients(AppConfig config,
+                                                            BootstrapOptions options,
+                                                            SecretProvider secrets) {
+        if (options.llm() == null && options.llmRoutes().isEmpty()) {
+            return LlmClientFactory.createRoutes(config, secrets);
+        }
+        LlmClient defaultClient = options.llm();
+        if (defaultClient == null) {
+            defaultClient = options.llmRoutes().get(AppConfig.DEFAULT_LLM_ROUTE);
+        }
+        if (defaultClient == null) {
+            throw new IllegalStateException(
+                    "测试/显式注入路由时缺少 default LlmClient；请同时注入 default");
+        }
+        Map<String, LlmClient> clients = new LinkedHashMap<>();
+        Map<String, AppConfig.Llm> configured = config.effectiveLlmRoutes();
+        if (!configured.containsKey(AppConfig.DEFAULT_LLM_ROUTE)) {
+            throw new IllegalStateException(
+                    "LLM 配置缺失：真实启动必须提供 llm 配置块；拒绝在无模型时启动玩家聊天");
+        }
+        for (String route : configured.keySet()) {
+            clients.put(route, options.llmForRoute(route, defaultClient));
+        }
+        return Collections.unmodifiableMap(clients);
+    }
+
+    private static LlmClient routeClient(Map<String, LlmClient> clients, String route,
+                                         LlmClient fallback) {
+        LlmClient selected = clients.get(route);
+        return selected == null ? Objects.requireNonNull(fallback, "defaultLlm") : selected;
     }
 
     private static void logRecovered(TaskflowEngine engine, TaskflowStateSnapshot snapshot,
@@ -293,7 +354,12 @@ public final class AppBootstrap {
                                                     SqliteEventReadPort eventReadPort,
                                                     SecretProvider secrets, Clock clock,
                                                     AdjudicationService adjudicationService,
-                                                    TurnResultDistributor resultDistributor) {
+                                                    GmAideAgent gmAideAgent,
+                                                    TurnResultDistributor resultDistributor,
+                                                    PostDistributor postDistributor,
+                                                    SecretaryWorkspaceStore secretaryWorkspaceStore,
+                                                    SecretarySessionRegistry secretaryRegistry,
+                                                    PostService postService) {
         if (!(options.controlPlane() instanceof NoopControlPlane)) {
             return options.controlPlane();
         }
@@ -309,8 +375,27 @@ public final class AppBootstrap {
                 .secretProvider(secrets)
                 .clock(clock)
                 .adjudicationService(adjudicationService)
-                .afterMutation(resultDistributor::distributeIfReady)
+                .gmAideAgent(gmAideAgent)
+                .secretaryWorkspaceStore(secretaryWorkspaceStore)
+                .secretarySessions(secretaryRegistry)
+                .postService(postService)
+                .afterMutation(() -> {
+                    runAfterMutationSafely("turn-result-distributor",
+                            resultDistributor::distributeIfReady);
+                    runAfterMutationSafely("post-distributor",
+                            postDistributor::distributeIfReady);
+                })
                 .build();
+    }
+
+    private static void runAfterMutationSafely(String component, Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException failure) {
+            // 任一宿主分发器失败都不能阻断另一个；只记录组件名与异常类型。
+            LOG.warn("MCP afterMutation 组件失败 component={} type={}",
+                    component, failure.getClass().getSimpleName());
+        }
     }
 
     private static String resolveNapcatToken(AppConfig.NapCat napcat, SecretProvider secrets) {

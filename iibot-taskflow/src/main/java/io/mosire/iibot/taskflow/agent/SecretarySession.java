@@ -4,6 +4,8 @@ import io.mosire.agentlib.context.ContextWindow;
 import io.mosire.agentlib.llm.LlmClient;
 import io.mosire.agentlib.permission.AccessToken;
 import io.mosire.agentlib.permission.AgentPermissionSet;
+import io.mosire.agentlib.permission.ResourceScope;
+import io.mosire.agentlib.permission.ResourceScopeMap;
 import io.mosire.agentlib.permission.RoleSet;
 import io.mosire.agentlib.runtime.StopReason;
 import io.mosire.agentlib.tool.AgentTool;
@@ -18,10 +20,14 @@ import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.TurnState;
 import io.mosire.iibot.taskflow.TurnView;
 import io.mosire.iibot.taskflow.WorldFact;
+import io.mosire.iibot.taskflow.post.PostService;
+import io.mosire.iibot.taskflow.post.PostStore;
+import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +60,8 @@ public final class SecretarySession {
     private final ContextWindow window;
     private final List<AgentTool> tools;
     private final AgentPermissionSet permissions;
+    private final SecretaryWorkspaceStore workspaceStore;
+    private final PostService postService;
     private final List<ToolInvocation> toolInvocations = new ArrayList<>();
 
     /** 使用 15 分钟草稿/brief 有效期的便捷装配。 */
@@ -61,13 +69,77 @@ public final class SecretarySession {
                             LlmClient llm, BriefingService briefingService,
                             Actor briefIssuer, Clock clock) {
         this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
-                Duration.ofMinutes(15), Duration.ofMinutes(15));
+                Duration.ofMinutes(15), Duration.ofMinutes(15), null, null);
     }
 
+    /** 可注入秘书工作区商店的便捷装配。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock,
+                            SecretaryWorkspaceStore workspaceStore) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                Duration.ofMinutes(15), Duration.ofMinutes(15), workspaceStore, null);
+    }
+
+    /** 可注入推文服务；未注入时保持 v2-C 之前的秘书工具面。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock, PostService postService) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                Duration.ofMinutes(15), Duration.ofMinutes(15), null, postService);
+    }
+
+    /** 保留旧的显式有效期装配（无工作区/推文工具，行为与旧版本一致）。 */
     public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
                             LlmClient llm, BriefingService briefingService,
                             Actor briefIssuer, Clock clock, Duration draftTtl,
                             Duration briefTtl) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                draftTtl, briefTtl, null, null);
+    }
+
+    /** 可注入秘书工作区商店（store 置于有效期参数之前的便于阅读形态）。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock, SecretaryWorkspaceStore workspaceStore,
+                            Duration draftTtl, Duration briefTtl) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                draftTtl, briefTtl, workspaceStore, null);
+    }
+
+    /** 可注入秘书工作区与推文服务，并显式指定草稿/brief 有效期。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock, Duration draftTtl,
+                            Duration briefTtl, SecretaryWorkspaceStore workspaceStore) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                draftTtl, briefTtl, workspaceStore, null);
+    }
+
+    /** 同时注入工作区与推文服务的便捷装配。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock,
+                            SecretaryWorkspaceStore workspaceStore, PostService postService) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                Duration.ofMinutes(15), Duration.ofMinutes(15), workspaceStore, postService);
+    }
+
+    /** 工作区与推文服务同时注入，store 置于有效期参数之前。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock, SecretaryWorkspaceStore workspaceStore,
+                            Duration draftTtl, Duration briefTtl, PostService postService) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                draftTtl, briefTtl, workspaceStore, postService);
+    }
+
+    /** 工作区与推文服务同时注入，store 置于有效期参数之后。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock, Duration draftTtl,
+                            Duration briefTtl, SecretaryWorkspaceStore workspaceStore,
+                            PostService postService) {
         if (playerId == null || playerId.isBlank()) {
             throw new IllegalArgumentException("playerId 不能为空");
         }
@@ -92,22 +164,71 @@ public final class SecretarySession {
         }
         this.draftTtl = draftTtl;
         this.briefTtl = briefTtl;
+        this.workspaceStore = workspaceStore;
+        this.postService = postService;
         this.window = new ContextWindow("secretary:" + playerId);
-        this.tools = List.of(
-                new DecisionDraftCreateTool(engine, clock),
-                new DecisionDraftUpdateTool(engine),
-                new RequestBriefTool(this::requestBrief));
-        this.permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
+
+        List<AgentTool> availableTools = new ArrayList<>();
+        availableTools.add(new DecisionDraftCreateTool(engine, clock));
+        availableTools.add(new DecisionDraftUpdateTool(engine));
+        availableTools.add(new RequestBriefTool(this::requestBrief));
+        if (workspaceStore != null) {
+            availableTools.addAll(SecretaryWorkspaceTools.all(workspaceStore));
+        }
+        if (postService != null) {
+            availableTools.addAll(SecretaryPostTools.all(postService));
+        }
+        this.tools = List.copyOf(availableTools);
+
+        AgentPermissionSet.Builder permissionBuilder = AgentPermissionSet.builder(AccessToken.DEFAULT)
                 .allow(DecisionDraftCreateTool.NAME, DecisionDraftUpdateTool.NAME,
                         RequestBriefTool.NAME)
-                .roles(RoleSet.of(SECRETARY_ROLE))
-                .build();
+                .roles(RoleSet.of(SECRETARY_ROLE));
+        Map<String, ResourceScope> resourceScopes = new LinkedHashMap<>();
+        if (workspaceStore != null) {
+            permissionBuilder.allow(SecretaryWorkspaceTools.LIST,
+                    SecretaryWorkspaceTools.READ,
+                    SecretaryWorkspaceTools.NOTE);
+            resourceScopes.put(SecretaryWorkspaceStore.RESOURCE_NAMESPACE,
+                    ResourceScope.of("workspace"));
+        }
+        if (postService != null) {
+            permissionBuilder.allow(SecretaryPostTools.LIST,
+                    SecretaryPostTools.READ,
+                    SecretaryPostTools.CREATE);
+            resourceScopes.put(PostStore.RESOURCE_NAMESPACE,
+                    ResourceScope.of(PostStore.RESOURCE_NAMESPACE));
+        }
+        if (!resourceScopes.isEmpty()) {
+            permissionBuilder.resourceScopes(new ResourceScopeMap(resourceScopes));
+        }
+        this.permissions = permissionBuilder.build();
         this.runner = new AgentRunner(llm, ToolCallAuthorizer.standard(), 8,
                 Duration.ofSeconds(60), 8);
     }
 
     public String playerId() {
         return playerId;
+    }
+
+    /** 当前会话可用的工具快照（只读）。 */
+    public List<AgentTool> tools() {
+        return tools;
+    }
+
+    /** 注入的秘书工作区（无注入时为 null）；供宿主装配观察，不进入模型上下文。 */
+    public SecretaryWorkspaceStore workspaceStore() {
+        return workspaceStore;
+    }
+
+    /** 注入的推文服务（无注入时为 null）；供宿主装配观察，不进入模型上下文。 */
+    public PostService postService() {
+        return postService;
+    }
+
+    /** 当前会话的权限集快照（只读）。 */
+    public AgentPermissionSet permissions() {
+        return permissions;
     }
 
     /** 仅供宿主集成/测试观察；调用方不得在会话外直接改窗口。 */
@@ -134,6 +255,29 @@ public final class SecretarySession {
                 window,
                 () -> AgentPrompts.secretary(engine.knowledgeForSecretary(playerId)),
                 tools, base, userText);
+        return recordAndRender(result);
+    }
+
+    /**
+     * 处理一条来自已认证 GM 的直接消息。GM 身份由宿主/MCP 认证层绑定；本方法不接收
+     * playerId，也不发送 QQ 消息。回复只返回给调用方（宿主/MCP）。
+     *
+     * <p>与 {@link #chat(String)} 共用同一 {@link ContextWindow} 和同一套工具；system
+     * prompt 明确本轮消息来自 GM，不是玩家本人。</p>
+     */
+    public synchronized String gmChat(String gmMessage) {
+        if (gmMessage == null || gmMessage.isBlank()) {
+            throw new IllegalArgumentException("gmMessage 不能为空白");
+        }
+        ToolContext base = baseContext();
+        AgentRunResult result = runner.runTurn(
+                window,
+                () -> AgentPrompts.secretaryGm(engine.knowledgeForSecretary(playerId)),
+                tools, base, gmMessage);
+        return recordAndRender(result);
+    }
+
+    private String recordAndRender(AgentRunResult result) {
         toolInvocations.addAll(result.toolInvocations());
         String text = result.text();
         if (!text.isBlank()) {

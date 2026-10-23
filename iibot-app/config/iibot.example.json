@@ -60,5 +60,28 @@
     "path": "/mcp/control",
     "bearerTokenEnv": "IIBOT_CONTROL_TOKEN",
     "maxRequestBytes": 16777216
+  },
+  "llmRoutes": {
+    "adjudicator": {
+      "baseUrl": "https://api.example.invalid/v1",
+      "model": "example-strong-model",
+      "apiKeyEnv": "IIBOT_LLM_API_KEY",
+      "connectTimeoutSeconds": 10,
+      "readTimeoutSeconds": 180,
+      "echoReasoningContent": true
+    },
+    "gmAide": {
+      "baseUrl": "https://api.example.invalid/v1",
+      "model": "example-gm-aide-model",
+      "apiKeyEnv": "IIBOT_LLM_API_KEY",
+      "connectTimeoutSeconds": 10,
+      "readTimeoutSeconds": 180,
+      "echoReasoningContent": true
+    }
+  },
+  "agentRoutes": {
+    "secretary": "default",
+    "adjudicator": "adjudicator",
+    "gmAide": "gmAide"
   }
 }

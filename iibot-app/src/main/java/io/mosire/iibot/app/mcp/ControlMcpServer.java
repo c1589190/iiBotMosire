@@ -19,6 +19,11 @@ import io.mosire.iibot.app.runtime.ControlPlane;
 import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.agent.AdjudicationService;
+import io.mosire.iibot.taskflow.agent.GmAideAgent;
+import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
+import io.mosire.iibot.taskflow.post.PostService;
+import io.mosire.iibot.taskflow.post.PostStore;
+import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
 import io.mosire.iibot.taskflow.control.EventReadPort;
 import io.mosire.iibot.taskflow.control.ExternalControlToolSet;
 import java.io.IOException;
@@ -37,6 +42,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -96,6 +102,10 @@ public final class ControlMcpServer implements ControlPlane {
     private final SecretProvider secretProvider;
     private final String injectedBearerToken;
     private final AdjudicationService adjudicationService;
+    private final GmAideAgent gmAideAgent;
+    private final SecretaryWorkspaceStore secretaryWorkspaceStore;
+    private final SecretarySessionRegistry secretarySessions;
+    private final PostService postService;
     private final Runnable afterMutation;
     private final HttpClient upstreamClient;
     private final Object lifecycleLock = new Object();
@@ -118,6 +128,10 @@ public final class ControlMcpServer implements ControlPlane {
         this.secretProvider = builder.secretProvider;
         this.injectedBearerToken = builder.injectedBearerToken;
         this.adjudicationService = builder.adjudicationService;
+        this.gmAideAgent = builder.gmAideAgent;
+        this.secretaryWorkspaceStore = builder.secretaryWorkspaceStore;
+        this.secretarySessions = builder.secretarySessions;
+        this.postService = builder.postService;
         this.afterMutation = builder.afterMutation;
         this.upstreamClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -172,6 +186,20 @@ public final class ControlMcpServer implements ControlPlane {
                 if (adjudicationService != null) {
                     registry.register(new RunAdjudicationAgentTool(
                             engine, adjudicationService, supervisor));
+                }
+                if (gmAideAgent != null) {
+                    registry.register(new GmAideChatTool(gmAideAgent));
+                }
+                if (hasSecretaryTools()) {
+                    for (var tool : GmSecretaryMcpTools.all(
+                            secretaryWorkspaceStore, secretarySessions)) {
+                        registry.register(tool);
+                    }
+                }
+                if (postService != null) {
+                    for (var tool : GmPostMcpTools.all(postService, supervisor)) {
+                        registry.register(tool);
+                    }
                 }
 
                 internal = AgentToMcpServer.startHttp(
@@ -499,7 +527,7 @@ public final class ControlMcpServer implements ControlPlane {
     }
 
     // ------------------------------------------------------------------
-    // 内部 MCP 工具面：固定工具 + 可选中央推演 Agent、精确最小权限（不允许 * / SYSTEM）
+    // 内部 MCP 工具面：固定工具 + 可选 Agent/秘书工作区工具、精确最小权限（不允许 * / SYSTEM）
     // ------------------------------------------------------------------
 
     private ToolContext controlCallerContext() {
@@ -509,16 +537,39 @@ public final class ControlMcpServer implements ControlPlane {
         if (adjudicationService != null) {
             allTools.add(RunAdjudicationAgentTool.NAME);
         }
+        if (gmAideAgent != null) {
+            allTools.add(GmAideChatTool.NAME);
+        }
+        if (hasSecretaryTools()) {
+            allTools.addAll(GmSecretaryMcpTools.NAMES);
+        }
+        if (postService != null) {
+            allTools.addAll(GmPostMcpTools.NAMES);
+        }
 
+        Map<String, ResourceScope> scopes = new java.util.LinkedHashMap<>();
+        scopes.put(TASKFLOW_NAMESPACE, ResourceScope.unlimited());
+        if (hasSecretaryTools()) {
+            scopes.put(SecretaryWorkspaceStore.RESOURCE_NAMESPACE,
+                    ResourceScope.of("workspace"));
+        }
+        if (postService != null) {
+            scopes.put(PostStore.RESOURCE_NAMESPACE,
+                    ResourceScope.of(PostStore.RESOURCE_NAMESPACE));
+        }
         AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
                 .allow(allTools.toArray(String[]::new))
                 .destructiveAllowed(true)
                 .sensitiveAllowed(true)
                 .readOnly(false)
-                .resourceScopes(ResourceScopeMap.of(TASKFLOW_NAMESPACE, ResourceScope.unlimited()))
+                .resourceScopes(new ResourceScopeMap(scopes))
                 .roles(RoleSet.of(SUPERVISOR_ROLE))
                 .build();
         return ToolContext.of(AccessToken.DEFAULT, permissions, AgentIdentity.external());
+    }
+
+    private boolean hasSecretaryTools() {
+        return secretaryWorkspaceStore != null && secretarySessions != null;
     }
 
     private String resolveBearerToken() {
@@ -563,6 +614,10 @@ public final class ControlMcpServer implements ControlPlane {
         private String injectedBearerToken;
         private Clock clock = Clock.systemUTC();
         private AdjudicationService adjudicationService;
+        private GmAideAgent gmAideAgent;
+        private SecretaryWorkspaceStore secretaryWorkspaceStore;
+        private SecretarySessionRegistry secretarySessions;
+        private PostService postService;
         private Runnable afterMutation;
 
         private Builder(
@@ -601,6 +656,44 @@ public final class ControlMcpServer implements ControlPlane {
         public Builder adjudicationService(AdjudicationService adjudicationService) {
             this.adjudicationService =
                     Objects.requireNonNull(adjudicationService, "adjudicationService");
+            return this;
+        }
+
+        /**
+         * 可选注入 GM 推演秘书。注入后工具面增加 {@link GmAideChatTool}；未注入时
+         * 工具面与既有行为完全一致。
+         */
+        public Builder gmAideAgent(GmAideAgent gmAideAgent) {
+            this.gmAideAgent = Objects.requireNonNull(gmAideAgent, "gmAideAgent");
+            return this;
+        }
+
+        /**
+         * 可选注入每玩家秘书工作区。必须与 {@link #secretarySessions} 同时注入，才会注册
+         * GM 秘书工作区/对话四个工具；只注入其中一个时工具面保持不变。
+         */
+        public Builder secretaryWorkspaceStore(SecretaryWorkspaceStore secretaryWorkspaceStore) {
+            this.secretaryWorkspaceStore = Objects.requireNonNull(
+                    secretaryWorkspaceStore, "secretaryWorkspaceStore");
+            return this;
+        }
+
+        /**
+         * 可选注入秘书会话注册表。必须与 {@link #secretaryWorkspaceStore} 同时注入，才会
+         * 注册 GM 秘书工作区/对话四个工具。
+         */
+        public Builder secretarySessions(SecretarySessionRegistry secretarySessions) {
+            this.secretarySessions = Objects.requireNonNull(
+                    secretarySessions, "secretarySessions");
+            return this;
+        }
+
+        /**
+         * 可选注入推文服务。注入后额外注册四个 GM 审批/发布工具；未注入时工具面保持
+         * 与既有行为完全一致。
+         */
+        public Builder postService(PostService postService) {
+            this.postService = Objects.requireNonNull(postService, "postService");
             return this;
         }
 

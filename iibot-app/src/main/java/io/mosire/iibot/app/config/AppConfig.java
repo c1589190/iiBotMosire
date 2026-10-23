@@ -5,6 +5,7 @@ import io.mosire.iibot.app.mcp.ControlMcpConfig;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * 应用组合根的不可变配置快照。
@@ -23,6 +25,7 @@ import java.util.Set;
  *   <li><b>身份只来自配置</b>：playerId/actorId 相同，QQ 号、玩家 ID、推演 ID 在整份配置内全局唯一；</li>
  *   <li><b>密钥零内嵌</b>：本类型只保存环境变量名（{@code accessTokenEnv}/{@code apiKeyEnv}），
  *       真实值由 {@link SecretProvider} 在装配时读取，不进 record 分量，也不进 {@link #toString()}。</li>
+ *   <li><b>路由切换需重启</b>：v2-D 只支持修改本地配置并重启；当前不提供运行时热切换。</li>
  * </ul>
  *
  * @param dataDir        数据目录（绝对、已归一）；events.db、world/ 都在其下
@@ -32,7 +35,9 @@ import java.util.Set;
  * @param players        玩家身份映射
  * @param directors      推演/管理身份映射
  * @param world          世界提示版本与事实文件
- * @param llm            LLM 配置；缺省时真实启动 fail-closed，Fake 测试可注入 LlmClient
+ * @param llm            default LLM 配置；缺省时真实启动 fail-closed，Fake 测试可注入 LlmClient
+ * @param llmRoutes      可选命名 LLM 路由覆盖；键为安全 route 名，值 schema 与 {@code llm} 相同
+ * @param agentRoutes    可选 Agent 到 route 的选择；未配置的 Agent 回退 {@code default}
  * @param dispatcher     入站 mailbox 容量配置
  * @param outbox         发送等待上限配置
  * @param scheduler      自动冻结调度配置
@@ -47,10 +52,21 @@ public record AppConfig(
         List<Account> directors,
         World world,
         Optional<Llm> llm,
+        Optional<Map<String, Llm>> llmRoutes,
+        Optional<AgentRoutes> agentRoutes,
         Dispatcher dispatcher,
         Outbox outbox,
         Scheduler scheduler,
         ControlMcpConfig control) {
+
+    /** 现有 {@code llm} 配置对应的保留默认路由名。 */
+    public static final String DEFAULT_LLM_ROUTE = "default";
+    /** Agent 路由键。 */
+    public static final String AGENT_SECRETARY = "secretary";
+    public static final String AGENT_ADJUDICATOR = "adjudicator";
+    public static final String AGENT_GM_AIDE = "gmAide";
+
+    private static final Pattern ROUTE_NAME = Pattern.compile("[A-Za-z0-9_.-]+");
 
     public AppConfig {
         dataDir = requireAbsolutePath(dataDir, "dataDir");
@@ -66,6 +82,9 @@ public record AppConfig(
         }
         world = Objects.requireNonNull(world, "world");
         llm = llm == null ? Optional.empty() : llm;
+        llmRoutes = normalizeLlmRoutes(llmRoutes);
+        agentRoutes = agentRoutes == null ? Optional.empty() : agentRoutes;
+        validateAgentRoutes(agentRoutes, llmRoutes);
         dispatcher = dispatcher == null ? Dispatcher.defaults() : dispatcher;
         outbox = outbox == null ? Outbox.defaults() : outbox;
         scheduler = scheduler == null ? Scheduler.defaults() : scheduler;
@@ -179,6 +198,42 @@ public record AppConfig(
         }
     }
 
+    /**
+     * Agent 到命名 LLM 路由的选择。三个字段都可省略；loader 会把省略项落为
+     * {@link #DEFAULT_LLM_ROUTE}，因此运行时不存在 null 或隐式空路由。
+     */
+    public record AgentRoutes(String secretary, String adjudicator, String gmAide) {
+        public AgentRoutes {
+            secretary = normalizeRouteName(secretary, "agentRoutes.secretary");
+            adjudicator = normalizeRouteName(adjudicator, "agentRoutes.adjudicator");
+            gmAide = normalizeRouteName(gmAide, "agentRoutes.gmAide");
+        }
+
+        public static AgentRoutes defaults() {
+            return new AgentRoutes(DEFAULT_LLM_ROUTE, DEFAULT_LLM_ROUTE, DEFAULT_LLM_ROUTE);
+        }
+
+        /** 返回给定 Agent 键对应的 route 名；未知键 fail-closed。 */
+        public String routeFor(String agent) {
+            if (agent == null || agent.isBlank()) {
+                throw new IllegalArgumentException("agent 不能为空");
+            }
+            return switch (agent) {
+                case AGENT_SECRETARY -> secretary;
+                case AGENT_ADJUDICATOR -> adjudicator;
+                case AGENT_GM_AIDE -> gmAide;
+                default -> throw new IllegalArgumentException("未知 agent route 键: " + agent);
+            };
+        }
+
+        @Override
+        public String toString() {
+            return "AgentRoutes{secretary=" + secretary
+                    + ", adjudicator=" + adjudicator
+                    + ", gmAide=" + gmAide + '}';
+        }
+    }
+
     /** 入站 mailbox 配置；队列有界，满时记录并拒绝，不悄悄积压。 */
     public record Dispatcher(int maxConcurrentSessions, int maxPendingPerUser, int dedupeCapacity) {
         public Dispatcher {
@@ -224,6 +279,32 @@ public record AppConfig(
         }
     }
 
+    /**
+     * 返回包含保留默认路由的只读路由配置视图。路由名稳定可审计，不包含任何密钥值。
+     */
+    public Map<String, Llm> effectiveLlmRoutes() {
+        Map<String, Llm> result = new LinkedHashMap<>();
+        llm.ifPresent(value -> result.put(DEFAULT_LLM_ROUTE, value));
+        llmRoutes.ifPresent(result::putAll);
+        return Collections.unmodifiableMap(result);
+    }
+
+    /** 解析 Agent 使用的 route 名；未配置 agentRoutes 时恒为 {@code default}。 */
+    public String agentRoute(String agent) {
+        return agentRoutes.orElseGet(AgentRoutes::defaults).routeFor(agent);
+    }
+
+    /** 按 route 名读取配置；未定义时 fail-closed。 */
+    public Llm llmForRoute(String routeName) {
+        String normalized = normalizeRouteName(routeName, "route");
+        if (DEFAULT_LLM_ROUTE.equals(normalized)) {
+            return llm.orElseThrow(() -> new ConfigException(
+                    "默认 LLM route 未配置：缺少 llm 配置块"));
+        }
+        return llmRoutes.flatMap(routes -> Optional.ofNullable(routes.get(normalized)))
+                .orElseThrow(() -> new ConfigException("LLM route 未定义: " + normalized));
+    }
+
     /** 所有已映射 QQ 的只读视图，便于装配身份解析器。 */
     public Map<String, Account> accountsByQq() {
         Map<String, Account> result = new LinkedHashMap<>();
@@ -247,10 +328,64 @@ public record AppConfig(
                 + ", directors=" + directors
                 + ", world=" + world
                 + ", llm=" + llm.map(Object::toString).orElse("<absent>")
+                + ", llmRoutes=" + llmRoutes.map(AppConfig::routeNames)
+                        .orElse("<absent>")
+                + ", agentRoutes=" + agentRoutes.map(Object::toString).orElse("<default>")
                 + ", dispatcher=" + dispatcher
                 + ", outbox=" + outbox
                 + ", scheduler=" + scheduler
                 + ", control=" + control + '}';
+    }
+
+    private static Optional<Map<String, Llm>> normalizeLlmRoutes(
+            Optional<Map<String, Llm>> routes) {
+        if (routes == null || routes.isEmpty()) {
+            return Optional.empty();
+        }
+        Map<String, Llm> copy = new LinkedHashMap<>();
+        for (Map.Entry<String, Llm> entry : routes.orElseThrow().entrySet()) {
+            String name = normalizeRouteName(entry.getKey(), "llmRoutes route 名");
+            if (DEFAULT_LLM_ROUTE.equals(name)) {
+                throw new ConfigException(
+                        "llmRoutes 不得重复定义保留路由 " + DEFAULT_LLM_ROUTE);
+            }
+            if (entry.getValue() == null) {
+                throw new ConfigException("llmRoutes." + name + " 不能为 null");
+            }
+            copy.put(name, entry.getValue());
+        }
+        return Optional.of(Collections.unmodifiableMap(copy));
+    }
+
+    private static void validateAgentRoutes(Optional<AgentRoutes> routes,
+                                            Optional<Map<String, Llm>> llmRoutes) {
+        if (routes.isEmpty()) {
+            return;
+        }
+        AgentRoutes selected = routes.orElseThrow();
+        for (String agent : List.of(AGENT_SECRETARY, AGENT_ADJUDICATOR, AGENT_GM_AIDE)) {
+            String route = selected.routeFor(agent);
+            if (!DEFAULT_LLM_ROUTE.equals(route)
+                    && (llmRoutes.isEmpty() || !llmRoutes.orElseThrow().containsKey(route))) {
+                throw new ConfigException("agentRoutes." + agent
+                        + " 引用了未定义的 LLM route: " + route);
+            }
+        }
+    }
+
+    private static String normalizeRouteName(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new ConfigException(field + " 不能为空");
+        }
+        String name = value.strip();
+        if (!ROUTE_NAME.matcher(name).matches()) {
+            throw new ConfigException(field + " 必须是安全 route 名（[A-Za-z0-9_.-]+）");
+        }
+        return name;
+    }
+
+    private static String routeNames(Map<String, Llm> routes) {
+        return routes.keySet().stream().sorted().toList().toString();
     }
 
     private static List<Account> copyAccounts(List<Account> accounts, String field) {

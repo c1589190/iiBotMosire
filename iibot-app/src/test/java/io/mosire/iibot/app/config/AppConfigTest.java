@@ -165,6 +165,148 @@ class AppConfigTest {
     }
 
     @Test
+    void loadsNamedLlmRoutesAndAgentRouteFallbacks() {
+        Path facts = TestSupport.writeFacts(tempDir.resolve("routes-facts.json"),
+                "{\"facts\":[]}");
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("routes.json"),
+                TestSupport.validConfigNode(tempDir.resolve("data-routes"), facts));
+        ObjectNode root = readNode(configFile);
+        ObjectNode routes = root.putObject("llmRoutes");
+        routes.set("strong", llmNode("http://127.0.0.1:2/v1", "strong-model",
+                "IIBOT_STRONG_KEY"));
+        routes.set("aide.model-1", llmNode("http://127.0.0.1:3/v1", "aide-model",
+                "IIBOT_AIDE_KEY"));
+        ObjectNode agents = root.putObject("agentRoutes");
+        agents.put("secretary", "strong");
+        agents.put("gmAide", "aide.model-1");
+        TestSupport.writeJson(configFile, root);
+
+        AppConfig config = TestSupport.loadConfig(configFile);
+
+        assertThat(config.llmRoutes()).isPresent();
+        assertThat(config.llmRoutes().orElseThrow()).containsOnlyKeys("strong", "aide.model-1");
+        assertThat(config.agentRoute(AppConfig.AGENT_SECRETARY)).isEqualTo("strong");
+        assertThat(config.agentRoute(AppConfig.AGENT_ADJUDICATOR))
+                .isEqualTo(AppConfig.DEFAULT_LLM_ROUTE);
+        assertThat(config.agentRoute(AppConfig.AGENT_GM_AIDE)).isEqualTo("aide.model-1");
+        assertThat(config.llmForRoute("strong").model()).isEqualTo("strong-model");
+        assertThat(config.effectiveLlmRoutes())
+                .containsKeys(AppConfig.DEFAULT_LLM_ROUTE, "strong", "aide.model-1");
+        assertThat(config.toString())
+                .contains("strong", "aide.model-1")
+                .doesNotContain("IIBOT_STRONG_KEY_VALUE");
+    }
+
+    @Test
+    void absentLlmRoutesAndAgentRoutesFallBackCompletelyToDefault() {
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("legacy.json"),
+                TestSupport.validConfigNode(tempDir.resolve("legacy-data"),
+                        tempDir.resolve("legacy-facts.json")));
+
+        AppConfig config = TestSupport.loadConfig(configFile);
+
+        assertThat(config.llmRoutes()).isEmpty();
+        assertThat(config.agentRoutes()).isEmpty();
+        assertThat(config.agentRoute(AppConfig.AGENT_SECRETARY))
+                .isEqualTo(AppConfig.DEFAULT_LLM_ROUTE);
+        assertThat(config.agentRoute(AppConfig.AGENT_ADJUDICATOR))
+                .isEqualTo(AppConfig.DEFAULT_LLM_ROUTE);
+        assertThat(config.agentRoute(AppConfig.AGENT_GM_AIDE))
+                .isEqualTo(AppConfig.DEFAULT_LLM_ROUTE);
+        assertThat(config.effectiveLlmRoutes()).containsOnlyKeys(
+                AppConfig.DEFAULT_LLM_ROUTE);
+    }
+
+    @Test
+    void rejectsUnknownFieldInsideNamedRouteAndAgentRoutes() {
+        Path facts = TestSupport.writeFacts(tempDir.resolve("bad-route-facts.json"),
+                "{\"facts\":[]}");
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("bad-route.json"),
+                TestSupport.validConfigNode(tempDir.resolve("bad-route-data"), facts));
+        ObjectNode root = readNode(configFile);
+        ObjectNode route = llmNode("http://127.0.0.1:2/v1", "strong", "KEY");
+        route.put("surprise", true);
+        root.putObject("llmRoutes").set("strong", route);
+        TestSupport.writeJson(configFile, root);
+
+        assertThatThrownBy(() -> TestSupport.loadConfig(configFile))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("llmRoutes.strong")
+                .hasMessageContaining("未知字段")
+                .hasMessageContaining("surprise");
+
+        ObjectNode root2 = readNode(configFile);
+        root2.remove("llmRoutes");
+        ObjectNode agents = root2.putObject("agentRoutes");
+        agents.put("unexpected", "strong");
+        TestSupport.writeJson(configFile, root2);
+        assertThatThrownBy(() -> TestSupport.loadConfig(configFile))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("agentRoutes")
+                .hasMessageContaining("未知字段");
+    }
+
+    @Test
+    void rejectsUnsafeAndUndefinedAgentRouteNames() {
+        Path facts = TestSupport.writeFacts(tempDir.resolve("route-name-facts.json"),
+                "{\"facts\":[]}");
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("unsafe-route.json"),
+                TestSupport.validConfigNode(tempDir.resolve("unsafe-data"), facts));
+        ObjectNode root = readNode(configFile);
+        root.putObject("llmRoutes").set("bad route", llmNode(
+                "http://127.0.0.1:2/v1", "strong", "KEY"));
+        TestSupport.writeJson(configFile, root);
+        assertThatThrownBy(() -> TestSupport.loadConfig(configFile))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("安全字符集");
+
+        ObjectNode root2 = readNode(TestSupport.writeConfig(
+                tempDir.resolve("undefined-route.json"),
+                TestSupport.validConfigNode(tempDir.resolve("undefined-data"), facts)));
+        ObjectNode agents = root2.putObject("agentRoutes");
+        agents.put("adjudicator", "missing");
+        TestSupport.writeJson(tempDir.resolve("undefined-route.json"), root2);
+        assertThatThrownBy(() -> TestSupport.loadConfig(tempDir.resolve("undefined-route.json")))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("未定义的 LLM route");
+    }
+
+    @Test
+    void rejectsDuplicateRouteNameAtJsonParseTime() throws Exception {
+        Path facts = TestSupport.writeFacts(tempDir.resolve("dup-route-facts.json"),
+                "{\"facts\":[]}");
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("dup-route.json"),
+                TestSupport.validConfigNode(tempDir.resolve("dup-route-data"), facts));
+        ObjectNode root = readNode(configFile);
+        ObjectNode route = llmNode("http://127.0.0.1:2/v1", "strong", "KEY");
+        root.putObject("llmRoutes").set("dup", route);
+        String json = new com.fasterxml.jackson.databind.ObjectMapper()
+                .writerWithDefaultPrettyPrinter().writeValueAsString(root);
+        String routeJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                .writeValueAsString(route);
+        int objectStart = json.indexOf('{', json.indexOf("\"llmRoutes\""));
+        String duplicate = json.substring(0, objectStart + 1)
+                + "\n\"dup\": " + routeJson + ",\n\"dup\": " + routeJson + ","
+                + json.substring(objectStart + 1);
+        java.nio.file.Files.writeString(configFile, duplicate);
+
+        assertThatThrownBy(() -> TestSupport.loadConfig(configFile))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("重复字段");
+    }
+
+    private static ObjectNode llmNode(String baseUrl, String model, String apiKeyEnv) {
+        ObjectNode node = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        node.put("baseUrl", baseUrl);
+        node.put("model", model);
+        node.put("apiKeyEnv", apiKeyEnv);
+        node.put("connectTimeoutSeconds", 3);
+        node.put("readTimeoutSeconds", 7);
+        node.put("echoReasoningContent", false);
+        return node;
+    }
+
+    @Test
     void llmFactoryFailsClosedWhenKeyMissing() {
         Path configFile = TestSupport.writeConfig(tempDir.resolve("no-key.json"),
                 TestSupport.validConfigNode(tempDir.resolve("data"), tempDir.resolve("facts.json")));

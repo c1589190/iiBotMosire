@@ -9,6 +9,15 @@ import io.mosire.agentlib.llm.LlmResponse;
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
+import io.mosire.iibot.app.mcp.GmAideChatTool;
+import io.mosire.iibot.app.mcp.GmSecretaryChatTool;
+import io.mosire.iibot.app.mcp.GmSecretaryDispatchTool;
+import io.mosire.iibot.app.mcp.GmSecretaryListTool;
+import io.mosire.iibot.app.mcp.GmSecretaryReadTool;
+import io.mosire.iibot.app.mcp.GmPostDecideTool;
+import io.mosire.iibot.app.mcp.GmPostGetTool;
+import io.mosire.iibot.app.mcp.GmPostListTool;
+import io.mosire.iibot.app.mcp.GmPostPublishTool;
 import io.mosire.iibot.app.mcp.RunAdjudicationAgentTool;
 import io.mosire.iibot.app.support.FakeLlmClient;
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
@@ -21,11 +30,15 @@ import io.mosire.iibot.taskflow.DecisionDraft;
 import io.mosire.iibot.taskflow.DecisionDraftInput;
 import io.mosire.iibot.taskflow.TurnState;
 import io.mosire.iibot.taskflow.agent.SubmitAdjudicationTool;
+import io.mosire.iibot.taskflow.post.PostCommandResult;
+import io.mosire.iibot.taskflow.post.PostService;
+import io.mosire.iibot.taskflow.post.PostVisibility;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Field;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -34,7 +47,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** AppBootstrap 控制面接线：19 工具 + 外部发布后经真实分发器出站。 */
+/** AppBootstrap 控制面接线：28 工具 + 回合/推文经真实分发器出站。 */
 @Timeout(60)
 class AppBootstrapControlPlaneTest {
 
@@ -70,7 +83,9 @@ class AppBootstrapControlPlaneTest {
                         "worldDeltas", List.of(Map.of("type", "SET_FLAG",
                                 "targetId", "north-pier", "value", "investigated")),
                         "nextHooks", List.of("航海日志提到暴风前夜"))),
-                LlmResponse.text("中央推演完成。"));
+                LlmResponse.text("中央推演完成。"),
+                LlmResponse.text("GM 推演秘书只读摘要。"),
+                LlmResponse.text("玩家秘书已收到 GM 指令。"));
         FakeMessagingAdapter adapter = new FakeMessagingAdapter();
         SecretProvider secrets = SecretProvider.of(Map.of(
                 "IIBOT_NAPCAT_TOKEN", "napcat-token",
@@ -97,8 +112,12 @@ class AppBootstrapControlPlaneTest {
 
             McpSchema.ListToolsResult list = client.listTools();
             assertThat(list.tools().stream().map(McpSchema.Tool::name))
-                    .hasSize(19)
-                    .contains(RunAdjudicationAgentTool.NAME);
+                    .hasSize(28)
+                    .contains(RunAdjudicationAgentTool.NAME, GmAideChatTool.NAME,
+                            GmSecretaryListTool.NAME, GmSecretaryReadTool.NAME,
+                            GmSecretaryDispatchTool.NAME, GmSecretaryChatTool.NAME,
+                            GmPostListTool.NAME, GmPostGetTool.NAME,
+                            GmPostDecideTool.NAME, GmPostPublishTool.NAME);
 
             callOk(client, "tf_open_turn", Map.of(
                     "expectedRevision", runtime.engine().status().engineRevision(),
@@ -145,6 +164,125 @@ class AppBootstrapControlPlaneTest {
                     "reason", "AppBootstrap 接线测试"));
             assertThat(runtime.engine().turnView().orElseThrow().state())
                     .isEqualTo(TurnState.PUBLISHED);
+            long worldVersionAfterPublish = runtime.engine().status().worldVersion();
+            McpSchema.CallToolResult gmChat = client.callTool(
+                    new McpSchema.CallToolRequest(GmAideChatTool.NAME, Map.of(
+                            "message", "请只读整理当前世界与推演动向")));
+            assertThat(gmChat.isError()).as("GM 推演秘书结果: %s", wireText(gmChat)).isFalse();
+            assertThat(wireText(gmChat)).isEqualTo("GM 推演秘书只读摘要。");
+            assertThat(runtime.engine().status().worldVersion())
+                    .isEqualTo(worldVersionAfterPublish);
+
+            McpSchema.CallToolResult secretaryList = client.callTool(
+                    new McpSchema.CallToolRequest(GmSecretaryListTool.NAME, Map.of()));
+            assertThat(secretaryList.isError())
+                    .as("秘书列表结果: %s", wireText(secretaryList)).isFalse();
+            assertThat(wireText(secretaryList))
+                    .contains("player-1", "player-2", "public", "player", "gm", "notes")
+                    .doesNotContain(dataDir.toString(), "qq-p1", "qq-p2");
+
+            Map<String, Object> dispatchArgs = Map.of(
+                    "playerId", "player-1",
+                    "path", "gm/order.md",
+                    "content", "GM 下发：北码头档案在 gm/order.md",
+                    "idempotencyKey", "bootstrap-secretary-dispatch",
+                    "reason", "AppBootstrap 工作区接线测试");
+            McpSchema.CallToolResult dispatched = client.callTool(
+                    new McpSchema.CallToolRequest(
+                            GmSecretaryDispatchTool.NAME, dispatchArgs));
+            assertThat(dispatched.isError())
+                    .as("工作区下发结果: %s", wireText(dispatched)).isFalse();
+            McpSchema.CallToolResult replayed = client.callTool(
+                    new McpSchema.CallToolRequest(
+                            GmSecretaryDispatchTool.NAME, dispatchArgs));
+            assertThat(replayed.isError()).isFalse();
+            assertThat(wireText(replayed)).isEqualTo(wireText(dispatched));
+
+            McpSchema.CallToolResult read = client.callTool(
+                    new McpSchema.CallToolRequest(GmSecretaryReadTool.NAME, Map.of(
+                            "playerId", "player-1", "path", "gm/order.md")));
+            assertThat(read.isError())
+                    .as("工作区读取结果: %s", wireText(read)).isFalse();
+            assertThat(wireText(read))
+                    .contains("GM 下发：北码头档案在 gm/order.md")
+                    .doesNotContain(dataDir.toString());
+
+            Path gmDirectory = dataDir.resolve("secretaries").resolve("player-1")
+                    .resolve("gm");
+            try (var files = Files.list(gmDirectory)) {
+                assertThat(files.filter(Files::isRegularFile).count()).isEqualTo(1);
+            }
+
+            McpSchema.CallToolResult escapedPath = client.callTool(
+                    new McpSchema.CallToolRequest(GmSecretaryReadTool.NAME, Map.of(
+                            "playerId", "player-1", "path", "gm/../player/escape.md")));
+            assertThat(escapedPath.isError()).isTrue();
+            assertThat(wireText(escapedPath)).contains("INVALID_ARGUMENTS");
+
+            McpSchema.CallToolResult unknownPlayer = client.callTool(
+                    new McpSchema.CallToolRequest(GmSecretaryReadTool.NAME, Map.of(
+                            "playerId", "player-missing", "path", "gm/order.md")));
+            assertThat(unknownPlayer.isError()).isTrue();
+            assertThat(wireText(unknownPlayer)).contains("NOT_FOUND");
+
+            McpSchema.CallToolResult secretaryChat = client.callTool(
+                    new McpSchema.CallToolRequest(GmSecretaryChatTool.NAME, Map.of(
+                            "playerId", "player-1",
+                            "message", "请核对 GM 下发的北码头档案")));
+            assertThat(secretaryChat.isError())
+                    .as("玩家秘书对话结果: %s", wireText(secretaryChat)).isFalse();
+            assertThat(wireText(secretaryChat)).isEqualTo("玩家秘书已收到 GM 指令。")
+                    .doesNotContain("prompt", "apiKey", CONTROL_TOKEN);
+
+            McpSchema.CallToolResult unknownChat = client.callTool(
+                    new McpSchema.CallToolRequest(GmSecretaryChatTool.NAME, Map.of(
+                            "playerId", "player-missing", "message", "不应调用模型")));
+            assertThat(unknownChat.isError()).isTrue();
+            assertThat(wireText(unknownChat)).contains("NOT_FOUND");
+
+            PostService postService = postService(controlServer);
+            PostCommandResult postDraft = postService.createDraft(
+                    new Actor("player-1", ActorRole.PLAYER), "MCP 推文标题",
+                    "MCP 发布的公共推文正文", PostVisibility.PUBLIC,
+                    postService.collectionRevision("player-1"), "bootstrap-post-create");
+            assertThat(postDraft.ok()).isTrue();
+            McpSchema.CallToolResult postList = client.callTool(
+                    new McpSchema.CallToolRequest(GmPostListTool.NAME,
+                            Map.of("status", "PENDING_APPROVAL")));
+            assertThat(postList.isError()).as(wireText(postList)).isFalse();
+            assertThat(wireText(postList)).contains(postDraft.postId())
+                    .doesNotContain("MCP 发布的公共推文正文");
+            McpSchema.CallToolResult postGet = client.callTool(
+                    new McpSchema.CallToolRequest(GmPostGetTool.NAME,
+                            Map.of("postId", postDraft.postId())));
+            assertThat(postGet.isError()).as(wireText(postGet)).isFalse();
+            assertThat(wireText(postGet)).contains("MCP 发布的公共推文正文");
+            McpSchema.CallToolResult postApprove = client.callTool(
+                    new McpSchema.CallToolRequest(GmPostDecideTool.NAME, Map.of(
+                            "postId", postDraft.postId(),
+                            "decision", "APPROVE",
+                            "expectedRevision", 1L,
+                            "idempotencyKey", "bootstrap-post-approve")));
+            assertThat(postApprove.isError()).as(wireText(postApprove)).isFalse();
+            McpSchema.CallToolResult postPublish = client.callTool(
+                    new McpSchema.CallToolRequest(GmPostPublishTool.NAME, Map.of(
+                            "postId", postDraft.postId(),
+                            "expectedRevision", 2L,
+                            "idempotencyKey", "bootstrap-post-publish")));
+            assertThat(postPublish.isError()).as(wireText(postPublish)).isFalse();
+            await(() -> adapter.sent().stream().anyMatch(message ->
+                            message.targetType() == OutboundMessage.TargetType.GROUP
+                                    && message.textSegments().contains("MCP 发布的公共推文正文")),
+                    "MCP 发布推文后应经 PostDistributor 发到公共群");
+            assertThat(adapter.sent()).anySatisfy(message -> {
+                if (message.textSegments().contains("MCP 发布的公共推文正文")) {
+                    assertThat(message.idempotencyKey())
+                            .isEqualTo("public:post:" + postDraft.postId() + ":public:reply:0");
+                }
+            });
+            await(() -> postService.post(postDraft.postId()).orElseThrow().deliveryState()
+                            == io.mosire.iibot.taskflow.post.DeliveryState.SENT,
+                    "推文成功发送后应标记 SENT");
 
             await(() -> adapter.sent().stream().anyMatch(message ->
                             message.targetType() == OutboundMessage.TargetType.GROUP
@@ -159,7 +297,7 @@ class AppBootstrapControlPlaneTest {
                 assertThat(message.targetId()).isEqualTo("qq-p1");
                 assertThat(message.textSegments()).containsExactly("你找到了航海日志。");
             });
-            assertThat(llm.requests()).hasSize(2);
+            assertThat(llm.requests()).hasSize(4);
         } finally {
             if (client != null) {
                 client.closeGracefully();
@@ -175,6 +313,14 @@ class AppBootstrapControlPlaneTest {
         Object value = field.get(runtime);
         assertThat(value).isInstanceOf(ControlMcpServer.class);
         return (ControlMcpServer) value;
+    }
+
+    private static PostService postService(ControlMcpServer runtime) throws Exception {
+        Field field = ControlMcpServer.class.getDeclaredField("postService");
+        field.setAccessible(true);
+        Object value = field.get(runtime);
+        assertThat(value).isInstanceOf(PostService.class);
+        return (PostService) value;
     }
 
     private static String wireText(McpSchema.CallToolResult result) {

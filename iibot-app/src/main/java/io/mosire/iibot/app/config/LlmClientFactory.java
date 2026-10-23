@@ -9,6 +9,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -26,6 +29,30 @@ public final class LlmClientFactory {
 
     /** 构造真实 LLM 客户端；失败时抛出不含密钥的可操作异常。 */
     public static LlmClient create(AppConfig.Llm config, SecretProvider secrets) {
+        return create("default", config, secrets);
+    }
+
+    /**
+     * 按配置构造 default + llmRoutes 的完整路由客户端映射。任何路由缺密钥都 fail-closed；
+     * 日志只记录 route 名与模型名，不记录 key。
+     */
+    public static Map<String, LlmClient> createRoutes(AppConfig appConfig,
+                                                       SecretProvider secrets) {
+        if (appConfig == null) {
+            throw new IllegalStateException("LLM 路由配置缺失");
+        }
+        AppConfig.Llm defaultConfig = appConfig.llm().orElseThrow(() -> new IllegalStateException(
+                "LLM 配置缺失：真实启动必须提供 llm 配置块；拒绝在无模型时启动玩家聊天"));
+        Map<String, LlmClient> clients = new LinkedHashMap<>();
+        clients.put(AppConfig.DEFAULT_LLM_ROUTE,
+                create(AppConfig.DEFAULT_LLM_ROUTE, defaultConfig, secrets));
+        appConfig.llmRoutes().ifPresent(routes -> routes.forEach((route, config) ->
+                clients.put(route, create(route, config, secrets))));
+        return Collections.unmodifiableMap(clients);
+    }
+
+    private static LlmClient create(String routeName, AppConfig.Llm config,
+                                    SecretProvider secrets) {
         if (config == null) {
             throw new IllegalStateException("LLM 配置缺失：真实启动必须提供 llm 配置块");
         }
@@ -38,7 +65,8 @@ public final class LlmClientFactory {
                 .orElseThrow(() -> new IllegalStateException(
                         "LLM 密钥未提供：环境变量未设置或为空。请设置 " + envName
                                 + " 后重启（不会回退到匿名调用）"));
-        LOG.info("LLM 密钥来源=env:{} 长度={}", envName, apiKey.length());
+        LOG.info("LLM route={} model={} 密钥来源=env:{} 长度={}",
+                routeName, config.model(), envName, apiKey.length());
 
         LlmTransport transport = new LlmTransport(
                 LlmProtocol.OPENAI_COMPATIBLE,
