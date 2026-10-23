@@ -36,12 +36,14 @@
 5. `tf_gm_aide_chat` 通过真实 GM 推演秘书读取世界/回合/工作区/推文摘要并输出分析；
 6. `tf_gm_secretary_chat` 通过真实 LLM 成功调用 `secretary_post_create` 创建私人推文草稿 `2b1bcd53-dbbe-47e8-b0d4-6d3f9ef0a817`；
 7. MCP `tf_post_decide` 由 `external-supervisor` 成功批准该推文，状态 `APPROVED`；
-8. 未执行 `tf_post_publish`，因此**没有真实 QQ 推文发送**。
+8. 经用户明确允许后执行 `tf_post_publish`，`external-supervisor` 将私人推文真实发送到玩家私聊；`deliveryState=SENT`。
+9. 玩家真实私信在 04:15:17 收到 ACK，正式秘书回复 04:15:31 出站；真实 ACK/异步链路通过。
+10. 重启时发现旧 `TurnResultDistributor` 会重复发送已发布回合结果；已新增 `JsonDeliveryLedger` 逐消息持久化声明并验证再次重启不重复外发。
 
 ## 未验证 / 待用户协同
 
-- 真实 QQ 私信 ACK 的端到端时序未跑；
-- 真实私人/公共推文发布（QQ 最终发送）未跑，等待用户明确允许；
+- 真实公共推文发布未跑（私人推文真实发布已跑）；
+- 第二轮真实行动/决策未跑；
 - 真实 DSH host 会话未接入；
 - 运行时热切换模型未实现（配置 + 重启）；
 - 多玩家、多回合、长跑、逐事件回放未跑。

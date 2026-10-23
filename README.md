@@ -5,7 +5,7 @@
 经 GM 过滤信息并形成结构化决策草案；玩家必须用私聊硬命令确认后，决策才进入回合；回合冻结后由中央
 GM/推演 Agent 审核与推演，输出公开及玩家私密信息。
 
-> **当前阶段**：v2 纵向切片已实现，261 个自动化测试通过；真实 NapCat + 真实 LLM + 本地 MCP 单人回合已验证。
+> **当前阶段**：v2 纵向切片已实现，272 个自动化测试通过；真实 NapCat + 真实 LLM + 本地 MCP 单人回合已验证。
 > 多模型路由、秘书独立工作区、GM 推文审核/发布、GM 专用推演秘书已落地；真实 DSH 外部会话与真实 v2 多玩家回归尚未验证。当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
 
 ## 已实现能力
@@ -25,6 +25,7 @@ GM/推演 Agent 审核与推演，输出公开及玩家私密信息。
 - **多模型路由**：`llm` 默认路由 + `llmRoutes` 覆盖 + `agentRoutes(secretary/adjudicator/gmAide)`；另有只读 GM 推演秘书 `GmAideAgent`，可读世界/回合/brief/事件/所有秘书工作区/所有推文，只返回 MCP/GM 会话。
 - **组合根** `iibot-app`：严格配置、世界事实装载、Workspace/Docs 世界文档、SQLite 事件审计、**完整状态快照的原子持久化与重启恢复**、入站回复与回合结果 outbox、逐用户 mailbox、自动冻结调度、可运行 Main。
 - **外部 MCP 控制面**：28 个全游戏事件流控制工具（含 `tf_run_adjudication_agent`）；默认关闭、只绑回环、Bearer 鉴权、独立 ToolRegistry、经 `ToolCallAuthorizer` 执行。
+- **重启不重复投递**：回合结果使用 `delivery-ledger.json` 逐消息持久化声明；重启恢复不会重发已投递的公共/私聊结果，UNKNOWN 不自动重试。
 - **可运行包**：`java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar --config <path>`。
 
 ## 快速开始
@@ -86,7 +87,7 @@ iibot-app            组合根、配置、SQLite 审计、Docs、Outbox、MCP �
 ```
 
 - 技术栈：Java 21、Maven Wrapper 3.9.16、AgentLib/Workspace/Docs `0.2.3`、Jackson、SQLite、官方 MCP Java SDK 2.0.1。
-- 当前 261 个自动化测试以进程内/本地 Fake 为主；真实 NapCat + LLM + 本地 MCP 单人回合另有独立证据。
+- 当前 272 个自动化测试以进程内/本地 Fake 为主；真实 NapCat + LLM + 本地 MCP 单人回合另有独立证据。
 
 ## 已知边界
 

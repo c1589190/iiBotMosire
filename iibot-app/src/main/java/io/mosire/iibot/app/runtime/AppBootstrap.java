@@ -4,6 +4,7 @@ import io.mosire.agentlib.llm.LlmClient;
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.LlmClientFactory;
 import io.mosire.iibot.app.config.SecretProvider;
+import io.mosire.iibot.app.delivery.JsonDeliveryLedger;
 import io.mosire.iibot.app.delivery.OutboxSender;
 import io.mosire.iibot.app.delivery.PostDistributor;
 import io.mosire.iibot.app.delivery.TurnResultDistributor;
@@ -121,6 +122,8 @@ public final class AppBootstrap {
             // 读写两个 SQLite 连接都先建立；即使不启用 MCP，也为控制面保留只读端口。
             eventReadPort = new SqliteEventReadPort(dbFile);
             TaskflowSnapshotStore snapshotStore = new TaskflowSnapshotStore(dataDir);
+            // 投递声明独立于领域快照持久化；损坏/未知 schema 会在启动装配时 fail-closed。
+            JsonDeliveryLedger deliveryLedger = new JsonDeliveryLedger(dataDir);
             PostService postService = new PostService(new JsonPostStore(dataDir), clock);
 
             Optional<TaskflowStateSnapshot> snapshot = snapshotStore.load();
@@ -211,7 +214,8 @@ public final class AppBootstrap {
             OutboxSender outbox = new OutboxSender(adapter,
                     Duration.ofSeconds(config.outbox().sendTimeoutSeconds()));
             TurnResultDistributor resultDistributor = new TurnResultDistributor(
-                    engine, outbox, config.publicGroupId(), playerQqById(config));
+                    engine, outbox, config.publicGroupId(), playerQqById(config),
+                    deliveryLedger);
             PostDistributor postDistributor = new PostDistributor(postService, outbox,
                     config.publicGroupId(), playerQqById(config));
             AckPolicy ackPolicy = buildAckPolicy(config);

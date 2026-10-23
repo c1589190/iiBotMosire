@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-24 04:05（Asia/Shanghai）
+> **更新时间**：2026-10-24 04:22（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -8,8 +8,8 @@
 
 - **v2 功能切片已落地**：即时 ACK、每玩家秘书工作区、GM 工作区/秘书对话、推文草稿→GM 审核→GM 发布、多模型路由、只读 GM 推演秘书。
 - **v1 真实单人 E2E 已完成**：玩家私聊 → 真实 LLM 秘书草稿 → 玩家 `/确认` → MCP 冻结 → 中央推演 Agent（真实 LLM）→ COMMITTED → MCP 发布 → 公共群公开叙事 + 玩家私聊 outcome 均已真实出站。
-- 当前运行服务恢复状态为第 1 回合 `PUBLISHED`，`worldVersion=2`，`eventSeq=14`；v2 真实 QQ 回归尚未跑。
-- 仍需用户协同：v2 真实私信 ACK/秘书工作区/推文流程验证；DSH 外部会话接入尚未完成。
+- 当前运行服务恢复状态为第 1 回合 `PUBLISHED`，`worldVersion=2`，`eventSeq=14`；v2 真实 QQ ACK/工作区/GM aide/私人推文发布已验证。
+- 仍需用户协同：第二轮真实行动/决策、公共推文真实发布、多玩家与 DSH 外部会话验证。
 - **已完成首个可运行纵向切片**：外部接入 Lib → Agent 工具扩展层 → 交互-推演任务流 → 组合根 → 认证 MCP 控制面。
 - 本轮已实现：
   - `iibot-connect`：OneBot 11/NapCat 事件 WS + HTTP Action、鉴权、重连、心跳、去重、限速、分段、三态回执；
@@ -38,8 +38,8 @@
 | 项 | 实际结果 |
 |---|---|
 | 最新构建 | `./mvnw -B -ntp package`：**BUILD SUCCESS**；**185 tests / 0 failures / 0 errors / 0 skipped** |
-| 分模块 | connect 29、connect-agent 21、taskflow 122、app 89 |
-| 最近 full clean | **261 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（v2 停服复跑） |
+| 分模块 | connect 29、connect-agent 21、taskflow 122、app 100 |
+| 最近 full clean | **272 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（v2 停服复跑） |
 | Shade | 产出可运行 `iibot-app-0.1.0-SNAPSHOT.jar`（约 21 MB），Main-Class 已核 |
 | 文档/工具链 | `tools/gate.sh pre` PASS（docs + skills + `./mvnw -v`） |
 | 文档 selftest | check-docs 11/11；skills-lint 6/6 |
@@ -48,10 +48,10 @@
 | 真实 NapCat 私聊收发 + 真实 LLM 秘书回复 | **PASS（部分真实 E2E）**：玩家 `<player-qq>` 私聊“你先说句话证明你能说和”，Bot 于 03:14:51 返回真实秘书文本；来源为用户提供的 QQ 对话记录 |
 | 真实 LLM API 连通性 | **PASS**：基础文本 `OK`；真实 tool_call `get_time` 与第二轮工具结果回填成功 |
 | 真实 NAPCAT WS 连接 | **PASS**：App 进程到 `127.0.0.1:3001` ESTAB；`get_login_info` 返回 Bot `<bot-qq>` |
-| 真实本地 MCP client | **PASS**：v2 重启后 `tools/list=28`，`tf_gm_secretary_*` / `tf_post_*` / `tf_gm_aide_chat` 均真实可见 |
+| 真实本地 MCP client | **PASS**：v2 重启后 `tools/list=28`；工作区/GM aide/推文工具均真实调用 |
 | 真实单人完整回合 | **PASS**：OPEN→LOCKED→ADJUDICATING→COMMITTED→PUBLISHED；中央推演约 14s；worldVersion 2；公开群消息 id 1536303685；玩家私聊 outcome id 138548704 |
 | 真实 LLM 全 App 流程 | **PASS**：秘书 → draft → `/确认` → lock → 中央 LLM 推演 → commit → publish 已真实完成；见 `docs/superpowers/status/2026-10-24-real-single-player-e2e.md` |
-| 真实 DSH/MCP E2E | **PARTIAL**：本地 Java MCP client 已连接 28 工具并完成工作区/GM aide/推文草稿+批准；DSH 外部会话未接入 |
+| 真实 DSH/MCP E2E | **PARTIAL**：本地 Java MCP client 已连接 28 工具并完成工作区/GM aide/推文草稿+批准+真实私聊发布；DSH 外部会话未接入 |
 | 长跑/崩溃恢复 | **NOT_RUN** |
 | 应用启动 smoke（dummy 密钥） | 进程启动后保持运行至 6s timeout；生成 `events.db`、`world/bible.md`、审计 LOG |
 | 真实 `NapCatAdapter` + 本地 Mock NapCat E2E | 通过；WS 入站→HTTP Action 出站全链路，连续 5 次通过 |
@@ -94,15 +94,18 @@
 - v2-B 秘书工作区已实现：每玩家独立 Workspace/Docs 四目录；秘书三工具；GM 四工具（list/read/dispatch/chat），路径逃逸/跨玩家 fail-closed。
 - v2-C 推文已实现：PENDING_APPROVAL→APPROVED/REJECTED→PUBLISHED；仅 GM/DIRECTOR/SUPERVISOR 审核发布；`posts.json` 原子持久化；`PostDistributor` 发公共群/玩家私聊；UNKNOWN 不自动重发。
 - v2-D 多模型与 GM 推演秘书已实现：`llm` default + `llmRoutes` + `agentRoutes(secretary/adjudicator/gmAide)`；`GmAideAgent` 9 个只读工具，可读全量世界/回合/brief/事件/所有工作区/所有推文，只返回 MCP/GM；无发送/写入工具。
-- v2 真实本地 MCP/LLM 验证：工作区下发/读取、秘书真实 LLM 总结、GM aide 真实 LLM 全量读取、真实秘书 LLM 创建私人推文草稿、MCP supervisor 批准；未执行发布，故无真实 QQ 推文发送。
+- v2 真实本地 MCP/LLM 验证：工作区下发/读取、秘书真实 LLM 总结、GM aide 真实 LLM 全量读取、真实秘书 LLM 创建私人推文草稿、MCP supervisor 批准并通过 `tf_post_publish` 真实发送到玩家私聊（deliveryState=SENT）。
+- v2 真实私信 ACK：玩家真实私信在 04:15:17 收到 ACK，正式秘书回复于 04:15:31 出站；ACL/dedupe/异步顺序成立。
+- 重启重复发送修复：真实重启曾发现 v1 回合结果重复发送；已新增 `JsonDeliveryLedger` 逐消息持久化声明（`turn:<id>:public` / `turn:<id>:player:<playerId>`），并验证再次重启无重复外发。
 - v2 full assembly MCP 28 工具（18 ExternalControlToolSet + tf_run_adjudication_agent + tf_gm_aide_chat + 4 GM 工作区 + 4 GM 推文）。
 
 ## 6. 未验证 / 风险 / blocker
 
-1. **v2 真实 QQ 回归未跑**：ACK、GW 工作区、推文审核/发布、GM aide 真实 LLM 均只做 Fake/离线测试；需要真实 QQ 协同。
+1. **第二轮真实行动/公共推文未跑**：v2 ACK/工作区/GM aide/私人推文真实发布已验证；第二轮决策与公共推文尚未跑。
 2. **真实 DSH 外部会话未接入**：当前由本地 Java MCP client 驱动；DSH host 会话尚未实际连接。
-3. **真实多玩家/多回合/长跑未运行**：仅完成 v1 单玩家第 1 回合。
+3. **真实多玩家/多回合/长跑未运行**：当前仅 1 名真实玩家、1 个已发布回合。
 4. **模型热切换未实现**：当前按 `agentRoutes` 配置切换模型并重启；无运行时 admin 工具。
+5. **跨进程并发 ledger 未验**：`JsonDeliveryLedger` 保证同 JVM 多实例与重启场景；多进程同时写同一 ledger 未验。
 3. **逐事件回放未实现，重启恢复依赖完整快照**：`taskflow-state.json` 原子持久化并在启动时恢复，事件库 seq 只做一致性锚点；快照与事件 seq 不一致时 fail-closed。Secretary 的 ContextWindow 聊天历史不恢复。
 4. **公共群目前只作为公开广播边界**：群内玩家对话、@ 触发、群内决策未接入。
 5. **外部 MCP 仅本地单 supervisor**：远程 TLS/多租户/长期 SSE/Last-Event-ID 重放未验；不要把端口暴露公网。
@@ -112,8 +115,8 @@
 
 ## 7. 下一步
 
-1. 停服复跑 full clean；重启后真实复核 28 工具、工作区/推文/GM aide。
-2. 按 M-004 等用户发一条真实 QQ 私信，验证 ACK、秘书工作区读取、GM 工作区下发/对话、推文审核发布。
+1. 等待用户给出第二轮行动意图；通过 MCP 开回合并完成真实秘书草稿/`/确认`/GM 审核/发布。
+2. 验证公共推文真实公共群发布；验证多玩家隔离。
 3. 接入真实 DSH host 会话，验证外部 Agent 观察/推进/事件游标。
-4. 做多玩家/多回合/断线重连/长跑；事件逐条回放与崩溃点注入。
+4. 做多回合/断线重连/长跑；事件逐条回放与崩溃点注入、跨进程 ledger 并发。
 5. 真实 E2E 证据写入 `docs/superpowers/status/`；未跑项继续标 `NOT_RUN`。
