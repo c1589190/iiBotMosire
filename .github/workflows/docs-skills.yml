@@ -1,0 +1,23 @@
+name: docs-skills
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: check-docs
+        run: python3 tools/check-docs.py
+      - name: check-docs-selftest
+        run: python3 tools/check-docs.py --selftest
+      - name: skills-lint
+        run: python3 tools/skills-lint.py
+      - name: skills-lint-selftest
+        run: python3 tools/skills-lint.py --selftest

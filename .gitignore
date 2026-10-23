@@ -1,0 +1,35 @@
+# Build output
+target/
+**/target/
+*.class
+
+# Local worktrees and evidence
+/worktree/
+.work/
+.superpowers/evidence/
+.superpowers/sdd/
+logs/
+*.log
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Local secrets and runtime data
+config/local/
+config/*.secret.*
+data/
+*.db
+*.db-shm
+*.db-wal
+.env
+
+# Local secrets and isolated runtime state
+*.local.json
+*.env
+.env.*
+secrets/
+runtime/
+*.pid
