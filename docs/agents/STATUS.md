@@ -30,16 +30,16 @@
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
 | 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.3`（Pages 固定版） |
 | 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`，约 21 MB |
-| Git/提交 | 已提交并推送；需在 v2 本轮完成后更新 HEAD |
+| Git/提交 | 已提交并推送；HEAD 以 `git log --oneline -1` 为准 |
 | 本机工作树 | 仅本项目文件；`target/` 等构建产物存在 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
-| 最新构建 | `./mvnw -B -ntp package`：**BUILD SUCCESS**；**185 tests / 0 failures / 0 errors / 0 skipped** |
+| 最新构建 | `tools/gate.sh full`：**BUILD SUCCESS**；**272 tests / 0 failures / 0 errors / 0 skipped** |
 | 分模块 | connect 29、connect-agent 21、taskflow 122、app 100 |
-| 最近 full clean | **272 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（v2 停服复跑） |
+| 最近 full clean | **272 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（v2 + delivery-ledger 修复后停服复跑） |
 | Shade | 产出可运行 `iibot-app-0.1.0-SNAPSHOT.jar`（约 21 MB），Main-Class 已核 |
 | 文档/工具链 | `tools/gate.sh pre` PASS（docs + skills + `./mvnw -v`） |
 | 文档 selftest | check-docs 11/11；skills-lint 6/6 |
