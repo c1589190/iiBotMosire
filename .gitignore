@@ -33,3 +33,8 @@ data/
 secrets/
 runtime/
 *.pid
+
+# Python and PF4J generated metadata
+__pycache__/
+*.pyc
+extensions.idx
