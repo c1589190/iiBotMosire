@@ -98,4 +98,10 @@ public final class TestSupport {
         return new InboundMessage("adapter-1", "bot-1", "msg-" + UUID.randomUUID(), qqId,
                 InboundMessage.SessionType.PRIVATE, null, text, BASE, dedupeKey);
     }
+
+    public static InboundMessage groupMessage(String qqId, String groupId, String text,
+                                               String dedupeKey) {
+        return new InboundMessage("adapter-1", "bot-1", "msg-" + UUID.randomUUID(), qqId,
+                InboundMessage.SessionType.GROUP, groupId, text, BASE, dedupeKey);
+    }
 }

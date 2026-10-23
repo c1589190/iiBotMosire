@@ -31,7 +31,7 @@ data/
 *.env
 .env.*
 secrets/
-runtime/
+# (runtime source packages are tracked; only data dirs/db/logs are ignored)
 *.pid
 
 # Python and PF4J generated metadata

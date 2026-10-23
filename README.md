@@ -19,6 +19,7 @@ GM/推演 Agent 审核与推演，输出公开及玩家私密信息。
   - 自然语言对话 → `DecisionDraft` → 私聊 `/确认 <draftId>` 硬确认；
   - 回合状态机、冻结快照、中央推演提案校验与提交；
   - 事件审计、幂等、revision CAS、拒绝零落盘。
+- **即时送达 ACK**：已登记玩家/推演私信在进入 LLM 前先收到独立幂等状态提示，正式回复随后异步生成。
 - **组合根** `iibot-app`：严格配置、世界事实装载、Workspace/Docs 世界文档、SQLite 事件审计、**完整状态快照的原子持久化与重启恢复**、入站回复与回合结果 outbox、逐用户 mailbox、自动冻结调度、可运行 Main。
 - **外部 MCP 控制面**：19 个全游戏事件流控制工具（含 `tf_run_adjudication_agent`）；默认关闭、只绑回环、Bearer 鉴权、独立 ToolRegistry、经 `ToolCallAuthorizer` 执行。
 - **可运行包**：`java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar --config <path>`。

@@ -36,9 +36,9 @@
 
 | 项 | 实际结果 |
 |---|---|
-| 最新构建 | `./mvnw -B -ntp package`：**BUILD SUCCESS**；**175 tests / 0 failures / 0 errors / 0 skipped** |
-| 分模块 | connect 29、connect-agent 21、taskflow 71、app 54 |
-| 最近 full clean | **169 tests PASS** 为 MCP run-agent 改动前基线；服务运行中暂未复跑 full clean |
+| 最新构建 | `./mvnw -B -ntp package`：**BUILD SUCCESS**；**185 tests / 0 failures / 0 errors / 0 skipped** |
+| 分模块 | connect 29、connect-agent 21、taskflow 71、app 64 |
+| 最近 full clean | 待本轮停止服务后复跑；上次 full clean 为 169 tests 的旧基线 |
 | Shade | 产出可运行 `iibot-app-0.1.0-SNAPSHOT.jar`（约 21 MB），Main-Class 已核 |
 | 文档/工具链 | `tools/gate.sh pre` PASS（docs + skills + `./mvnw -v`） |
 | 文档 selftest | check-docs 11/11；skills-lint 6/6 |
@@ -87,7 +87,8 @@
 - 外部 MCP 19 工具（含 `tf_run_adjudication_agent`）、Bearer 常数时间校验、回环绑定、独立 allow-list、POST/GET SSE 代理；
 - Workspace/Docs 实际写入世界圣经与审计 LOG；
 - SQLite 事件审计与 `afterSeq` 只读游标；真实发布后由 `afterMutation` 触发结果分发。
-- 真实单人回合的草稿、硬确认、冻结、中央 LLM 推演、提交、发布与分发均有实际出站证据。
+- 真实单人回合的草稿、硬确认、冻结、中央 LLM 推演、提交、发布与分发均有实际出站证据；
+- v2-A 即时 ACK 已实现：已登记玩家/推演私信先发独立 ACK，再异步处理正式回复；重复 dedupeKey 不重复 ACK。
 
 ## 6. 未验证 / 风险 / blocker
 

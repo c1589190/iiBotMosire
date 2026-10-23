@@ -35,6 +35,7 @@
 |---|---|---|
 | 需求基线与范围 | [`specs/2026-10-24-requirements-baseline.md`](specs/2026-10-24-requirements-baseline.md) | 功能/非功能需求、建议 v1 范围、Q1–Q7 待裁定 |
 | 外部接入 Lib / Agent 扩展层 | [`specs/2026-10-24-connect-and-agent-extension-design.md`](specs/2026-10-24-connect-and-agent-extension-design.md) | connect 独立 Lib、connect-agent 工具/权限扩展层与验收判据 |
+| v2 送达/工作区/权限推文/多模型 | [`specs/2026-10-24-v2-agent-workspaces-permissions-and-models.md`](specs/2026-10-24-v2-agent-workspaces-permissions-and-models.md) | 四项 v2 需求的目标运行序列、权限矩阵与验收判据 |
 | 目标运行与模块边界 | [`specs/2026-10-24-target-runtime-design.md`](specs/2026-10-24-target-runtime-design.md) | 事件流、回合状态机、提示词/可见性、失败语义、验收判据 |
 | 对外 MCP 总控面 | [`specs/2026-10-24-external-mcp-control-plane.md`](specs/2026-10-24-external-mcp-control-plane.md) | 工具面、安全、幂等、回环限制与已知鉴权缺口 |
 | 三库上游契约 | [`../upstream/project-mosire-three-libs-0.2.3.md`](../upstream/project-mosire-three-libs-0.2.3.md) | 坐标、能力、边界、踩坑、未验证清单 |
