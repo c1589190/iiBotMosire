@@ -27,6 +27,8 @@ import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.agent.AdjudicationService;
 import io.mosire.iibot.taskflow.agent.GmAideAgent;
 import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
+import io.mosire.iibot.taskflow.complaint.ComplaintService;
+import io.mosire.iibot.taskflow.complaint.InMemoryComplaintStore;
 import io.mosire.iibot.taskflow.control.InMemoryEventReadPort;
 import io.mosire.iibot.taskflow.event.InMemoryEventStore;
 import io.mosire.iibot.taskflow.post.InMemoryPostStore;
@@ -36,6 +38,7 @@ import io.mosire.iibot.taskflow.post.PostService;
 import io.mosire.iibot.taskflow.post.PostStatus;
 import io.mosire.iibot.taskflow.post.PostStore;
 import io.mosire.iibot.taskflow.post.PostVisibility;
+import io.mosire.iibot.taskflow.skill.SharedSkillStore;
 import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -85,13 +88,15 @@ class ControlMcpServerPostToolsTest {
     }
 
     @Test
-    void fullAssemblyLists28ToolsAndPostWorkflowUsesStableCodesAndRevisions() throws Exception {
+    void fullAssemblyLists34ToolsAndPostWorkflowUsesStableCodesAndRevisions() throws Exception {
         startFullAssembly();
         McpSyncClient client = initializedClient();
 
         McpSchema.ListToolsResult list = client.listTools();
         List<String> names = list.tools().stream().map(McpSchema.Tool::name).toList();
-        assertThat(names).hasSize(28)
+        assertThat(names).hasSize(34)
+                .containsAll(GmSharedSkillMcpTools.NAMES)
+                .containsAll(GmComplaintMcpTools.NAMES)
                 .containsAll(GmPostMcpTools.NAMES)
                 .doesNotContain("tf_qq_send", "qq_send", "tf_confirm_decision", "shutdown");
 
@@ -234,6 +239,9 @@ class ControlMcpServerPostToolsTest {
         SecretaryWorkspaceStore workspaceStore = SecretaryWorkspaceStore.open(
                 tempDirectory(), List.of("player-1"));
         SecretarySessionRegistry sessions = new SecretarySessionRegistry();
+        SharedSkillStore sharedSkillStore = SharedSkillStore.open(tempDir.resolve("shared-skills"));
+        ComplaintService complaintService = new ComplaintService(
+                new InMemoryComplaintStore(), clock);
         FakeLlmClient llm = FakeLlmClient.with(LlmResponse.text("只读摘要"));
         server = ControlMcpServer.builder(engine, new InMemoryEventReadPort(eventStore),
                         new Actor("external-supervisor", ActorRole.SUPERVISOR),
@@ -245,6 +253,8 @@ class ControlMcpServerPostToolsTest {
                 .secretaryWorkspaceStore(workspaceStore)
                 .secretarySessions(sessions)
                 .postService(postService)
+                .sharedSkillStore(sharedSkillStore)
+                .complaintService(complaintService)
                 .build();
         server.start();
     }

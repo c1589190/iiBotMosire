@@ -4,6 +4,8 @@ import io.mosire.agentlib.llm.LlmClient;
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.LlmClientFactory;
 import io.mosire.iibot.app.config.SecretProvider;
+import io.mosire.iibot.app.complaint.JsonComplaintStore;
+import io.mosire.iibot.app.delivery.ComplaintDistributor;
 import io.mosire.iibot.app.delivery.JsonDeliveryLedger;
 import io.mosire.iibot.app.delivery.OutboxSender;
 import io.mosire.iibot.app.delivery.PostDistributor;
@@ -35,6 +37,8 @@ import io.mosire.iibot.taskflow.agent.LlmBriefingService;
 import io.mosire.iibot.taskflow.agent.MappedIdentity;
 import io.mosire.iibot.taskflow.agent.SecretarySession;
 import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
+import io.mosire.iibot.taskflow.complaint.ComplaintService;
+import io.mosire.iibot.taskflow.skill.SharedSkillStore;
 import io.mosire.iibot.taskflow.event.EventSink;
 import io.mosire.iibot.taskflow.post.PostService;
 import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
@@ -190,18 +194,22 @@ public final class AppBootstrap {
             SecretaryWorkspaceStore secretaryWorkspaceStore = SecretaryWorkspaceStore.open(
                     config.dataDir(),
                     config.players().stream().map(AppConfig.Account::actorId).toList());
+            SharedSkillStore sharedSkillStore = SharedSkillStore.open(dataDir);
+            ComplaintService complaintService = new ComplaintService(
+                    new JsonComplaintStore(dataDir), clock);
             LlmBriefingService briefingService = new LlmBriefingService(secretaryLlm);
             SecretarySessionRegistry secretaryRegistry = new SecretarySessionRegistry();
             for (AppConfig.Account player : config.players()) {
                 Actor actor = new Actor(player.actorId(), ActorRole.PLAYER);
                 secretaryRegistry.register(new SecretarySession(player.actorId(), actor, engine,
                         secretaryLlm, briefingService, bootstrapDirector, clock,
-                        secretaryWorkspaceStore, postService));
+                        secretaryWorkspaceStore, postService, sharedSkillStore,
+                        complaintService));
             }
             AdjudicationService adjudicationService =
                     new AdjudicationService(engine, adjudicatorLlm);
             GmAideAgent gmAideAgent = new GmAideAgent(engine, gmAideLlm, eventReadPort,
-                    secretaryWorkspaceStore, postService);
+                    secretaryWorkspaceStore, postService, sharedSkillStore, complaintService);
             Map<String, MappedIdentity> identities = buildIdentities(config);
             InteractionTaskflowService interactionService = new InteractionTaskflowService(
                     engine, identities, secretaryRegistry, adjudicationService,
@@ -218,6 +226,8 @@ public final class AppBootstrap {
                     deliveryLedger);
             PostDistributor postDistributor = new PostDistributor(postService, outbox,
                     config.publicGroupId(), playerQqById(config));
+            ComplaintDistributor complaintDistributor = new ComplaintDistributor(
+                    complaintService, outbox, playerQqById(config));
             AckPolicy ackPolicy = buildAckPolicy(config);
             dispatcher = new InboundDispatcher(interactionService::handle, outbox,
                     resultDistributor, ackPolicy,
@@ -235,7 +245,8 @@ public final class AppBootstrap {
             ControlPlane controlPlane = resolveControlPlane(
                     options, config, engine, eventReadPort, secrets, clock,
                     adjudicationService, gmAideAgent, resultDistributor, postDistributor,
-                    secretaryWorkspaceStore, secretaryRegistry, postService);
+                    complaintDistributor, secretaryWorkspaceStore, secretaryRegistry,
+                    postService, sharedSkillStore, complaintService);
             runtime = new AppRuntime(config, engine, interactionService, adapter, dispatcher,
                     outbox, scheduler, eventSink, eventReadPort, snapshotStore, worldDocs,
                     controlPlane);
@@ -361,9 +372,12 @@ public final class AppBootstrap {
                                                     GmAideAgent gmAideAgent,
                                                     TurnResultDistributor resultDistributor,
                                                     PostDistributor postDistributor,
+                                                    ComplaintDistributor complaintDistributor,
                                                     SecretaryWorkspaceStore secretaryWorkspaceStore,
                                                     SecretarySessionRegistry secretaryRegistry,
-                                                    PostService postService) {
+                                                    PostService postService,
+                                                    SharedSkillStore sharedSkillStore,
+                                                    ComplaintService complaintService) {
         if (!(options.controlPlane() instanceof NoopControlPlane)) {
             return options.controlPlane();
         }
@@ -383,16 +397,20 @@ public final class AppBootstrap {
                 .secretaryWorkspaceStore(secretaryWorkspaceStore)
                 .secretarySessions(secretaryRegistry)
                 .postService(postService)
+                .sharedSkillStore(sharedSkillStore)
+                .complaintService(complaintService)
                 .afterMutation(() -> {
                     runAfterMutationSafely("turn-result-distributor",
                             resultDistributor::distributeIfReady);
                     runAfterMutationSafely("post-distributor",
                             postDistributor::distributeIfReady);
+                    runAfterMutationSafely("complaint-distributor",
+                            complaintDistributor::distributeIfReady);
                 })
                 .build();
     }
 
-    private static void runAfterMutationSafely(String component, Runnable action) {
+    static void runAfterMutationSafely(String component, Runnable action) {
         try {
             action.run();
         } catch (RuntimeException failure) {

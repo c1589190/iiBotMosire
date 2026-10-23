@@ -21,6 +21,9 @@ import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.agent.AdjudicationService;
 import io.mosire.iibot.taskflow.agent.GmAideAgent;
 import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
+import io.mosire.iibot.taskflow.complaint.ComplaintService;
+import io.mosire.iibot.taskflow.complaint.ComplaintStore;
+import io.mosire.iibot.taskflow.skill.SharedSkillStore;
 import io.mosire.iibot.taskflow.post.PostService;
 import io.mosire.iibot.taskflow.post.PostStore;
 import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
@@ -106,6 +109,8 @@ public final class ControlMcpServer implements ControlPlane {
     private final SecretaryWorkspaceStore secretaryWorkspaceStore;
     private final SecretarySessionRegistry secretarySessions;
     private final PostService postService;
+    private final SharedSkillStore sharedSkillStore;
+    private final ComplaintService complaintService;
     private final Runnable afterMutation;
     private final HttpClient upstreamClient;
     private final Object lifecycleLock = new Object();
@@ -132,6 +137,8 @@ public final class ControlMcpServer implements ControlPlane {
         this.secretaryWorkspaceStore = builder.secretaryWorkspaceStore;
         this.secretarySessions = builder.secretarySessions;
         this.postService = builder.postService;
+        this.sharedSkillStore = builder.sharedSkillStore;
+        this.complaintService = builder.complaintService;
         this.afterMutation = builder.afterMutation;
         this.upstreamClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -198,6 +205,16 @@ public final class ControlMcpServer implements ControlPlane {
                 }
                 if (postService != null) {
                     for (var tool : GmPostMcpTools.all(postService, supervisor)) {
+                        registry.register(tool);
+                    }
+                }
+                if (sharedSkillStore != null) {
+                    for (var tool : GmSharedSkillMcpTools.all(sharedSkillStore)) {
+                        registry.register(tool);
+                    }
+                }
+                if (complaintService != null) {
+                    for (var tool : GmComplaintMcpTools.all(complaintService, supervisor)) {
                         registry.register(tool);
                     }
                 }
@@ -546,6 +563,12 @@ public final class ControlMcpServer implements ControlPlane {
         if (postService != null) {
             allTools.addAll(GmPostMcpTools.NAMES);
         }
+        if (sharedSkillStore != null) {
+            allTools.addAll(GmSharedSkillMcpTools.NAMES);
+        }
+        if (complaintService != null) {
+            allTools.addAll(GmComplaintMcpTools.NAMES);
+        }
 
         Map<String, ResourceScope> scopes = new java.util.LinkedHashMap<>();
         scopes.put(TASKFLOW_NAMESPACE, ResourceScope.unlimited());
@@ -556,6 +579,14 @@ public final class ControlMcpServer implements ControlPlane {
         if (postService != null) {
             scopes.put(PostStore.RESOURCE_NAMESPACE,
                     ResourceScope.of(PostStore.RESOURCE_NAMESPACE));
+        }
+        if (sharedSkillStore != null) {
+            scopes.put(SharedSkillStore.RESOURCE_NAMESPACE,
+                    ResourceScope.of(SharedSkillStore.RESOURCE_NAMESPACE));
+        }
+        if (complaintService != null) {
+            scopes.put(ComplaintStore.RESOURCE_NAMESPACE,
+                    ResourceScope.of(ComplaintStore.RESOURCE_NAMESPACE));
         }
         AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
                 .allow(allTools.toArray(String[]::new))
@@ -618,6 +649,8 @@ public final class ControlMcpServer implements ControlPlane {
         private SecretaryWorkspaceStore secretaryWorkspaceStore;
         private SecretarySessionRegistry secretarySessions;
         private PostService postService;
+        private SharedSkillStore sharedSkillStore;
+        private ComplaintService complaintService;
         private Runnable afterMutation;
 
         private Builder(
@@ -694,6 +727,24 @@ public final class ControlMcpServer implements ControlPlane {
          */
         public Builder postService(PostService postService) {
             this.postService = Objects.requireNonNull(postService, "postService");
+            return this;
+        }
+
+        /**
+         * 可选注入全局共享 Skill 区。注入后额外注册三个 supervisor 只读/写入工具；
+         * 未注入时工具面保持不变。
+         */
+        public Builder sharedSkillStore(SharedSkillStore sharedSkillStore) {
+            this.sharedSkillStore = Objects.requireNonNull(sharedSkillStore, "sharedSkillStore");
+            return this;
+        }
+
+        /**
+         * 可选注入投诉服务。注入后额外注册三个 supervisor 投诉工具；未注入时工具面
+         * 保持不变。
+         */
+        public Builder complaintService(ComplaintService complaintService) {
+            this.complaintService = Objects.requireNonNull(complaintService, "complaintService");
             return this;
         }
 

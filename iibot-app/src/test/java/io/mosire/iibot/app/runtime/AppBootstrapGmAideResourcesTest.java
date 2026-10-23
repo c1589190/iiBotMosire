@@ -81,7 +81,7 @@ class AppBootstrapGmAideResourcesTest {
             assertThat(gmAideAgent.workspaceStore()).isSameAs(workspaceStore);
             assertThat(gmAideAgent.postService()).isSameAs(postService);
             assertThat(gmAideAgent.tools()).extracting(tool -> tool.name())
-                    .containsExactlyInAnyOrderElementsOf(GmAideTools.TOOL_NAMES);
+                    .containsExactlyInAnyOrderElementsOf(GmAideTools.FULL_TOOL_NAMES);
 
             workspaceStore.writeGmMaterial("player-1", "gm/order.md",
                     "GM 下发：北码头档案在 gm/order.md");
@@ -103,7 +103,7 @@ class AppBootstrapGmAideResourcesTest {
             client = client(controlServer);
             McpSchema.ListToolsResult list = client.listTools();
             assertThat(list.tools().stream().map(McpSchema.Tool::name))
-                    .hasSize(28)
+                    .hasSize(34)
                     .contains(GmAideChatTool.NAME);
 
             McpSchema.CallToolResult result = client.callTool(

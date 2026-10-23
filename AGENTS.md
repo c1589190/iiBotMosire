@@ -28,7 +28,7 @@
 - 所有领域操作进入可审计事件流（引擎回放恢复尚未实现）；外部 Agent 可通过受控 MCP 观察/推进游戏事件流；
 - Agent 底座优先使用相邻 `~/ProjectMosire` 的 `agentlib-mosire`、`workspace-mosire`、`docs-mosire`。
 
-> 当前已有 Maven 多模块实现与 272 个通过测试；**真实 NapCat + 真实 LLM + 本地 MCP 单人回合已验证；真实 DSH 外部会话尚未接入**。
+> 当前已有 Maven 多模块实现与 345 个通过测试；**真实 NapCat + 真实 LLM + 本地 MCP 单人回合已验证；真实 DSH 外部会话尚未接入**。
 > 当前实现边界以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准，不能把 Mock 通过当成真实联调通过。
 
 ## 2. 常驻红线

@@ -18,6 +18,9 @@ import io.mosire.iibot.app.mcp.GmPostDecideTool;
 import io.mosire.iibot.app.mcp.GmPostGetTool;
 import io.mosire.iibot.app.mcp.GmPostListTool;
 import io.mosire.iibot.app.mcp.GmPostPublishTool;
+import io.mosire.iibot.app.mcp.GmComplaintRespondTool;
+import io.mosire.iibot.app.mcp.GmSharedSkillMcpTools;
+import io.mosire.iibot.app.mcp.GmComplaintMcpTools;
 import io.mosire.iibot.app.mcp.RunAdjudicationAgentTool;
 import io.mosire.iibot.app.support.FakeLlmClient;
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
@@ -30,6 +33,9 @@ import io.mosire.iibot.taskflow.DecisionDraft;
 import io.mosire.iibot.taskflow.DecisionDraftInput;
 import io.mosire.iibot.taskflow.TurnState;
 import io.mosire.iibot.taskflow.agent.SubmitAdjudicationTool;
+import io.mosire.iibot.taskflow.complaint.ComplaintCommandResult;
+import io.mosire.iibot.taskflow.complaint.ComplaintDeliveryState;
+import io.mosire.iibot.taskflow.complaint.ComplaintService;
 import io.mosire.iibot.taskflow.post.PostCommandResult;
 import io.mosire.iibot.taskflow.post.PostService;
 import io.mosire.iibot.taskflow.post.PostVisibility;
@@ -47,7 +53,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** AppBootstrap 控制面接线：28 工具 + 回合/推文经真实分发器出站。 */
+/** AppBootstrap 控制面接线：34 工具 + 回合/推文经真实分发器出站。 */
 @Timeout(60)
 class AppBootstrapControlPlaneTest {
 
@@ -112,12 +118,14 @@ class AppBootstrapControlPlaneTest {
 
             McpSchema.ListToolsResult list = client.listTools();
             assertThat(list.tools().stream().map(McpSchema.Tool::name))
-                    .hasSize(28)
+                    .hasSize(34)
                     .contains(RunAdjudicationAgentTool.NAME, GmAideChatTool.NAME,
                             GmSecretaryListTool.NAME, GmSecretaryReadTool.NAME,
                             GmSecretaryDispatchTool.NAME, GmSecretaryChatTool.NAME,
                             GmPostListTool.NAME, GmPostGetTool.NAME,
-                            GmPostDecideTool.NAME, GmPostPublishTool.NAME);
+                            GmPostDecideTool.NAME, GmPostPublishTool.NAME)
+                    .containsAll(GmSharedSkillMcpTools.NAMES)
+                    .containsAll(GmComplaintMcpTools.NAMES);
 
             callOk(client, "tf_open_turn", Map.of(
                     "expectedRevision", runtime.engine().status().engineRevision(),
@@ -297,6 +305,31 @@ class AppBootstrapControlPlaneTest {
                 assertThat(message.targetId()).isEqualTo("qq-p1");
                 assertThat(message.textSegments()).containsExactly("你找到了航海日志。");
             });
+
+            // 同一次 afterMutation 组合里投诉回应也必须经 ComplaintDistributor 外发，
+            // 且不会被回合/推文分发阻断。
+            ComplaintService complaintService = complaintService(controlServer);
+            ComplaintCommandResult complaint = complaintService.submit(
+                    new Actor("player-1", ActorRole.PLAYER), "控制面投诉",
+                    "控制面投诉私密正文", "bootstrap-control-complaint");
+            assertThat(complaint.ok()).isTrue();
+            String complaintResponse = "控制面 GM 回应-发到私聊-f52b";
+            McpSchema.CallToolResult complaintRespond = client.callTool(
+                    new McpSchema.CallToolRequest(GmComplaintRespondTool.NAME, Map.of(
+                            "complaintId", complaint.complaintId(),
+                            "response", complaintResponse,
+                            "expectedRevision", 1L,
+                            "idempotencyKey", "bootstrap-control-complaint-respond")));
+            assertThat(complaintRespond.isError())
+                    .as("投诉回应结果: %s", wireText(complaintRespond)).isFalse();
+            await(() -> adapter.sent().stream().anyMatch(message ->
+                            message.targetType() == OutboundMessage.TargetType.PRIVATE
+                                    && "qq-p1".equals(message.targetId())
+                                    && message.textSegments().contains(complaintResponse)),
+                    "投诉回应后应经 ComplaintDistributor 发到投诉玩家私聊");
+            await(() -> complaintService.getForGm(complaint.complaintId()).orElseThrow()
+                            .deliveryState() == ComplaintDeliveryState.SENT,
+                    "投诉回应发送成功后应标记 SENT");
             assertThat(llm.requests()).hasSize(4);
         } finally {
             if (client != null) {
@@ -321,6 +354,14 @@ class AppBootstrapControlPlaneTest {
         Object value = field.get(runtime);
         assertThat(value).isInstanceOf(PostService.class);
         return (PostService) value;
+    }
+
+    private static ComplaintService complaintService(ControlMcpServer runtime) throws Exception {
+        Field field = ControlMcpServer.class.getDeclaredField("complaintService");
+        field.setAccessible(true);
+        Object value = field.get(runtime);
+        assertThat(value).isInstanceOf(ComplaintService.class);
+        return (ComplaintService) value;
     }
 
     private static String wireText(McpSchema.CallToolResult result) {

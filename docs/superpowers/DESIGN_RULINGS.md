@@ -36,12 +36,14 @@
 | 需求基线与范围 | [`specs/2026-10-24-requirements-baseline.md`](specs/2026-10-24-requirements-baseline.md) | 功能/非功能需求、建议 v1 范围、Q1–Q7 待裁定 |
 | 外部接入 Lib / Agent 扩展层 | [`specs/2026-10-24-connect-and-agent-extension-design.md`](specs/2026-10-24-connect-and-agent-extension-design.md) | connect 独立 Lib、connect-agent 工具/权限扩展层与验收判据 |
 | v2 送达/工作区/权限推文/多模型 | [`specs/2026-10-24-v2-agent-workspaces-permissions-and-models.md`](specs/2026-10-24-v2-agent-workspaces-permissions-and-models.md) | 四项 v2 需求的目标运行序列、权限矩阵与验收判据 |
+| 共享 Skill / 投诉闭环 | [`specs/2026-10-24-shared-skills-and-complaints.md`](specs/2026-10-24-shared-skills-and-complaints.md) | 全局公共 Skill 区、投诉状态机、GM 审核回应与验收判据 |
 | 目标运行与模块边界 | [`specs/2026-10-24-target-runtime-design.md`](specs/2026-10-24-target-runtime-design.md) | 事件流、回合状态机、提示词/可见性、失败语义、验收判据 |
 | 对外 MCP 总控面 | [`specs/2026-10-24-external-mcp-control-plane.md`](specs/2026-10-24-external-mcp-control-plane.md) | 工具面、安全、幂等、回环限制与已知鉴权缺口 |
 | 三库上游契约 | [`../upstream/project-mosire-three-libs-0.2.3.md`](../upstream/project-mosire-three-libs-0.2.3.md) | 坐标、能力、边界、踩坑、未验证清单 |
 | NapCat/OneBot 11 契约 | [`../upstream/napcat-onebot11-contract.md`](../upstream/napcat-onebot11-contract.md) | 事件/动作/鉴权/传输策略/可靠性 |
 | 本轮实现调查 | [`reports/2026-10-24-requirements-research.md`](reports/2026-10-24-requirements-research.md) | 事实、方案比较、风险、建议 |
 | 首个纵向切片证据 | [`status/2026-10-24-first-vertical-slice.md`](status/2026-10-24-first-vertical-slice.md) | P0–P6 实现与 175 测试历史快照；不是当前状态入口 |
+| 共享 Skill / 投诉证据 | [`status/2026-10-24-shared-skills-and-complaints.md`](status/2026-10-24-shared-skills-and-complaints.md) | 共享 Skill 与投诉真实闭环历史快照 |
 
 ## 四、当前未裁定
 

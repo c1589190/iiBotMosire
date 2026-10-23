@@ -16,9 +16,12 @@ import io.mosire.iibot.taskflow.TurnSnapshot;
 import io.mosire.iibot.taskflow.TurnView;
 import io.mosire.iibot.taskflow.WorldDelta;
 import io.mosire.iibot.taskflow.WorldFact;
+import io.mosire.iibot.taskflow.complaint.ComplaintService;
+import io.mosire.iibot.taskflow.complaint.ComplaintStore;
 import io.mosire.iibot.taskflow.control.EventReadPort;
 import io.mosire.iibot.taskflow.event.TaskflowEvent;
 import io.mosire.iibot.taskflow.post.PostService;
+import io.mosire.iibot.taskflow.skill.SharedSkillStore;
 import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
 
 import java.util.ArrayList;
@@ -57,6 +60,14 @@ public final class GmAideTools {
     public static final String GM_POSTS = "gm_posts";
     /** GM 读取任意推文正文（只读）。 */
     public static final String GM_POST_READ = "gm_post_read";
+    /** GM 列出全局共享 Skill 区（只读）。 */
+    public static final String GM_SHARED_SKILLS = GmAideSharedSkillTools.LIST;
+    /** GM 读取任意共享 Skill 文档（只读）。 */
+    public static final String GM_SHARED_SKILL_READ = GmAideSharedSkillTools.READ;
+    /** GM 列出全部投诉摘要（只读）。 */
+    public static final String GM_COMPLAINTS = GmAideComplaintTools.LIST;
+    /** GM 读取任意投诉正文与回应（只读）。 */
+    public static final String GM_COMPLAINT_READ = GmAideComplaintTools.READ;
 
     /** 基础只读工具（不依赖工作区/推文服务）。 */
     public static final Set<String> BASE_TOOL_NAMES = Set.of(
@@ -66,10 +77,29 @@ public final class GmAideTools {
             GM_WORKSPACE_LIST, GM_WORKSPACE_READ);
     /** 注入 {@link PostService} 后增加的只读工具。 */
     public static final Set<String> POST_TOOL_NAMES = Set.of(GM_POSTS, GM_POST_READ);
-    /** 稳定工具名全集；宿主和测试据此核对完整工具面。 */
+    /** 注入 {@link SharedSkillStore} 后增加的只读工具。 */
+    public static final Set<String> SHARED_SKILL_TOOL_NAMES = Set.of(
+            GM_SHARED_SKILLS, GM_SHARED_SKILL_READ);
+    /** 注入 {@link ComplaintService} 后增加的只读工具。 */
+    public static final Set<String> COMPLAINT_TOOL_NAMES = Set.of(
+            GM_COMPLAINTS, GM_COMPLAINT_READ);
+    /** 不注入共享 Skill 区时的稳定工具名全集（保持既有装配对账口径）。 */
     public static final Set<String> TOOL_NAMES = Set.of(
             GM_WORLD_FACTS, GM_TURN_VIEW, GM_PROFILES, GM_BRIEFS, GM_EVENT_POLL,
             GM_WORKSPACE_LIST, GM_WORKSPACE_READ, GM_POSTS, GM_POST_READ);
+    /** 全部可选依赖都注入时的工具名全集。 */
+    public static final Set<String> TOOL_NAMES_WITH_SHARED_SKILLS = Set.of(
+            GM_WORLD_FACTS, GM_TURN_VIEW, GM_PROFILES, GM_BRIEFS, GM_EVENT_POLL,
+            GM_WORKSPACE_LIST, GM_WORKSPACE_READ, GM_POSTS, GM_POST_READ,
+            GM_SHARED_SKILLS, GM_SHARED_SKILL_READ);
+    /** 全部可选依赖都注入时的工具名全集（与上一个常量同义）。 */
+    public static final Set<String> ALL_TOOL_NAMES = TOOL_NAMES_WITH_SHARED_SKILLS;
+    /** 工作区、推文、共享 Skill 与投诉服务全部注入时的工具名全集。 */
+    public static final Set<String> FULL_TOOL_NAMES = Set.of(
+            GM_WORLD_FACTS, GM_TURN_VIEW, GM_PROFILES, GM_BRIEFS, GM_EVENT_POLL,
+            GM_WORKSPACE_LIST, GM_WORKSPACE_READ, GM_POSTS, GM_POST_READ,
+            GM_SHARED_SKILLS, GM_SHARED_SKILL_READ,
+            GM_COMPLAINTS, GM_COMPLAINT_READ);
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Set<String> ROLES = Set.of(GmAideAgent.ROLE);
@@ -79,7 +109,7 @@ public final class GmAideTools {
 
     /** 兼容旧装配：仅基础只读工具。 */
     public static List<AgentTool> create(TaskflowEngine engine, EventReadPort eventReadPort) {
-        return create(engine, eventReadPort, null, null);
+        return create(engine, eventReadPort, null, null, null);
     }
 
     /**
@@ -91,6 +121,27 @@ public final class GmAideTools {
     public static List<AgentTool> create(TaskflowEngine engine, EventReadPort eventReadPort,
                                          SecretaryWorkspaceStore workspaceStore,
                                          PostService postService) {
+        return create(engine, eventReadPort, workspaceStore, postService, null);
+    }
+
+    /**
+     * 构造 GM 推演秘书只读工具快照，并可选加入全局共享 Skill 只读工具。
+     */
+    public static List<AgentTool> create(TaskflowEngine engine, EventReadPort eventReadPort,
+                                         SecretaryWorkspaceStore workspaceStore,
+                                         PostService postService,
+                                         SharedSkillStore sharedSkillStore) {
+        return create(engine, eventReadPort, workspaceStore, postService, sharedSkillStore, null);
+    }
+
+    /**
+     * 构造 GM 推演秘书只读工具快照，并可选加入共享 Skill 与投诉只读工具。
+     */
+    public static List<AgentTool> create(TaskflowEngine engine, EventReadPort eventReadPort,
+                                         SecretaryWorkspaceStore workspaceStore,
+                                         PostService postService,
+                                         SharedSkillStore sharedSkillStore,
+                                         ComplaintService complaintService) {
         Objects.requireNonNull(engine, "engine");
         List<AgentTool> tools = new ArrayList<>();
         tools.add(new ReadTool(GM_WORLD_FACTS,
@@ -182,6 +233,12 @@ public final class GmAideTools {
         }
         if (postService != null) {
             tools.addAll(GmAideWorkspacePostTools.postTools(postService));
+        }
+        if (sharedSkillStore != null) {
+            tools.addAll(GmAideSharedSkillTools.all(sharedSkillStore));
+        }
+        if (complaintService != null) {
+            tools.addAll(GmAideComplaintTools.all(complaintService));
         }
         return List.copyOf(tools);
     }
