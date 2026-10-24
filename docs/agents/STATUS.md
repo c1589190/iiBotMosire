@@ -18,8 +18,9 @@
   sha256 `36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`。
 - 证据：[`../superpowers/status/2026-10-24-mcp-platform-capability-and-autonomous-onboarding.md`](../superpowers/status/2026-10-24-mcp-platform-capability-and-autonomous-onboarding.md)。
 - 默认模拟 MCP 工具面 **77**；`control.platform.allowArbitrarySend=true` 后 **79**。
-- **未部署**：`simulation/dist` 仍是旧 jar；当前 app 未运行、8765 空闲；本轮未重启、
-  未替换 jar、未发送真实 QQ 消息；真实 NapCat smoke 与真实自主入团均 `NOT_RUN`。
+- **jar 已替换**：`simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar` 已换为
+  `36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`；旧 jar 备份为 `...jar.backup-20261024-222732`。
+  当前 app 仍未启动、8765 空闲；未发送真实 QQ 消息；真实 NapCat smoke 与真实自主入团均 `NOT_RUN`。
 - 下一步：先处理已发现的 fresh-init/runtime 与 campaign 世界事实问题，再按宿主流程
   停旧 app、备份、替换 jar、启动并做真实只读 smoke。真实外发需用户明确目标与授权。
 

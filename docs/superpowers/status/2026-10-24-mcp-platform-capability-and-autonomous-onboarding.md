@@ -137,10 +137,11 @@ sha256 `36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`
 
 ## 4. 部署状态
 
-- `simulation/dist` 仍是旧 jar；
-- 当前已无 app 进程，`127.0.0.1:8765` 空闲；这不是本轮停止或替换造成的；
-- 本轮未重启、未替换 `simulation/dist`、未发送任何真实 QQ 消息；
-- 新 jar 只在 `iibot-app/target/`。
+- `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar` 已替换为新 jar；
+- 新 jar sha256：`36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`；
+- 旧 jar 备份：`simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261024-222732`；
+- 当前 app 未启动，`127.0.0.1:8765` 空闲；
+- 未发送任何真实 QQ 消息；真实 NapCat/QQ smoke 仍为 `NOT_RUN`。
 
 发布前需按用户协同流程停止旧 app、备份 runtime、替换 jar、重启并做真实只读 smoke；
 自主入团和任意发送的真实外发仍需用户明确目标与验收内容。

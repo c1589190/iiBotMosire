@@ -821,7 +821,8 @@ bearer token
 - shaded jar 成功：`iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`
   sha256 `36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`；
 - 真实 NapCat/QQ 读取与外发 smoke **NOT_RUN**；
-- simulation/dist jar **未替换**，因为旧 app 仍在运行；未停止、未重启、未发布任何真实 QQ 消息。
+- `simulation/dist` jar 已替换为新 jar，sha256 `36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`；旧 jar 已备份；
+- app 未启动；未发送任何真实 QQ 消息。
 
 ## 14. D-018 追加：工单板长轮询
 
