@@ -10,7 +10,9 @@ import java.util.Objects;
 import java.util.StringJoiner;
 
 /**
- * 一个已提交 ActionBatch 的公共/私密发布映射。
+ * 一条发布映射。{@link PublicationKind#BATCH} 对应已提交 ActionBatch 的
+ * 公共/私密发布；{@link PublicationKind#OPENING} 对应零玩家阶段由 GM 独立创建、
+ * 只含公共草稿的开场推文。
  *
  * <p>正文只存在于事件 {@code content_json} 与派生 Markdown 投影中；本记录的
  * {@link #toString()}、日志与 MCP 摘要都不输出正文。{@link #contentHash()} 是给
@@ -24,14 +26,41 @@ public record PublicationRecord(
         Map<String, String> privatePostIds,
         String publicNarrative,
         Map<String, String> privateOutcomes,
-        Instant createdAt) {
+        Instant createdAt,
+        PublicationKind kind) {
+
+    /** 旧 BATCH 记录源码兼容构造器；新代码应显式传 kind。 */
+    public PublicationRecord(String publicationId,
+                             String batchId,
+                             String turnId,
+                             String publicPostId,
+                             Map<String, String> privatePostIds,
+                             String publicNarrative,
+                             Map<String, String> privateOutcomes,
+                             Instant createdAt) {
+        this(publicationId, batchId, turnId, publicPostId, privatePostIds,
+                publicNarrative, privateOutcomes, createdAt, PublicationKind.BATCH);
+    }
+
+    /** kind-first 源码兼容构造器，便于调用方把发布类型放在最前。 */
+    public PublicationRecord(PublicationKind kind,
+                             String publicationId,
+                             String batchId,
+                             String turnId,
+                             String publicPostId,
+                             Map<String, String> privatePostIds,
+                             String publicNarrative,
+                             Map<String, String> privateOutcomes,
+                             Instant createdAt) {
+        this(publicationId, batchId, turnId, publicPostId, privatePostIds,
+                publicNarrative, privateOutcomes, createdAt, kind);
+    }
 
     public PublicationRecord {
         requireText(publicationId, "publicationId");
-        requireText(batchId, "batchId");
-        if (turnId != null && turnId.isBlank()) {
-            throw new IllegalArgumentException("turnId 不能为空白");
-        }
+        // 旧 PUBLICATION_GENERATED 事件没有 kind 字段；反序列化后为 null，按 BATCH 兼容。
+        kind = kind == null ? PublicationKind.BATCH : kind;
+
         if (publicPostId != null && publicPostId.isBlank()) {
             throw new IllegalArgumentException("publicPostId 不能为空白");
         }
@@ -49,14 +78,38 @@ public record PublicationRecord(
                 throw new IllegalArgumentException("privateOutcomes value 不能为 null");
             }
         }
-        if (publicPostId != null && publicNarrative.isBlank()) {
-            throw new IllegalArgumentException("publicPostId 存在时 publicNarrative 不能为空");
-        }
-        for (String playerId : privatePostIds.keySet()) {
-            String outcome = privateOutcomes.get(playerId);
-            if (outcome == null || outcome.isBlank()) {
-                throw new IllegalArgumentException("privatePostId 存在时私密 outcome 不能为空");
+
+        if (kind == PublicationKind.BATCH) {
+            requireText(batchId, "batchId");
+            if (turnId != null && turnId.isBlank()) {
+                throw new IllegalArgumentException("turnId 不能为空白");
             }
+            if (publicPostId != null && publicNarrative.isBlank()) {
+                throw new IllegalArgumentException("publicPostId 存在时 publicNarrative 不能为空");
+            }
+            for (String playerId : privatePostIds.keySet()) {
+                String outcome = privateOutcomes.get(playerId);
+                if (outcome == null || outcome.isBlank()) {
+                    throw new IllegalArgumentException(
+                            "privatePostId 存在时私密 outcome 不能为空");
+                }
+            }
+        } else {
+            // OPENING 是独立公共开场：没有批次、回合或任何私密映射。
+            if (batchId != null) {
+                throw new IllegalArgumentException("OPENING 记录的 batchId 必须为 null");
+            }
+            if (turnId != null) {
+                throw new IllegalArgumentException("OPENING 记录的 turnId 必须为 null");
+            }
+            if (!privatePostIds.isEmpty()) {
+                throw new IllegalArgumentException("OPENING 记录的 privatePostIds 必须为空");
+            }
+            if (!privateOutcomes.isEmpty()) {
+                throw new IllegalArgumentException("OPENING 记录的 privateOutcomes 必须为空");
+            }
+            requireText(publicPostId, "publicPostId");
+            requireText(publicNarrative, "publicNarrative");
         }
     }
 
@@ -68,8 +121,9 @@ public record PublicationRecord(
     /** 稳定内容 hash：只覆盖完整领域字段，不写入正文。 */
     public String contentHash() {
         StringJoiner joiner = new StringJoiner("\u001F");
+        joiner.add("kind=" + kind.name());
         joiner.add("publicationId=" + publicationId);
-        joiner.add("batchId=" + batchId);
+        joiner.add("batchId=" + (batchId == null ? "" : batchId));
         joiner.add("turnId=" + (turnId == null ? "" : turnId));
         joiner.add("publicPostId=" + (publicPostId == null ? "" : publicPostId));
         appendMap(joiner, "privatePostIds", privatePostIds);
@@ -92,7 +146,8 @@ public record PublicationRecord(
     /** 正文不进入默认日志/异常字符串。 */
     @Override
     public String toString() {
-        return "PublicationRecord[publicationId=" + publicationId
+        return "PublicationRecord[kind=" + kind
+                + ", publicationId=" + publicationId
                 + ", batchId=" + batchId
                 + ", turnId=" + turnId
                 + ", publicPostId=" + publicPostId

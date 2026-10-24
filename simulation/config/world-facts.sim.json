@@ -1,0 +1,29 @@
+{
+  "facts": [
+    {
+      "factId": "sim-public-harbor",
+      "content": "雾灯港是一座建在潮汐礁上的贸易城。每天退潮后，旧城门的石阶才会露出海面。",
+      "visibility": "PUBLIC"
+    },
+    {
+      "factId": "sim-public-guild",
+      "content": "港口的引潮人公会控制着进出旧城的通行权，公会大厅只在黄昏开门。",
+      "visibility": "PUBLIC"
+    },
+    {
+      "factId": "sim-director-secret",
+      "content": "雾灯港的港务长其实已被北方商团收买；潮汐闸门的维修记录被系统性篡改。",
+      "visibility": "DIRECTOR_ONLY"
+    },
+    {
+      "factId": "sim-player-private",
+      "content": "你在旧城门的石缝里发现一枚刻着陌生家徽的铜钥匙。钥匙上还带着未干的海盐。",
+      "visibility": {
+        "type": "PLAYERS",
+        "playerIds": [
+          "player-1"
+        ]
+      }
+    }
+  ]
+}

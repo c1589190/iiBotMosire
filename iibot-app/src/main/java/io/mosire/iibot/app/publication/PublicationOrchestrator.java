@@ -210,7 +210,7 @@ public final class PublicationOrchestrator {
 
         Instant now = clock.instant();
         PublicationRecord record = new PublicationRecord(
-                publicationIdForBatch(batchId), batchId, batch.turnId(),
+                PublicationKind.BATCH, publicationIdForBatch(batchId), batchId, batch.turnId(),
                 publicPost == null ? null : publicPost.postId(),
                 privatePostIds,
                 publicPost == null ? "" : publicPost.body(),
@@ -248,6 +248,80 @@ public final class PublicationOrchestrator {
         return record;
     }
 
+    /**
+     * 创建零玩家阶段的独立公共开场推文草稿。
+     *
+     * <p>本方法不调用 LLM、不发送消息、不创建回合，也不要求 ActionBatch 或玩家。
+     * 推文固定为 PUBLIC、作者 {@code system:publication}、状态 PENDING_APPROVAL；
+     * 后续仍必须由 GM 通过 {@code tf_post_decide} 与 {@code tf_post_publish} 审核发布。</p>
+     *
+     * <p>publicationId 由 {@code (gm.actorId, idempotencyKey)} 唯一确定。同一记录已落库时
+     * 直接返回首次记录；若草稿已创建而事件 append 失败，重试会复用同一草稿，
+     * 不会重复创建 post 或事件。</p>
+     */
+    public synchronized PublicationRecord createOpening(Actor gm, String title,
+                                                        String body,
+                                                        String idempotencyKey) {
+        requireGm(gm);
+        requireText(title, "title", PostService.MAX_TITLE_LENGTH);
+        requireText(body, "body", PostService.MAX_BODY_LENGTH);
+        requireText(idempotencyKey, "idempotencyKey",
+                PostService.MAX_IDEMPOTENCY_KEY_LENGTH);
+
+        String publicationId = publicationIdForOpening(gm.actorId(), idempotencyKey);
+        reloadRecordsFromEvents();
+        PublicationRecord existing = recordsByPublication.get(publicationId);
+        if (existing != null) {
+            return existing;
+        }
+
+        String publicKey = openingPublicKey(publicationId);
+        Post existingPublic = postService.findPublicationDraftForReuse(
+                gm, publicKey, PostService.SYSTEM_PUBLICATION_AUTHOR,
+                PostVisibility.PUBLIC, title).orElse(null);
+        Post publicPost = resolvePublicationPost(gm, existingPublic, publicKey,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC, title, body);
+        if (publicPost == null) {
+            throw new PublicationException(PublicationException.PUBLICATION_POST_UNAVAILABLE,
+                    "开场推文草稿创建失败");
+        }
+
+        Instant now = clock.instant();
+        PublicationRecord record = new PublicationRecord(
+                PublicationKind.OPENING, publicationId, null, null,
+                publicPost.postId(), Map.of(), publicPost.body(), Map.of(), now);
+        DomainEvent event = new DomainEvent(now, DomainEventTypes.PUBLICATION_GENERATED,
+                gm.role(), gm.actorId(), publicationId, null,
+                EventVisibility.GM, record, summary(record));
+        try {
+            long seq = journal.append(event);
+            if (seq <= 0) {
+                throw new IllegalStateException("journal 未返回有效 seq");
+            }
+        } catch (RuntimeException appendFailure) {
+            // append 可能已在事件库提交后才抛异常。按确定性 publicationId 回查；
+            // 已落库就直接返回该记录，不重复创建 post/event。
+            try {
+                reloadRecordsFromEvents();
+            } catch (RuntimeException reloadFailure) {
+                throw new PublicationException(
+                        PublicationException.PUBLICATION_RECORD_CORRUPT,
+                        "开场发布记录事件 append 异常后无法回查 canonical 状态",
+                        reloadFailure);
+            }
+            PublicationRecord persisted = recordsByPublication.get(publicationId);
+            if (persisted != null) {
+                return persisted;
+            }
+            throw new PublicationException(PublicationException.PUBLICATION_EVENT_UNAVAILABLE,
+                    "开场发布记录事件暂不可用；推文草稿已幂等保留，可用同一幂等键重试",
+                    appendFailure);
+        }
+
+        remember(record);
+        return record;
+    }
+
     /** 已完成发布的只读记录（按生成顺序）。 */
     public synchronized List<PublicationRecord> records() {
         return List.copyOf(recordsByPublication.values());
@@ -278,6 +352,17 @@ public final class PublicationOrchestrator {
         return "publication:" + batchId + ":private:" + playerId;
     }
 
+    static String openingPublicKey(String publicationId) {
+        if (publicationId == null || publicationId.isBlank()) {
+            throw new IllegalArgumentException("publicationId 不能为空");
+        }
+        return "opening:" + publicationId + ":public";
+    }
+
+    static String openingKey(String publicationId) {
+        return openingPublicKey(publicationId);
+    }
+
     static String publicDraftTitle(String batchId) {
         return "批次 " + batchId + " public 公共叙事";
     }
@@ -292,6 +377,39 @@ public final class PublicationOrchestrator {
             throw new IllegalArgumentException("batchId 不能为空");
         }
         return "pub-" + Hashes.sha256(batchId);
+    }
+
+    /**
+     * 开场 publicationId 由 GM actorId 与幂等键确定性派生；不包含标题或正文，
+     * 便于在事件 append 异常后直接回查，同时避免把调用方文本带进 ID。
+     */
+    public static String publicationIdForOpening(String gmActorId, String idempotencyKey) {
+        if (gmActorId == null || gmActorId.isBlank()) {
+            throw new IllegalArgumentException("gmActorId 不能为空");
+        }
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("idempotencyKey 不能为空");
+        }
+        return "pub-opening-"
+                + Hashes.sha256(gmActorId + "\u001F" + idempotencyKey);
+    }
+
+    /** Actor 重载：只读取 actorId，不改变公式。 */
+    public static String publicationIdForOpening(Actor gm, String idempotencyKey) {
+        if (gm == null) {
+            throw new IllegalArgumentException("gm 不能为空");
+        }
+        return publicationIdForOpening(gm.actorId(), idempotencyKey);
+    }
+
+    /** {@link #publicationIdForOpening(String, String)} 的别名。 */
+    public static String openingPublicationId(String gmActorId, String idempotencyKey) {
+        return publicationIdForOpening(gmActorId, idempotencyKey);
+    }
+
+    /** {@link #publicationIdForOpening(Actor, String)} 的别名。 */
+    public static String openingPublicationId(Actor gm, String idempotencyKey) {
+        return publicationIdForOpening(gm, idempotencyKey);
     }
 
     private Post resolvePublicationPost(Actor gm, Post existing, String key,
@@ -555,13 +673,16 @@ public final class PublicationOrchestrator {
                 throw new PublicationException(PublicationException.PUBLICATION_RECORD_CORRUPT,
                         "重复 publicationId 对应不同发布记录");
             }
-            PublicationRecord priorByBatch = byBatch.get(record.batchId());
-            if (priorByBatch != null && !priorByBatch.equals(record)) {
-                throw new PublicationException(PublicationException.PUBLICATION_RECORD_CORRUPT,
-                        "同一 batchId 对应不同发布记录");
-            }
             byPublication.putIfAbsent(record.publicationId(), record);
-            byBatch.putIfAbsent(record.batchId(), record);
+            // 只有 BATCH 建 batch 索引；OPENING 没有 batchId，绝不能以 null 参与索引。
+            if (record.kind() == PublicationKind.BATCH) {
+                PublicationRecord priorByBatch = byBatch.get(record.batchId());
+                if (priorByBatch != null && !priorByBatch.equals(record)) {
+                    throw new PublicationException(PublicationException.PUBLICATION_RECORD_CORRUPT,
+                            "同一 batchId 对应不同发布记录");
+                }
+                byBatch.putIfAbsent(record.batchId(), record);
+            }
         }
         recordsByPublication.clear();
         recordsByPublication.putAll(byPublication);
@@ -575,18 +696,23 @@ public final class PublicationOrchestrator {
             throw new PublicationException(PublicationException.PUBLICATION_RECORD_CORRUPT,
                     "重复 publicationId 对应不同发布记录");
         }
-        PublicationRecord byBatch = recordsByBatch.get(record.batchId());
-        if (byBatch != null && !byBatch.equals(record)) {
-            throw new PublicationException(PublicationException.PUBLICATION_RECORD_CORRUPT,
-                    "同一 batchId 对应不同发布记录");
+        if (record.kind() == PublicationKind.BATCH) {
+            PublicationRecord byBatch = recordsByBatch.get(record.batchId());
+            if (byBatch != null && !byBatch.equals(record)) {
+                throw new PublicationException(PublicationException.PUBLICATION_RECORD_CORRUPT,
+                        "同一 batchId 对应不同发布记录");
+            }
         }
         // deterministic publicationId + 完整 record 相等时是安全去重，不追加/不报错。
         recordsByPublication.putIfAbsent(record.publicationId(), record);
-        recordsByBatch.putIfAbsent(record.batchId(), record);
+        if (record.kind() == PublicationKind.BATCH) {
+            recordsByBatch.putIfAbsent(record.batchId(), record);
+        }
     }
 
     private static Map<String, Object> summary(PublicationRecord record) {
         Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("kind", record.kind().name());
         summary.put("publicationId", record.publicationId());
         summary.put("batchId", record.batchId());
         summary.put("turnId", record.turnId());

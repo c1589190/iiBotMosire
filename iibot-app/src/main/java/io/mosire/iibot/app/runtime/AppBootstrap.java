@@ -232,6 +232,15 @@ public final class AppBootstrap {
                         snapshotStore.path());
             }
 
+            if (engine.status().playerCount() == 0) {
+                LOG.info("启动身份状态 players=0：允许先由 GM 创建公共开场推文，"
+                        + "再通过控制面 MCP 动态注册玩家");
+                if (!config.control().enabled()) {
+                    LOG.warn("players=0 且 control.enabled=false：无动态注册入口；"
+                            + "本次进程无法在运行期注册玩家");
+                }
+            }
+
             // 启动期修复上次运行期 event 写失败留下的缺失/stale 快照事件；失败 fail-closed。
             snapshotEventRecorder.ensureRecorded(engine.exportState());
             PostService postService = new PostService(new EventSourcedPostStore(

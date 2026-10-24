@@ -78,8 +78,9 @@ class AppBootstrapP3McpTest {
 
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(65)
+            assertThat(names).hasSize(66)
             .containsAll(GmPublicationMcpTools.NAMES)
+                    .contains(GmPublicationMcpTools.OPENING)
             .containsAll(GmRecordMcpTools.NAMES)
                     .containsAll(ControlBootstrapMcpTools.NAMES)
                     .containsAll(GmPrivateDocsMcpTools.NAMES)

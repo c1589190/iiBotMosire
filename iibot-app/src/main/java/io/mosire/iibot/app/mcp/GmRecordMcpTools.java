@@ -122,7 +122,8 @@ public final class GmRecordMcpTools {
                             "properties", Map.of(
                                     "kind", Map.of("type", "string",
                                             "enum", List.of("turn", "public-narrative",
-                                                    "player", "action", "package", "batch", "post")),
+                                                    "player", "action", "package", "batch",
+                                                    "post", "opening")),
                                     "turnId", Map.of("type", "string"),
                                     "playerId", Map.of("type", "string"),
                                     "postId", Map.of("type", "string"),
@@ -293,6 +294,7 @@ public final class GmRecordMcpTools {
         row.put("packageId", record.packageId());
         row.put("batchId", record.batchId());
         row.put("postId", record.postId());
+        row.put("publicationId", record.publicationId());
         row.put("file", record.file());
         row.put("contentHash", record.contentHash());
         row.put("summary", record.summary());

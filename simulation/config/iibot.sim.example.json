@@ -1,0 +1,53 @@
+{
+  "dataDir": "../runtime",
+  "publicGroupId": "0",
+  "maxTurnMinutes": 240,
+  "napcat": {
+    "eventWebSocketUri": "ws://127.0.0.1:3001/",
+    "httpBaseUri": "http://127.0.0.1:3000/",
+    "accessTokenEnv": "IIBOT_NAPCAT_ACCESS_TOKEN",
+    "accountId": "YOUR_BOT_QQ",
+    "suppressSelfMessages": true,
+    "requestTimeoutSeconds": 10,
+    "maxTextLength": 2000
+  },
+  "players": [],
+  "directors": [
+    {
+      "playerId": "director-1",
+      "qqId": "YOUR_DIRECTOR_QQ",
+      "displayName": "推演控制端"
+    }
+  ],
+  "world": {
+    "promptVersion": "sim-v1",
+    "factsFile": "../config/world-facts.sim.json"
+  },
+  "llm": {
+    "baseUrl": "https://api.example.invalid/v1",
+    "model": "example-model",
+    "apiKeyEnv": "IIBOT_LLM_API_KEY",
+    "connectTimeoutSeconds": 10,
+    "readTimeoutSeconds": 180,
+    "echoReasoningContent": false
+  },
+  "dispatcher": {
+    "maxConcurrentSessions": 64,
+    "maxPendingPerUser": 16,
+    "dedupeCapacity": 10000
+  },
+  "outbox": {
+    "sendTimeoutSeconds": 15
+  },
+  "scheduler": {
+    "autoFreezeIntervalSeconds": 30
+  },
+  "control": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8765,
+    "path": "/mcp/control",
+    "bearerTokenEnv": "IIBOT_CONTROL_TOKEN",
+    "maxRequestBytes": 16777216
+  }
+}

@@ -1,5 +1,6 @@
 package io.mosire.iibot.app.records;
 
+import io.mosire.iibot.app.publication.PublicationKind;
 import io.mosire.iibot.app.publication.PublicationOrchestrator;
 import io.mosire.iibot.app.publication.PublicationRecord;
 import io.mosire.iibot.taskflow.Hashes;
@@ -42,9 +43,10 @@ import java.util.UUID;
  * 将 engine/领域快照幂等投影为 {@code dataDir/records/turns/<turnNo>-<turnId>/} Markdown。
  *
  * <p>Markdown 是派生投影，不是第二事实源。公共叙事只取 publication 的 public 映射；
- * {@code players/<playerId>.md} 只取该玩家的私密 outcome。所有逻辑 ID 在拼接路径前
- * 做白名单校验，目标目录拒绝软链/越界；写文件使用同目录临时文件 + 原子 move + 600
- * best-effort 权限。投影异常不会回滚任何领域事件。</p>
+ * {@code players/<playerId>.md} 只取该玩家的私密 outcome。{@code kind=OPENING} 的独立
+ * 开场推文投影到 {@code records/openings/<publicationId>/}，不伪装成 turn。所有逻辑 ID
+ * 在拼接路径前做白名单校验，目标目录拒绝软链/越界；写文件使用同目录临时文件 + 原子
+ * move + 600 best-effort 权限。投影异常不会回滚任何领域事件。</p>
  */
 public final class TurnRecordProjector {
 
@@ -52,6 +54,7 @@ public final class TurnRecordProjector {
             PosixFilePermissions.fromString("rw-------");
     private static final List<String> MANAGED_DIRECTORIES =
             List.of("players", "actions", "packages", "batches", "posts");
+    private static final List<String> OPENING_MANAGED_DIRECTORIES = List.of("posts");
 
     private final Path dataDir;
     private final TaskflowEngine engine;
@@ -60,7 +63,9 @@ public final class TurnRecordProjector {
     private final PublicationOrchestrator publications;
     private List<TurnRecordSummary> summaries = List.of();
     private List<RecordSummary> recordSummaries = List.of();
+    private List<RecordSummary> openingRecordSummaries = List.of();
     private Map<String, Map<String, String>> manifestsByTurn = Map.of();
+    private Map<String, Map<String, String>> manifestsByOpening = Map.of();
     private boolean projectionPublished;
 
     public TurnRecordProjector(Path dataDir, TaskflowEngine engine,
@@ -81,6 +86,7 @@ public final class TurnRecordProjector {
      */
     public synchronized void rebuildAll() {
         Path turnsRoot = ensureTurnsRoot();
+        Path openingsRoot = ensureOpeningsRoot();
         TaskflowStateSnapshot state = engine.exportState();
         List<TurnStateSnapshot> turns = state.turns().values().stream()
                 .sorted(Comparator.comparingInt(TurnStateSnapshot::turnNo)
@@ -102,10 +108,34 @@ public final class TurnRecordProjector {
             nextManifests.put(rendered.summary().turnId(),
                     Collections.unmodifiableMap(fileHashes));
         }
-        // 只有所有 turn 都完整写完并安全替换后才发布新索引视图；失败保留旧视图。
+
+        List<RecordSummary> nextOpeningRecords = new ArrayList<>();
+        Map<String, Map<String, String>> nextOpeningManifests = new LinkedHashMap<>();
+        List<PublicationRecord> openings = publications.records().stream()
+                .filter(record -> record.kind() == PublicationKind.OPENING)
+                .sorted(Comparator.comparing(PublicationRecord::createdAt)
+                        .thenComparing(PublicationRecord::publicationId))
+                .toList();
+        for (PublicationRecord record : openings) {
+            RenderedOpening rendered = renderOpening(record);
+            Path target = openingsRoot.resolve(
+                    safeLogicalId(record.publicationId(), "publicationId"));
+            writeRecordAtomically(openingsRoot, target, rendered.files(),
+                    OPENING_MANAGED_DIRECTORIES);
+            nextOpeningRecords.add(rendered.summary());
+            Map<String, String> fileHashes = new LinkedHashMap<>();
+            rendered.files().forEach((file, content) ->
+                    fileHashes.put(file, hash(content)));
+            nextOpeningManifests.put(record.publicationId(),
+                    Collections.unmodifiableMap(fileHashes));
+        }
+
+        // 只有所有 turn/opening 都完整写完并安全替换后才发布新索引视图；失败保留旧视图。
         summaries = List.copyOf(nextSummaries);
         recordSummaries = List.copyOf(nextRecords);
+        openingRecordSummaries = List.copyOf(nextOpeningRecords);
         manifestsByTurn = Collections.unmodifiableMap(nextManifests);
+        manifestsByOpening = Collections.unmodifiableMap(nextOpeningManifests);
         projectionPublished = true;
     }
 
@@ -114,9 +144,14 @@ public final class TurnRecordProjector {
         return summaries;
     }
 
-    /** 最近一次成功重建的扁平记录摘要（无正文/物理路径）。 */
+    /** 最近一次成功重建的扁平回合记录摘要（无正文/物理路径）。 */
     public synchronized List<RecordSummary> recordSummaries() {
         return recordSummaries;
+    }
+
+    /** 最近一次成功重建的独立开场记录摘要（无正文/物理路径）。 */
+    public synchronized List<RecordSummary> openingRecordSummaries() {
+        return openingRecordSummaries;
     }
 
     /** 是否至少完成过一次全量投影；false 时查询只能退回 FS-only 已验证扫描。 */
@@ -130,9 +165,20 @@ public final class TurnRecordProjector {
         return manifest == null ? Map.of() : manifest;
     }
 
+    /** 最近一次成功投影的 opening 文件 hash 清单（含 index.md）。 */
+    public synchronized Map<String, String> manifestForOpening(String publicationId) {
+        Map<String, String> manifest = manifestsByOpening.get(publicationId);
+        return manifest == null ? Map.of() : manifest;
+    }
+
     /** 投影根目录仅用于同包查询服务与诊断；不得暴露给 MCP。 */
     Path turnsRoot() {
         return ensureTurnsRoot();
+    }
+
+    /** 开场投影根目录仅用于同包查询服务与诊断；不得暴露给 MCP。 */
+    Path openingsRoot() {
+        return ensureOpeningsRoot();
     }
 
     private RenderedTurn renderTurn(TurnStateSnapshot turn) {
@@ -143,6 +189,7 @@ public final class TurnRecordProjector {
                         .thenComparing(ActionBatch::batchId))
                 .toList();
         List<PublicationRecord> publicationRecords = publications.records().stream()
+                .filter(record -> record.kind() == PublicationKind.BATCH)
                 .filter(record -> turnId.equals(record.turnId()))
                 .sorted(Comparator.comparing(PublicationRecord::createdAt)
                         .thenComparing(PublicationRecord::publicationId))
@@ -292,6 +339,88 @@ public final class TurnRecordProjector {
         return new RenderedTurn(summary, files, records);
     }
 
+    private RenderedOpening renderOpening(PublicationRecord record) {
+        if (record.kind() != PublicationKind.OPENING) {
+            throw new RecordProjectionException(RecordProjectionException.INVALID_ARGUMENTS,
+                    "只允许投影 OPENING 发布记录到 records/openings");
+        }
+        String publicationId = safeLogicalId(record.publicationId(), "publicationId");
+        String publicPostId = safeLogicalId(record.publicPostId(), "postId");
+        Post publicPost = postService.post(publicPostId).orElseThrow(() ->
+                new RecordProjectionException(RecordProjectionException.PROJECTION_FAILED,
+                        "开场发布记录引用的公共推文不存在"));
+        if (publicPost.visibility() != PostVisibility.PUBLIC
+                || !PostService.SYSTEM_PUBLICATION_AUTHOR.equals(publicPost.authorPlayerId())
+                || !publicPost.body().equals(record.publicNarrative())) {
+            throw new RecordProjectionException(RecordProjectionException.PROJECTION_FAILED,
+                    "开场公共叙事与公共推文作者/可见性/正文不一致");
+        }
+
+        Map<String, String> files = new LinkedHashMap<>();
+        files.put("public-narrative.md", renderOpeningPublicNarrative(record));
+        String postFile = "posts/" + publicPostId + "-PUBLIC.md";
+        files.put(postFile, renderOpeningPostFile(publicationId, publicPost));
+
+        Map<String, String> hashes = new LinkedHashMap<>();
+        files.forEach((file, content) -> hashes.put(file, hash(content)));
+        String index = renderOpeningIndex(record, publicPost, hashes);
+        files.put("index.md", index);
+        RecordSummary summary = new RecordSummary(
+                "opening", null, null, null, null, null, publicPostId,
+                "index.md", hash(index),
+                "publicationContentHash=" + record.contentHash()
+                        + ",publicNarrativeHash=" + record.publicNarrativeHash()
+                        + ",status=" + publicPost.status(),
+                publicationId);
+        return new RenderedOpening(files, summary);
+    }
+
+    private static String renderOpeningPublicNarrative(PublicationRecord record) {
+        return "# 开场推文 公共叙事\n\n"
+                + "- publicationId: `" + record.publicationId() + "`\n"
+                + "- publicPostId: `" + record.publicPostId() + "`\n\n"
+                + "## 正文\n\n" + record.publicNarrative() + "\n";
+    }
+
+    private static String renderOpeningPostFile(String publicationId, Post post) {
+        return "# 推文 " + post.postId() + "\n\n"
+                + "- kind: `OPENING`\n"
+                + "- publicationId: `" + publicationId + "`\n"
+                + "- postId: `" + post.postId() + "`\n"
+                + "- authorPlayerId: `" + post.authorPlayerId() + "`\n"
+                + "- visibility: `" + post.visibility() + "`\n"
+                + "- status: `" + post.status() + "`\n"
+                + "- revision: " + post.revision() + "\n"
+                + "- createdAt: " + post.createdAt() + "\n"
+                + "- updatedAt: " + post.updatedAt() + "\n"
+                + "- approvedBy: " + post.approvedBy() + "\n"
+                + "- publishedBy: " + post.publishedBy() + "\n"
+                + "- deliveryState: " + post.deliveryState() + "\n\n"
+                + "## 标题\n\n" + post.title() + "\n\n"
+                + "## 正文\n\n" + post.body() + "\n";
+    }
+
+    private static String renderOpeningIndex(PublicationRecord record, Post post,
+                                             Map<String, String> hashes) {
+        StringBuilder out = new StringBuilder();
+        out.append("# 开场推文记录索引\n\n")
+                .append("- kind: OPENING\n")
+                .append("- publicationId: `").append(record.publicationId()).append("`\n")
+                .append("- publicPostId: `").append(record.publicPostId()).append("`\n")
+                .append("- createdAt: ").append(record.createdAt()).append('\n')
+                .append("- contentHash: ").append(record.contentHash()).append('\n')
+                .append("- publicNarrativeHash: ")
+                .append(record.publicNarrativeHash()).append('\n')
+                .append("- status: ").append(post.status()).append('\n')
+                .append("- visibility: ").append(post.visibility()).append("\n\n")
+                .append("## Content hashes\n\n");
+        for (Map.Entry<String, String> entry : hashes.entrySet()) {
+            out.append("- `").append(entry.getKey()).append("`: `")
+                    .append(entry.getValue()).append("`\n");
+        }
+        return out.toString();
+    }
+
     private static String renderPublicNarrative(TurnStateSnapshot turn,
                                                 List<PublicationRecord> records) {
         StringBuilder out = new StringBuilder();
@@ -426,44 +555,51 @@ public final class TurnRecordProjector {
         return out.toString();
     }
 
-    private static void writeRendered(Path stagingDir, RenderedTurn rendered) {
-        for (Map.Entry<String, String> entry : rendered.files().entrySet()) {
+    private static void writeRendered(Path stagingDir, Map<String, String> files) {
+        for (Map.Entry<String, String> entry : files.entrySet()) {
             if ("index.md".equals(entry.getKey())) {
                 continue;
             }
             writeAtomic(stagingDir.resolve(relativePath(entry.getKey())), entry.getValue());
         }
-        writeAtomic(stagingDir.resolve("index.md"), rendered.files().get("index.md"));
+        writeAtomic(stagingDir.resolve("index.md"), files.get("index.md"));
+    }
+
+    private static void writeTurnAtomically(Path turnsRoot, Path target,
+                                            RenderedTurn rendered) {
+        writeRecordAtomically(turnsRoot, target, rendered.files(), MANAGED_DIRECTORIES);
     }
 
     /**
      * 同父目录 staging 写全后再替换 target。替换采用“旧目录先备份、新目录 rename、
      * 失败恢复旧目录”的 fail-closed 流程；不会把半写文件直接暴露在 target。
      */
-    private static void writeTurnAtomically(Path turnsRoot, Path target, RenderedTurn rendered) {
+    private static void writeRecordAtomically(Path root, Path target,
+                                              Map<String, String> files,
+                                              List<String> managedDirectories) {
         Path staging = null;
         try {
             // rebuildAll 取到 root 后，路径仍可能被替换成软链；写入前再次 fail-closed。
-            requireRegularRoot(turnsRoot);
-            staging = Files.createTempDirectory(turnsRoot, ".record-staging-");
+            requireRegularRoot(root);
+            staging = Files.createTempDirectory(root, ".record-staging-");
             rejectSymbolic(staging, "staging");
             if (!Files.isDirectory(staging, LinkOption.NOFOLLOW_LINKS)) {
                 throw new RecordProjectionException(RecordProjectionException.IO_FAILED,
                         "staging 不是普通目录");
             }
-            for (String managed : MANAGED_DIRECTORIES) {
+            for (String managed : managedDirectories) {
                 Files.createDirectory(staging.resolve(managed));
             }
-            writeRendered(staging, rendered);
+            writeRendered(staging, files);
             fsyncDirectory(staging);
-            requireRegularRoot(turnsRoot);
-            replaceDirectory(turnsRoot, target, staging);
+            requireRegularRoot(root);
+            replaceDirectory(root, target, staging, managedDirectories);
             staging = null;
         } catch (RecordProjectionException failure) {
             throw failure;
         } catch (IOException | RuntimeException failure) {
             throw new RecordProjectionException(RecordProjectionException.IO_FAILED,
-                    "原子投影回合目录失败", failure);
+                    "原子投影记录目录失败", failure);
         } finally {
             if (staging != null) {
                 deleteRecursivelyQuietly(staging);
@@ -486,11 +622,12 @@ public final class TurnRecordProjector {
         }
     }
 
-    private static void replaceDirectory(Path parent, Path target, Path staging)
+    private static void replaceDirectory(Path parent, Path target, Path staging,
+                                         List<String> managedDirectories)
             throws IOException {
         if (Files.isSymbolicLink(target)) {
             throw new RecordProjectionException(RecordProjectionException.UNSAFE_PATH,
-                    "turn 记录 target 不得是软链");
+                    "记录 target 不得是软链");
         }
         if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
             moveDirectory(staging, target);
@@ -499,9 +636,9 @@ public final class TurnRecordProjector {
         }
         if (!Files.isDirectory(target, LinkOption.NOFOLLOW_LINKS)) {
             throw new RecordProjectionException(RecordProjectionException.UNSAFE_PATH,
-                    "turn 记录 target 不是普通目录");
+                    "记录 target 不是普通目录");
         }
-        validateExistingTargetForSymlinks(target);
+        validateExistingTargetForSymlinks(target, managedDirectories);
         Path backup = uniqueSibling(parent, ".record-backup-");
         boolean oldMoved = false;
         boolean newMoved = false;
@@ -534,14 +671,15 @@ public final class TurnRecordProjector {
         }
     }
 
-    private static void validateExistingTargetForSymlinks(Path target) {
+    private static void validateExistingTargetForSymlinks(Path target,
+                                                          List<String> managedDirectories) {
         try {
-            for (String managed : MANAGED_DIRECTORIES) {
+            for (String managed : managedDirectories) {
                 Path dir = target.resolve(managed);
                 if (Files.isSymbolicLink(dir)) {
                     throw new RecordProjectionException(
                             RecordProjectionException.UNSAFE_PATH,
-                            "已有 turn 记录子目录不得是软链: " + managed);
+                            "已有记录子目录不得是软链: " + managed);
                 }
                 if (Files.exists(dir, LinkOption.NOFOLLOW_LINKS)
                         && Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) {
@@ -550,7 +688,7 @@ public final class TurnRecordProjector {
                             if (Files.isSymbolicLink(child)) {
                                 throw new RecordProjectionException(
                                         RecordProjectionException.UNSAFE_PATH,
-                                        "已有 turn 记录文件不得是软链");
+                                        "已有记录文件不得是软链");
                             }
                         }
                     }
@@ -561,7 +699,7 @@ public final class TurnRecordProjector {
                     if (Files.isSymbolicLink(child)) {
                         throw new RecordProjectionException(
                                 RecordProjectionException.UNSAFE_PATH,
-                                "已有 turn 记录路径不得是软链");
+                                "已有记录路径不得是软链");
                     }
                 }
             }
@@ -569,7 +707,7 @@ public final class TurnRecordProjector {
             throw failure;
         } catch (IOException failure) {
             throw new RecordProjectionException(RecordProjectionException.IO_FAILED,
-                    "检查已有 turn 记录软链失败", failure);
+                    "检查已有记录软链失败", failure);
         }
     }
 
@@ -625,6 +763,15 @@ public final class TurnRecordProjector {
     }
 
     private Path ensureTurnsRoot() {
+        return ensureRecordsRoot("turns");
+    }
+
+    private Path ensureOpeningsRoot() {
+        return ensureRecordsRoot("openings");
+    }
+
+    private Path ensureRecordsRoot(String child) {
+        String label = "records/" + child;
         try {
             Path records = dataDir.resolve("records");
             Files.createDirectories(records);
@@ -633,19 +780,19 @@ public final class TurnRecordProjector {
                 throw new RecordProjectionException(RecordProjectionException.UNSAFE_PATH,
                         "records 不是普通目录");
             }
-            Path root = records.resolve("turns");
+            Path root = records.resolve(child);
             Files.createDirectories(root);
-            rejectSymbolic(root, "records/turns");
+            rejectSymbolic(root, label);
             if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) {
                 throw new RecordProjectionException(RecordProjectionException.UNSAFE_PATH,
-                        "records/turns 不是普通目录");
+                        label + " 不是普通目录");
             }
             return root.toRealPath(LinkOption.NOFOLLOW_LINKS);
         } catch (RecordProjectionException failure) {
             throw failure;
         } catch (IOException | RuntimeException failure) {
             throw new RecordProjectionException(RecordProjectionException.IO_FAILED,
-                    "创建 records/turns 根目录失败", failure);
+                    "创建 " + label + " 根目录失败", failure);
         }
     }
 
@@ -785,6 +932,13 @@ public final class TurnRecordProjector {
         private RenderedTurn {
             files = Collections.unmodifiableMap(new LinkedHashMap<>(files));
             records = List.copyOf(records);
+        }
+    }
+
+    private record RenderedOpening(Map<String, String> files,
+                                   RecordSummary summary) {
+        private RenderedOpening {
+            files = Collections.unmodifiableMap(new LinkedHashMap<>(files));
         }
     }
 }

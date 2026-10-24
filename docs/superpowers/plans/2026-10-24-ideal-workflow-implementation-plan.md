@@ -292,6 +292,11 @@ P8 真实 MCP/LLM/多玩家/发布回归与发布
 
 **目标**：真实 MCP/LLM/QQ 多玩家验证并推送。
 
+**P8-A 前置修复**（用户 2026-10-24 裁定）：允许 `players=[]` 启动；新增 GM 独立
+PUBLIC 开场推文 `tf_publication_opening`，先发公共群，再通过 MCP 注册玩家。
+状态：生产/测试/full gate 已完成（526 tests，66 工具）；独立评审在用户要求提交时中止，
+评审结论未完成。详见 [`specs/2026-10-24-p8-preplayer-opening-publication.md`](../specs/2026-10-24-p8-preplayer-opening-publication.md)。
+
 **验收**
 
 - DSH/Hermes 真实 MCP：初始化→工单→行动包→裁决→推文；

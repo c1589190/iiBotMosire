@@ -122,8 +122,9 @@ class AppBootstrapP6PublicationRecordsTest {
             client = client(server);
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(65)
+            assertThat(names).hasSize(66)
                     .containsAll(GmPublicationMcpTools.NAMES)
+                    .contains(GmPublicationMcpTools.OPENING)
                     .containsAll(GmRecordMcpTools.NAMES)
                     .doesNotContain("tf_qq_send", "qq_send", "tf_confirm_decision", "shutdown");
 

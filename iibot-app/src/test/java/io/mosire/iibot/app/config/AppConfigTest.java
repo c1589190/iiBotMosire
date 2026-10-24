@@ -125,6 +125,83 @@ class AppConfigTest {
         assertThat(config.napcat().toString()).doesNotContain("secret-value");
     }
 
+
+    @Test
+    void loadsEmptyPlayersWithDirectorsAndControlEnabled() {
+        Path facts = TestSupport.writeFacts(tempDir.resolve("no-players-facts.json"),
+                "{\"facts\":[]}");
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("no-players.json"),
+                TestSupport.validConfigNode(tempDir.resolve("no-players-data"), facts));
+        ObjectNode root = readNode(configFile);
+        ((ArrayNode) root.get("players")).removeAll();
+        ObjectNode control = root.putObject("control");
+        control.put("enabled", true);
+        control.put("host", "127.0.0.1");
+        control.put("port", 8765);
+        control.put("path", "/mcp/control");
+        control.put("bearerTokenEnv", "IIBOT_CONTROL_TOKEN");
+        TestSupport.writeJson(configFile, root);
+
+        AppConfig config = TestSupport.loadConfig(configFile);
+
+        assertThat(config.players()).isEmpty();
+        assertThat(config.directors()).extracting(AppConfig.Account::playerId)
+                .containsExactly("director-1");
+        assertThat(config.control().enabled()).isTrue();
+    }
+
+    @Test
+    void loadsEmptyPlayersWithControlDisabledBecauseProductionOnlyWarns() {
+        Path facts = TestSupport.writeFacts(tempDir.resolve("no-players-control-off-facts.json"),
+                "{\"facts\":[]}");
+        Path configFile = TestSupport.writeConfig(
+                tempDir.resolve("no-players-control-off.json"),
+                TestSupport.validConfigNode(
+                        tempDir.resolve("no-players-control-off-data"), facts));
+        ObjectNode root = readNode(configFile);
+        ((ArrayNode) root.get("players")).removeAll();
+        root.remove("control");
+        TestSupport.writeJson(configFile, root);
+
+        AppConfig config = TestSupport.loadConfig(configFile);
+
+        assertThat(config.players()).isEmpty();
+        assertThat(config.directors()).isNotEmpty();
+        assertThat(config.control().enabled()).isFalse();
+    }
+
+    @Test
+    void rejectsEmptyDirectorsEvenWhenPlayersAreEmpty() {
+        Path facts = TestSupport.writeFacts(tempDir.resolve("no-directors-facts.json"),
+                "{\"facts\":[]}");
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("no-directors.json"),
+                TestSupport.validConfigNode(tempDir.resolve("no-directors-data"), facts));
+        ObjectNode root = readNode(configFile);
+        ((ArrayNode) root.get("players")).removeAll();
+        ((ArrayNode) root.get("directors")).removeAll();
+        TestSupport.writeJson(configFile, root);
+
+        assertThatThrownBy(() -> TestSupport.loadConfig(configFile))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("directors")
+                .hasMessageContaining("不能为空数组");
+    }
+
+    @Test
+    void rejectsMissingPlayersFieldEvenWhenPlayersMayBeEmpty() {
+        Path facts = TestSupport.writeFacts(tempDir.resolve("missing-players-facts.json"),
+                "{\"facts\":[]}");
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("missing-players.json"),
+                TestSupport.validConfigNode(tempDir.resolve("missing-players-data"), facts));
+        ObjectNode root = readNode(configFile);
+        root.remove("players");
+        TestSupport.writeJson(configFile, root);
+
+        assertThatThrownBy(() -> TestSupport.loadConfig(configFile))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("players");
+    }
+
     @Test
     void controlConfigDefaultsDisabledAndParsesLoopbackBearerConfig() {
         Path configFile = TestSupport.writeConfig(tempDir.resolve("control-off.json"),

@@ -28,14 +28,16 @@ import java.util.regex.Pattern;
 /**
  * records Markdown 投影的只读查询面。
  *
- * <p>只返回逻辑 turnId、安全相对 file、Markdown 内容/摘要与 hash；不返回物理路径。
+ * <p>只返回逻辑 ID、安全相对 file、Markdown 内容/摘要与 hash；不返回物理路径。
  * turn_get 只接受 index/public/players/actions/packages/batches/posts 下的单层安全
- * 相对路径，并拒绝绝对路径、{@code ..}、反斜杠、控制字符与软链。</p>
+ * 相对路径，并拒绝绝对路径、{@code ..}、反斜杠、控制字符与软链。kind=opening
+ * 摘要来自 records/openings，turnId 为 null，不伪装成回合。</p>
  */
 public final class RecordQueryService {
 
     public static final Set<String> KINDS = Set.of(
-            "turn", "public-narrative", "player", "action", "package", "batch", "post");
+            "turn", "public-narrative", "player", "action", "package", "batch", "post",
+            "opening");
     private static final int MAX_FILE_BYTES = 8 * 1024 * 1024;
     private static final Pattern HASH_LINE =
             Pattern.compile("^- `([^`]+)`: `([0-9a-f]{64})`$");
@@ -183,6 +185,7 @@ public final class RecordQueryService {
                 case "packages" -> "package";
                 case "batches" -> "batch";
                 case "posts" -> "post";
+                case "openings" -> "opening";
                 default -> kindFilter.toLowerCase(Locale.ROOT);
             };
             if (!KINDS.contains(kindFilter)) {
@@ -208,10 +211,16 @@ public final class RecordQueryService {
             TurnRecordProjector.safeLogicalId(playerFilter, "playerId");
         }
         // projector 非空时只查询最后一次成功投影摘要；FS-only 构造器才扫描 index。
-        List<RecordSummary> source = projector == null
-                ? scanRecordSummaries()
-                : (projector.hasSuccessfulProjection()
-                        ? projector.recordSummaries() : List.of());
+        List<RecordSummary> source;
+        if (projector == null) {
+            source = new ArrayList<>(scanRecordSummaries());
+            source.addAll(scanOpeningRecordSummaries());
+        } else if (projector.hasSuccessfulProjection()) {
+            source = new ArrayList<>(projector.recordSummaries());
+            source.addAll(projector.openingRecordSummaries());
+        } else {
+            source = List.of();
+        }
         return source.stream()
                 .filter(item -> normalizedKind == null || item.kind().equals(normalizedKind))
                 .filter(item -> turnFilter == null || turnFilter.equals(item.turnId()))
@@ -461,6 +470,79 @@ public final class RecordQueryService {
         return List.copyOf(result);
     }
 
+    private List<RecordSummary> scanOpeningRecordSummaries() {
+        try {
+            return scanOpeningRecordSummariesUnchecked();
+        } catch (RecordProjectionException failure) {
+            throw failure;
+        } catch (IOException | RuntimeException failure) {
+            throw new RecordProjectionException(RecordProjectionException.IO_FAILED,
+                    "扫描开场记录摘要失败", failure);
+        }
+    }
+
+    private List<RecordSummary> scanOpeningRecordSummariesUnchecked() throws IOException {
+        Path root = openingsRoot();
+        if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
+            return List.of();
+        }
+        List<RecordSummary> result = new ArrayList<>();
+        try (var stream = Files.list(root)) {
+            for (Path child : stream.toList()) {
+                if (Files.isSymbolicLink(child)
+                        || !Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
+                    continue;
+                }
+                String publicationId = child.getFileName().toString();
+                try {
+                    TurnRecordProjector.safeLogicalId(publicationId, "publicationId");
+                } catch (RecordProjectionException unsafe) {
+                    continue;
+                }
+                Path index = child.resolve("index.md");
+                if (Files.isSymbolicLink(index)
+                        || !Files.isRegularFile(index, LinkOption.NOFOLLOW_LINKS)) {
+                    continue;
+                }
+                String markdown;
+                try {
+                    markdown = readText(index);
+                    parseAndValidateOpeningIndex(child, markdown);
+                } catch (RecordProjectionException inconsistentIndex) {
+                    // FS-only 视图只暴露可验证的完整投影。
+                    continue;
+                }
+                if (!lineValue(markdown, "kind").filter("OPENING"::equals).isPresent()
+                        || !lineValue(markdown, "publicationId")
+                        .filter(publicationId::equals).isPresent()) {
+                    continue;
+                }
+                String publicPostId = lineValue(markdown, "publicPostId").orElse("");
+                try {
+                    TurnRecordProjector.safeLogicalId(publicPostId, "postId");
+                } catch (RecordProjectionException unsafe) {
+                    continue;
+                }
+                String publicationHash = lineValue(markdown, "contentHash").orElse("");
+                String narrativeHash = lineValue(markdown, "publicNarrativeHash").orElse("");
+                String status = lineValue(markdown, "status").orElse("UNKNOWN");
+                result.add(new RecordSummary(
+                        "opening", null, null, null, null, null, publicPostId,
+                        "index.md", Hashes.sha256(markdown),
+                        "publicationContentHash=" + publicationHash
+                                + ",publicNarrativeHash=" + narrativeHash
+                                + ",status=" + status,
+                        publicationId));
+            }
+            return List.copyOf(result);
+        } catch (RecordProjectionException failure) {
+            throw failure;
+        } catch (IOException | RuntimeException failure) {
+            throw new RecordProjectionException(RecordProjectionException.IO_FAILED,
+                    "扫描开场记录失败", failure);
+        }
+    }
+
     private static RecordSummary recordSummaryForManifestFile(String turnId, String file,
                                                              String hash) {
         if ("public-narrative.md".equals(file)) {
@@ -488,8 +570,22 @@ public final class RecordQueryService {
 
     private static Map<String, String> parseAndValidateIndex(Path turnDir,
                                                              String markdown) {
+        return parseAndValidateIndex(turnDir, markdown, MANAGED_DIRECTORIES,
+                Set.of("index.md", "public-narrative.md"));
+    }
+
+    private static Map<String, String> parseAndValidateOpeningIndex(Path openingDir,
+                                                                    String markdown) {
+        return parseAndValidateIndex(openingDir, markdown, List.of("posts"),
+                Set.of("index.md", "public-narrative.md"));
+    }
+
+    private static Map<String, String> parseAndValidateIndex(Path recordDir, String markdown,
+                                                             List<String> managedDirectories,
+                                                             Set<String> allowedTopLevelFiles) {
         Map<String, String> manifest = parseManifest(markdown);
-        Set<String> actual = actualGeneratedFiles(turnDir);
+        Set<String> actual = actualGeneratedFiles(
+                recordDir, managedDirectories, allowedTopLevelFiles);
         if (!actual.equals(manifest.keySet())) {
             throw inconsistent("index manifest 与目录文件集合不一致");
         }
@@ -497,7 +593,7 @@ public final class RecordQueryService {
             Path file;
             String actualContent;
             try {
-                file = resolveAllowedFile(turnDir, entry.getKey());
+                file = resolveAllowedFile(recordDir, entry.getKey());
                 if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
                     throw inconsistent("manifest 文件不是普通文件");
                 }
@@ -565,9 +661,11 @@ public final class RecordQueryService {
         return normalized;
     }
 
-    private static Set<String> actualGeneratedFiles(Path turnDir) {
+    private static Set<String> actualGeneratedFiles(Path recordDir,
+                                                     List<String> managedDirectories,
+                                                     Set<String> allowedTopLevelFiles) {
         Set<String> actual = new LinkedHashSet<>();
-        Path publicFile = turnDir.resolve("public-narrative.md");
+        Path publicFile = recordDir.resolve("public-narrative.md");
         if (Files.isSymbolicLink(publicFile)) {
             throw new RecordProjectionException(RecordProjectionException.UNSAFE_PATH,
                     "public-narrative.md 不得是软链");
@@ -576,8 +674,8 @@ public final class RecordQueryService {
             throw inconsistent("public-narrative.md 缺失或不是普通文件");
         }
         actual.add("public-narrative.md");
-        for (String managed : MANAGED_DIRECTORIES) {
-            Path dir = turnDir.resolve(managed);
+        for (String managed : managedDirectories) {
+            Path dir = recordDir.resolve(managed);
             if (Files.isSymbolicLink(dir)) {
                 throw new RecordProjectionException(RecordProjectionException.UNSAFE_PATH,
                         "记录子目录不得是软链: " + managed);
@@ -602,24 +700,24 @@ public final class RecordQueryService {
                         "扫描记录子目录失败", failure);
             }
         }
-        try (var stream = Files.list(turnDir)) {
+        try (var stream = Files.list(recordDir)) {
             for (Path child : stream.toList()) {
                 String name = child.getFileName().toString();
                 if (Files.isSymbolicLink(child)) {
                     throw new RecordProjectionException(RecordProjectionException.UNSAFE_PATH,
-                            "回合目录不得含软链");
+                            "记录目录不得含软链");
                 }
                 if (Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS)) {
-                    if (!"index.md".equals(name) && !"public-narrative.md".equals(name)) {
-                        throw inconsistent("回合目录含未索引文件");
+                    if (!allowedTopLevelFiles.contains(name)) {
+                        throw inconsistent("记录目录含未索引文件");
                     }
-                } else if (!MANAGED_DIRECTORIES.contains(name)) {
-                    throw inconsistent("回合目录含未索引子目录");
+                } else if (!managedDirectories.contains(name)) {
+                    throw inconsistent("记录目录含未索引子目录");
                 }
             }
         } catch (IOException failure) {
             throw new RecordProjectionException(RecordProjectionException.IO_FAILED,
-                    "扫描回合目录失败", failure);
+                    "扫描记录目录失败", failure);
         }
         return actual;
     }
@@ -663,14 +761,23 @@ public final class RecordQueryService {
 
 
     /**
-     * FS-only 路径解析必须与 TurnRecordProjector.ensureTurnsRoot 等价：
-     * dataDir/records 与 dataDir/records/turns 均 NOFOLLOW 检查，存在路径的 realPath
-     * 必须仍在 dataDir realPath 内。records 父级软链一律 UNSAFE_PATH。
+     * FS-only 路径解析必须与 TurnRecordProjector.ensureRecordsRoot 等价：
+     * dataDir/records 与 dataDir/records/&lt;child&gt; 均 NOFOLLOW 检查，存在路径的
+     * realPath 必须仍在 dataDir realPath 内。records 父级软链一律 UNSAFE_PATH。
      */
     private Path turnsRoot() {
+        return recordsRoot("turns");
+    }
+
+    private Path openingsRoot() {
+        return recordsRoot("openings");
+    }
+
+    private Path recordsRoot(String child) {
+        String label = "records/" + child;
         Path dataAbsolute = dataDir.toAbsolutePath().normalize();
         Path records = dataAbsolute.resolve("records");
-        Path root = records.resolve("turns");
+        Path root = records.resolve(child);
         try {
             if (!Files.exists(dataAbsolute, LinkOption.NOFOLLOW_LINKS)) {
                 return root.normalize();
@@ -695,19 +802,19 @@ public final class RecordQueryService {
             if (Files.isSymbolicLink(root)
                     || !Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) {
                 throw new RecordProjectionException(RecordProjectionException.UNSAFE_PATH,
-                        "records/turns 必须是非软链普通目录");
+                        label + " 必须是非软链普通目录");
             }
             Path rootReal = root.toRealPath(LinkOption.NOFOLLOW_LINKS);
             if (!rootReal.startsWith(dataReal) || !rootReal.startsWith(recordsReal)) {
                 throw new RecordProjectionException(RecordProjectionException.UNSAFE_PATH,
-                        "records/turns realPath 逃逸 dataDir/records");
+                        label + " realPath 逃逸 dataDir/records");
             }
             return rootReal;
         } catch (RecordProjectionException failure) {
             throw failure;
         } catch (IOException failure) {
             throw new RecordProjectionException(RecordProjectionException.IO_FAILED,
-                    "读取 records/turns 路径失败", failure);
+                    "读取 " + label + " 路径失败", failure);
         }
     }
 

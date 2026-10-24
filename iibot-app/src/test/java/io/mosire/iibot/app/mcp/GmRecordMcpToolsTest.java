@@ -132,6 +132,47 @@ class GmRecordMcpToolsTest {
         }
     }
 
+    @Test
+    void openingQueryReturnsPublicationIdPostIdAndHashWithoutBodyOrPhysicalPath()
+            throws Exception {
+        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("record-tools-opening"))) {
+            String body = "开场记录工具正文-不得回显-9ac1";
+            PublicationOrchestrator orchestrator =
+                    fixture.publicationOrchestrator(FakeLlmClient.with());
+            var opening = orchestrator.createOpening(P6Fixture.SUPERVISOR,
+                    "开场记录工具标题", body, "record-tools-opening");
+            TurnRecordProjector projector = fixture.projector(orchestrator);
+            projector.rebuildAll();
+            RecordQueryService queryService = new RecordQueryService(
+                    fixture.dataDir, projector);
+            List<AgentTool> tools = GmRecordMcpTools.all(queryService);
+
+            ToolResult query = callAsRole(tools, "supervisor",
+                    GmRecordMcpTools.QUERY, Map.of("kind", "opening"));
+            assertThat(query.success()).as(query.message()).isTrue();
+            JsonNode data = JSON.readTree(query.message()).path("data");
+            assertThat(data.path("count").asInt()).isEqualTo(1);
+            JsonNode row = data.path("records").get(0);
+            assertThat(row.path("kind").asText()).isEqualTo("opening");
+            assertThat(row.path("publicationId").asText())
+                    .isEqualTo(opening.publicationId());
+            assertThat(row.path("postId").asText())
+                    .isEqualTo(opening.publicPostId());
+            assertThat(row.path("contentHash").asText()).hasSize(64);
+            assertThat(row.path("turnId").isNull()).isTrue();
+            assertThat(row.path("summary").asText())
+                    .contains("publicationContentHash=" + opening.contentHash());
+            assertThat(query.message()).doesNotContain(body,
+                    fixture.dataDir.toString());
+
+            ToolResult turnList = callAsRole(tools, "supervisor",
+                    GmRecordMcpTools.TURN_LIST, Map.of());
+            assertThat(turnList.success()).isTrue();
+            assertThat(turnList.message()).doesNotContain(
+                    opening.publicationId(), body, fixture.dataDir.toString());
+        }
+    }
+
     private static ToolResult callAsRole(List<AgentTool> tools, String role,
                                          String toolName, Map<String, Object> arguments) {
         ToolRegistry registry = new ToolRegistry();

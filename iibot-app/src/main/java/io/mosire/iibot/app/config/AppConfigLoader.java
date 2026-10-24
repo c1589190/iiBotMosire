@@ -103,8 +103,12 @@ public final class AppConfigLoader {
         int maxTurnMinutes = requiredInt(root, "maxTurnMinutes", "配置根");
 
         AppConfig.NapCat napcat = parseNapcat(requiredObject(root, "napcat", "配置根"));
-        List<AppConfig.Account> players = parseAccounts(requiredArray(root, "players", "配置根"), "players");
-        List<AppConfig.Account> directors = parseAccounts(requiredArray(root, "directors", "配置根"), "directors");
+        // players 字段必须显式存在，但数组可以为空：P8 支持先发公共开场、再由
+        // 控制面 MCP 动态注册玩家。directors 仍是启动权威锚点，不能为空。
+        List<AppConfig.Account> players = parseAccounts(
+                requiredArray(root, "players", "配置根"), "players", true);
+        List<AppConfig.Account> directors = parseAccounts(
+                requiredArray(root, "directors", "配置根"), "directors", false);
         AppConfig.World world = parseWorld(requiredObject(root, "world", "配置根"), baseDir);
         Optional<AppConfig.Llm> llm = optionalObject(root, "llm", "配置根")
                 .map(node -> parseLlm(node, "llm"));
@@ -142,9 +146,16 @@ public final class AppConfigLoader {
                 maxTextLength);
     }
 
-    private static List<AppConfig.Account> parseAccounts(JsonNode array, String field) {
-        if (!array.isArray() || array.isEmpty()) {
-            throw new ConfigException(field + " 不能为空数组");
+    private static List<AppConfig.Account> parseAccounts(JsonNode array, String field,
+                                                        boolean allowEmpty) {
+        if (array == null || !array.isArray()) {
+            throw new ConfigException(field + " 必须是数组");
+        }
+        if (array.isEmpty()) {
+            if (!allowEmpty) {
+                throw new ConfigException(field + " 不能为空数组");
+            }
+            return List.of();
         }
         List<AppConfig.Account> accounts = new ArrayList<>(array.size());
         int index = 0;
