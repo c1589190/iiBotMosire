@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-24 18:10（Asia/Shanghai）
+> **更新时间**：2026-10-24 18:50（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -14,7 +14,8 @@
 - **P5 已完成**：ACTION_DRAFT ticket → ActionPool、DecisionPackage/Batch 命令事件与启动恢复、canonical action owner、ActionPool 投影 reconcile 已通过 full gate 和五轮对抗评审，提交 `06d9e1a`；完整 MCP 61 工具。
 - **P6 已完成**：发布编排、Public/Private 推文草稿、GM 审核发布、records Markdown 投影、记录查询工具已通过 full gate 和多轮对抗评审，提交 `d3a9c91`；完整 MCP 65 工具。
 - **P7 已由用户裁定跳过**（2026-10-24），不做全领域 events.db 回放/重建。
-- **下一步 P8 真实模拟**：真实 DSH/Hermes MCP、真实 LLM/NapCat/QQ、多玩家/多工单/多批次/发布/记录链路联调；按 M-004 需要用户协同与真实外部确认。
+- **P8-A 已完成**：允许 `players=[]` 启动；新增 GM 独立 PUBLIC 开场推文 `tf_publication_opening`；`records/openings` 投影；完整 MCP 66 工具。full gate **526 tests PASS**，提交 `1480c55`。独立评审在用户要求提交时中止，评审结论未完成。
+- **下一步 P8 真实模拟**：真实 DSH/Hermes MCP、真实 LLM/NapCat/QQ、零玩家公共开场→审核发布→动态注册玩家→多批次/发布/记录链路联调；按 M-004 需要用户协同与真实外部确认。
 - **理想工作流仍按 P0–P8 计划推进**：`events.db` 是目标 canonical 领域事实源；P1 只完成内容基础，领域事件全量接入与回放尚未完成，Markdown 仍将是投影。
 - **v2 功能切片已落地**：即时 ACK、每玩家秘书工作区、GM 工作区/秘书对话、推文草稿→GM 审核→GM 发布、多模型路由、只读 GM 推演秘书。
 - **v1 真实单人 E2E 已完成**：玩家私聊 → 真实 LLM 秘书草稿 → 玩家 `/确认` → MCP 冻结 → 中央推演 Agent（真实 LLM）→ COMMITTED → MCP 发布 → 公共群公开叙事 + 玩家私聊 outcome 均已真实出站。
@@ -40,17 +41,17 @@
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
 | 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.3`（Pages 固定版） |
 | 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`，约 21 MB |
-| Git/提交 | 本地 HEAD `d3a9c91`（P6）；远程 HEAD 仍为 `99dc328`；P6 已提交，STATUS 收口更新单独提交 |
+| Git/提交 | 本地 P8-A feature `1480c55`；P6 为 `d3a9c91`；远程原 HEAD `99dc328`（本次 push 后更新）；STATUS 收口提交随后 |
 | 本机工作树 | 仅本项目文件；`target/` 等构建产物存在 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
-| 最近 full clean（P6） | **504 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 29、connect-agent 21、taskflow 230、app 224），`tools/gate.sh full` PASS；日志 `.work/p6-full.log` |
-| P6 focused / 评审 | focused **504/504 PASS**；多轮对抗评审最终 **PASS**；完整 MCP 65 工具断言通过 |
-| P6 MCP 工具面 | `tf_publication_generate`、`tf_record_turn_list/get/query` 接入；发布草稿 PENDING_APPROVAL、records Markdown/hash 对账、public/private 隔离 |
-| 当前门禁状态 | P6 已完成；P7 用户裁定跳过；下一步 P8 真实模拟；未跑项写 `NOT_RUN` |
+| 最近 full clean（P8-A） | **526 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 29、connect-agent 21、taskflow 230、app 246），`tools/gate.sh full` PASS；日志 `.work/p8a-full.log` |
+| P8-A focused / 评审 | focused **526/526 PASS**；独立评审已启动但在用户要求提交时主动中止，**无最终评审结论**；66 MCP 工具断言通过 |
+| P8-A MCP 工具面 | `tf_publication_opening` 接入；`players=[]` 启动、GM 公共开场草稿、records/openings、动态注册后开回合已测 |
+| 当前门禁状态 | P8-A 已完成；P8 真实模拟进行中/等待真实环境协同；未跑项写 `NOT_RUN` |
 | Shade | 产出可运行 `iibot-app-0.1.0-SNAPSHOT.jar`（约 21 MB），Main-Class 已核 |
 | 文档/工具链 | `tools/gate.sh pre` PASS（docs + skills + `./mvnw -v`） |
 | 文档 selftest | check-docs 11/11；skills-lint 6/6 |
@@ -123,7 +124,8 @@
 - P3 动态控制初始化已实现：MCP 可设置公开群、注册玩家/推演、幂等绑定秘书、装载世界；engine 是身份事实源；动态 QQ 路由、ACK、回合结果、私密推文/投诉回应实时生效并重启恢复；`CONTROL_STATE` 持久化公开群；GM 私有文档 `gm-private/{world,plot,settings,notes}` 安全隔离。
 - P4 统一工单已实现：Ticket 类型 SETTING_QUERY/ACTION_DRAFT/COMPLAINT/GM_NOTE；秘书 submit/list/read 按 playerId 隔离；GM board/list/get/claim/reply/batch_reply/close/note_create；TicketSnapshot 写入 events.db，幂等结果带 actor/request fingerprint；batchReply 100 条整批原子。
 - P5 行动/裁定包已实现：ACTION_DRAFT ticket 可 promote 为 ActionPool 行动；包命令 STARTED/APPLIED/FAILED 与 BATCH_COMPLETED 全状态写入 events.db；启动命令重放恢复包/批次（commit 不重跑 executor）；canonical action 单 owner；ActionPool 投影可 reconcile；ignore/create 同锁防 TOCTOU。
-- P6 发布/记录已实现：COMMITTED batch 由 GM 触发生成 Public/Private 草稿；PostService 跨命令 fingerprint 与 publication-draft-aware 复用；`PUBLICATION_GENERATED` 确定性 ID/恢复；records/turns staging 原子投影、manifest/hash 对账、父级软链防护；`tf_publication_generate` + `tf_record_turn_list/get/query`，完整 MCP 65 工具。
+- P6 发布/记录已实现：COMMITTED batch 由 GM 触发生成 Public/Private 草稿；PostService 跨命令 fingerprint 与 publication-draft-aware 复用；`PUBLICATION_GENERATED` 确定性 ID/恢复；records/turns staging 原子投影、manifest/hash 对账、父级软链防护；`tf_publication_generate` + `tf_record_turn_list/get/query`。
+- P8-A 零玩家/开场已实现：`players=[]` 可启动，directors 仍非空；GM 通过 `tf_publication_opening` 创建 PUBLIC `PENDING_APPROVAL` 开场草稿，必须经 `tf_post_decide`/`tf_post_publish` 才发公共群；records/openings 独立投影；完整 MCP 66 工具。模拟区 jar 在 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar`（本地忽略，不在 Git）。
 
 ## 6. 未验证 / 风险 / blocker
 
@@ -137,7 +139,7 @@
 8. **公共群目前只作为公开广播边界**：群内玩家对话、@ 触发、群内决策未接入。
 9. **外部 MCP 仅本地单 supervisor**：远程 TLS/多租户/长期 SSE/Last-Event-ID 重放未验；不要把端口暴露公网。
 10. **events.db 尚未成为完整领域事实源**：P2 已接 Post/Complaint/ActionPool 和 Taskflow 完整快照；P3 控制/审计事件与 P4 Ticket 快照已写；P5 包/批次命令事件已写并从 events.db 恢复。事件回放仍未覆盖全部领域，AgentLibEventSink 仍为旧读取端口兼容双写 payload/payload_json。
-11. **P4/P5/P6 边界与残留**：旧 ComplaintService 的 GmAide 只读工具与 ComplaintDistributor 仍兼容旧投诉，完整 MCP 旧 complaint 写面已隐藏，但旧投诉与新 COMPLAINT ticket 仍分裂；Ticket 全量快照/包命令事件未来可能触 4MB 上限，需归档/分页策略；APPLIED 写失败发生在包内存变更后，只 fail-stop，不宣称跨域原子；BATCH_COMPLETED 缺失时恢复只从 APPLIED 重建 batch，不主动补写缺失事件；跨实例并发 publication generate 仍可能因同确定性 ID/不同 createdAt 冲突而 fail-closed（当前单实例组合根）；终态/无 turn 的 COMMITTED batch 生成 publication 时 turnId=null，不会进入 turn 投影，语义待明确；已有 publication drafts 但 LLM 重试本身失败时仍返回 LLM/OUTPUT 错误。
+11. **P4/P5/P6/P8-A 边界与残留**：旧 ComplaintService 的 GmAide 只读工具与 ComplaintDistributor 仍兼容旧投诉，完整 MCP 旧 complaint 写面已隐藏，但旧投诉与新 COMPLAINT ticket 仍分裂；Ticket 全量快照/包命令事件未来可能触 4MB 上限，需归档/分页策略；APPLIED 写失败发生在包内存变更后，只 fail-stop，不宣称跨域原子；BATCH_COMPLETED 缺失时恢复只从 APPLIED 重建 batch，不主动补写缺失事件；跨实例并发 publication generate 仍可能因同确定性 ID/不同 createdAt 冲突而 fail-closed（当前单实例组合根）；终态/无 turn 的 COMMITTED batch 生成 publication 时 turnId=null，不会进入 turn 投影，语义待明确；已有 publication drafts 但 LLM 重试本身失败时仍返回 LLM/OUTPUT 错误。P8-A：空 players + control 关闭只 WARN，仍可启动但没有运行期加人入口；opening 只允许 PUBLIC，不允许 GM 任意创建私密推文；独立评审未完成，不能把 focused/full gate 当作 P8-A 阶段评审 PASS。
 12. **P2/P3 迁移/控制残留**：旧 JSON 迁移使用 exact reconciled 完成标记并校验目标事件 seq/type/contentHash；运行期 taskflow-state.json 与 TASKFLOW_SNAPSHOT 双写为 best-effort，启动 ensureRecorded 追平 stale/missing；JSON 保存失败而 snapshot event 成功时，重启仍会在 anchor mismatch 处 fail-closed。P3 控制注册在 session 创建前先发布 route，session 创建失败可能短暂半状态；GM 文档写幂等仍是进程内，chmod 失败与 parent fsync 未硬化；旧 engine 全局 idempotency namespace 仍可能让旧写工具用其他命令的 key 返回假成功。事件查询面的 per-player visibility scope 尚未实现。
 13. **配置侧删除身份不撤销 engine 身份**：按当前非目标“不删除玩家/推演”，从启动配置移除身份不会删除已恢复/动态注册身份；需在后续控制面明确撤销语义。
 14. **P1 非阻断硬化点**：极端自重叠 secret 的掩码填充复杂度未做基准；chmod 故障注入、并发 close/append 压力、真实历史 events.db 迁移演练未跑。
@@ -146,5 +148,5 @@
 
 ## 7. 下一步
 
-1. **P8 真实模拟**：真实 DSH/Hermes MCP、真实 LLM/NapCat/QQ，多玩家/多工单/多批次/发布/记录全链路；真实外部发送按 M-004 先与用户确认。
-2. P7 已跳过；未跑项继续标 `NOT_RUN`，不得用 Mock/loopback 代替真实联调结论。
+1. **P8 真实模拟**：真实 DSH/Hermes MCP、真实 LLM/NapCat/QQ，零玩家公共开场→审核发布→动态注册玩家→多玩家/多工单/多批次/发布/记录全链路；真实外部发送按 M-004 先与用户确认。
+2. P7 已跳过；P8-A 独立评审未完成，需在真实模拟前决定是否补评审；未跑项继续标 `NOT_RUN`，不得用 Mock/loopback 代替真实联调结论。
