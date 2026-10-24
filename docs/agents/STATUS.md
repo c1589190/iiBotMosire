@@ -1,14 +1,15 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-24 05:20（Asia/Shanghai）
+> **更新时间**：2026-10-24 13:20（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
 ## 1. 当前目标
 
-- **v3 工作树已实现行动池 + AgentLib 裁定包 + 48 MCP 工具**：尚未提交、尚未最终 full gate；应用进程已停止。
-- **本轮先完成设计/计划，不继续写代码**：理想 GM 控制工作流与 `events.db` 单一事实源已形成设计 P0–P8 计划。
-- **下一步 P0**：停服确认后运行 `tools/gate.sh full`，稳定 v3 工作树并独立提交，再进入 P1 `events.db` 完整内容基础。
+- **P0 已完成**：v3 行动池 + AgentLib 裁定包 + 48 MCP 工具已通过 full gate，提交为 `0695675`；应用保持停止。
+- **P1 已完成**：`events.db` 完整内容基础（events + event_contents、`EventContentStore`/`EventAppendPort`、schema v1、迁移、hash/可见性/脱敏/事务）已通过 full gate 与阶段评审，提交为 `a52626f`。
+- **下一步 P2**：把回合、行动、包、批次、推文、投诉、工单、GM 文档全部接入 events.db，并迁移旧 JSON；不要先做新工单/发布编排。
+- **理想工作流仍按 P0–P8 计划推进**：`events.db` 是目标 canonical 领域事实源；P1 只完成内容基础，领域事件全量接入与回放尚未完成，Markdown 仍将是投影。
 - **v2 功能切片已落地**：即时 ACK、每玩家秘书工作区、GM 工作区/秘书对话、推文草稿→GM 审核→GM 发布、多模型路由、只读 GM 推演秘书。
 - **v1 真实单人 E2E 已完成**：玩家私聊 → 真实 LLM 秘书草稿 → 玩家 `/确认` → MCP 冻结 → 中央推演 Agent（真实 LLM）→ COMMITTED → MCP 发布 → 公共群公开叙事 + 玩家私聊 outcome 均已真实出站。
 - 当前运行服务恢复状态为第 1 回合 `PUBLISHED`，`worldVersion=2`，`eventSeq=14`；v2 真实 QQ ACK/工作区/GM aide/私人推文发布已验证。
@@ -33,16 +34,17 @@
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
 | 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.3`（Pages 固定版） |
 | 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`，约 21 MB |
-| Git/提交 | 远程 HEAD `16a2499`；工作树含 v3 未提交改动（行动池/裁定包/48 工具） |
+| Git/提交 | 本地 HEAD `a52626f`（P1 events.db 内容基础）；远程 HEAD 仍为 `99dc328`；P1 代码已提交，STATUS 收口更新单独提交 |
 | 本机工作树 | 仅本项目文件；`target/` 等构建产物存在 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
-| 最新构建 | 远程 v2 基线 **345 tests PASS**；v3 工作树子集 **374 tests PASS（192 taskflow + 132 app + 29 connect + 21 connect-agent）**；v3 full gate **NOT_RUN** |
-| 分模块（v3 工作树） | connect 29、connect-agent 21、taskflow 192、app 132 |
-| 最近 full clean | **345 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（v2 + delivery-ledger 修复后停服复跑） |
+| 最近 full clean（P1） | **398 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 29、connect-agent 21、taskflow 197、app 151），`tools/gate.sh full` PASS；日志 `.work/p1-full.log` |
+| P1 focused / 评审 | focused **398/398 PASS**；独立持久化/事务/脱敏评审最终 **PASS**；重叠 secret 回归通过 |
+| v3 MCP 工具面 | 48 工具；`ControlMcpServerPostToolsTest` / `ControlMcpServerDecisionToolsTest` / `AppBootstrap*` loopback 测试通过 |
+| 当前门禁状态 | P1 已完成；P2 尚未开始；后续按阶段跑 focused/full，未跑项写 `NOT_RUN` |
 | Shade | 产出可运行 `iibot-app-0.1.0-SNAPSHOT.jar`（约 21 MB），Main-Class 已核 |
 | 文档/工具链 | `tools/gate.sh pre` PASS（docs + skills + `./mvnw -v`） |
 | 文档 selftest | check-docs 11/11；skills-lint 6/6 |
@@ -93,7 +95,7 @@
 - 发布后结果分发：公开叙事进入公共群，玩家私密 outcome 进入对应私聊，稳定幂等键且进程内不重复；
 - 运行期设定：玩家 `/提议设定`，推演 `/设定`、`/待审设定`、`/通过设定`、`/拒绝设定`；批准后 worldVersion+1 并生成新 WorldFact；
 - 非法提案/未知玩家/过期 worldVersion 零世界变更；
-- 外部 MCP 19 工具（含 `tf_run_adjudication_agent`）、Bearer 常数时间校验、回环绑定、独立 allow-list、POST/GET SSE 代理；
+- 外部 MCP 48 工具（含行动池、裁定包、批次与 `tf_run_adjudication_agent`）、Bearer 常数时间校验、回环绑定、独立 allow-list、POST/GET SSE 代理；
 - Workspace/Docs 实际写入世界圣经与审计 LOG；
 - SQLite 事件审计与 `afterSeq` 只读游标；真实发布后由 `afterMutation` 触发结果分发。
 - 真实单人回合的草稿、硬确认、冻结、中央 LLM 推演、提交、发布与分发均有实际出站证据；
@@ -109,6 +111,8 @@
 - v2 full assembly MCP 34 工具（18 ExternalControlToolSet + tf_run_adjudication_agent + tf_gm_aide_chat + 4 GM 工作区 + 4 GM 推文 + 3 共享 Skill + 3 投诉）。
 - 全局共享 Skill 区已实现：`dataDir/shared-skills/{public,skills}`；秘书只读两工具，GM MCP list/get/write，GmAide 只读；无需逐玩家复制。
 - 投诉闭环已实现：秘书 submit/list/read；GM list/get/respond；`complaints.json` 持久化；ComplaintDistributor 真实私聊回应；SUBMITTED→RESPONDED；未知/其他玩家不可见。
+- v3 行动池/裁定包已实现：秘书可跨回合提交自然语言行动；GM 可建包、追加/替换/删除、逐条/整包裁决；一个包 commit 产生一个推演批次；同一回合可多批次。当前行动池/包/批次仍为进程内存储。
+- P1 `events.db` 完整内容基础已实现：headers + `event_contents` 同事务写入；JSON/Markdown/TEXT 严格二选一；`PRAGMA user_version=1`；旧 AgentLib 审计库幂等迁移为 `event_version=0/content_missing=1`；SHA-256 正文 hash 读取重算 fail-closed；大小上限；敏感键/重叠 secret 覆盖掩码脱敏；主库及 WAL/SHM best-effort 600。
 
 ## 6. 未验证 / 风险 / blocker
 
@@ -118,16 +122,16 @@
 4. **模型热切换未实现**：当前按 `agentRoutes` 配置切换模型并重启；无运行时 admin 工具。
 5. **跨进程并发 ledger 未验**：`JsonDeliveryLedger` 保证同 JVM 多实例与重启场景；多进程同时写同一 ledger 未验。
 6. **投诉状态有限**：当前只有 SUBMITTED→RESPONDED，无关闭/升级/多次回复。
-3. **逐事件回放未实现，重启恢复依赖完整快照**：`taskflow-state.json` 原子持久化并在启动时恢复，事件库 seq 只做一致性锚点；快照与事件 seq 不一致时 fail-closed。Secretary 的 ContextWindow 聊天历史不恢复。
-4. **公共群目前只作为公开广播边界**：群内玩家对话、@ 触发、群内决策未接入。
-5. **外部 MCP 仅本地单 supervisor**：远程 TLS/多租户/长期 SSE/Last-Event-ID 重放未验；不要把端口暴露公网。
-6. **无 Git 基线**：未提交/未推送；后续需要用户决定初始化与提交策略。
-7. **依赖/静态质量门禁有限**：当前 `verify` 主要有 enforcer + tests + shade，尚未接入 Spotless/Checkstyle/SpotBugs；不要把它等同于完整质量门禁。
-8. **上游编译 warning**：AgentLib 注解在 javac 编译期有 `SuppressFBWarnings` 缺失 warning，不影响当前构建，但说明注解仅编译期处理。
+7. **逐事件回放未实现，重启恢复依赖完整快照**：`taskflow-state.json` 原子持久化并在启动时恢复，事件库 seq 只做一致性锚点；快照与事件 seq 不一致时 fail-closed。Secretary 的 ContextWindow 聊天历史不恢复。
+8. **公共群目前只作为公开广播边界**：群内玩家对话、@ 触发、群内决策未接入。
+9. **外部 MCP 仅本地单 supervisor**：远程 TLS/多租户/长期 SSE/Last-Event-ID 重放未验；不要把端口暴露公网。
+10. **events.db 尚未成为完整领域事实源**：P1 只完成内容基础；回合/行动/包/批次/推文/投诉/工单/GM 文档尚未全量写入，旧 JSON 未迁移，事件回放未实现。AgentLibEventSink 当前为旧读取端口兼容双写 payload/payload_json，P2 收口。
+11. **P1 非阻断硬化点**：极端自重叠 secret 的掩码填充复杂度未做基准；chmod 故障注入、并发 close/append 压力、真实历史 events.db 迁移演练未跑。
+12. **依赖/静态质量门禁有限**：当前 `verify` 主要有 enforcer + tests + shade，尚未接入 Spotless/Checkstyle/SpotBugs；不要把它等同于完整质量门禁。
+13. **上游编译 warning**：AgentLib 注解在 javac 编译期有 `SuppressFBWarnings` 缺失 warning，不影响当前构建，但说明注解仅编译期处理。
 
 ## 7. 下一步
 
-1. **P0**：确认应用已停服，运行 `tools/gate.sh full` 稳定 v3 工作树；通过后独立提交 v3 行动池/裁定包。
-2. **P1**：新增 `events` 元数据 + `event_contents` 正文 schema、`EventContentStore`、hash/visibility/迁移测试，不先写工单/发布编排。
-3. P2–P8 按 [`plans/2026-10-24-ideal-workflow-implementation-plan.md`](../superpowers/plans/2026-10-24-ideal-workflow-implementation-plan.md) 顺序推进。
-4. 真实 QQ/LLM/MCP 仍按 M-004 等用户协同；未跑项继续标 `NOT_RUN`。
+1. **P2**：领域事件全量接入 + 旧 JSON 迁移；先接 Taskflow/ActionPool/DecisionPackage/批次、Post、Complaint，再接工单/GM 文档，不做第二事实源。
+2. P3–P8 按 [`plans/2026-10-24-ideal-workflow-implementation-plan.md`](../superpowers/plans/2026-10-24-ideal-workflow-implementation-plan.md) 顺序推进。
+3. 真实 QQ/LLM/MCP 仍按 M-004 等用户协同；未跑项继续标 `NOT_RUN`。
