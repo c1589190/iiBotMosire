@@ -1,7 +1,8 @@
 # DSH 全新初始化引导提示词
 
 > 用途：把下面从“你现在接手”开始的内容作为**首条用户提示词**发给已连接 iiBot MCP 的 DSH GM Agent。
-> 前提：新 `simulation/dist` jar 已替换、app 当前未启动。
+> 前提：宿主已停止旧 app、备份旧 runtime、执行 `01-prepare.sh` 与 `02-start.sh`；**本提示词发给 DSH 时 app 与 MCP 必须正在运行**。
+> **重要**：不要在本 DSH 会话里停止 app 或移动 runtime，否则 MCP 连接会断开；runtime 复位必须由宿主 shell 在启动 DSH 之前完成。
 > 本提示词不授权自动向真实 QQ 发布任何内容；所有真实出站仍须真人 GM 确认。
 
 ---
@@ -32,52 +33,41 @@
 - 玩家可见、确认、信息卡、隐私等详细规则在秘书工作区 `AGENTS.md` 与共享 Skill；
 - 不要把长篇规则塞回 system prompt。
 
-## 一、初始化前检查
+## 一、启动状态核验（只读）
 
-1. 运行 `simulation/scripts/00-check.sh`。
-2. 确认 `8765` 没有旧 app 占用。
-3. 确认 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar` 是本次新 jar：
-   - 执行 `sha256sum -c simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.sha256`；
-   - `java -jar simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar --help` 应返回 rc=0。
-4. 不读取、不打印任何 token/API key 内容。
-
-## 二、干净重建 simulation runtime
-
-先停止旧 app：
+前提由宿主完成：
 
 ```bash
+# 以下命令由宿主 shell 在启动 DSH 之前执行，不交给 DSH 会话执行
 simulation/scripts/03-stop.sh
-```
-
-把旧 runtime 保留为证据，不直接删除：
-
-```bash
 ts=$(date +%Y%m%d-%H%M%S)
 if [ -d simulation/runtime ]; then
   mv simulation/runtime "simulation/runtime.backup-$ts"
 fi
 mkdir -p simulation/runtime
-```
-
-然后重新生成隔离配置与 runtime：
-
-```bash
 simulation/scripts/01-prepare.sh
 simulation/scripts/02-start.sh
 ```
 
-启动后必须检查：
+DSH 开始后只做只读检查：
 
-- MCP `http://127.0.0.1:8765/mcp/control` 可达；
-- `tools/list` 中至少存在：
-  - `tf_publication_opening`
-  - `tf_qq_history_read`
-  - `tf_gm_secretary_cache_list`
-  - `tf_gm_secretary_cache_create`
-- 工具总数以实际 `tools/list` 为准，不要凭记忆写死；
-- `tf_status` 显示 0 名玩家、director 至少 1 名、无活动回合。
+1. 运行 `simulation/scripts/04-wait-mcp.sh`（若 app 已 ready 会立即通过）。
+2. 通过 `tf_status` 确认：
+   - MCP 可用；
+   - 0 名玩家；
+   - director 至少 1 名；
+   - 无活动回合。
+3. 确认 `tools/list` 中至少存在：
+   - `tf_publication_opening`
+   - `tf_qq_history_read`
+   - `tf_gm_secretary_cache_list`
+   - `tf_gm_secretary_cache_create`
+4. 工具总数以实际 `tools/list` 为准，不要凭记忆写死。
+5. 不读取、不打印任何 token/API key 内容。
 
-## 三、零玩家控制面初始化
+注意：如果 `tf_status` 显示已有玩家或活动回合，立即停止并报告“runtime 未清空”；不要自行删数据、停 app 或移动 runtime。
+
+## 二、零玩家控制面初始化
 
 执行：
 
@@ -94,7 +84,7 @@ simulation/scripts/05a-init-control-plane.sh
 
 不得注册玩家、不得开回合、不得发送 QQ。
 
-## 四、加载秘书共享 Skill
+## 三、加载秘书共享 Skill
 
 从源文件读取：
 
@@ -114,7 +104,7 @@ skills/palatinia-secretary.md
 - 不把本文件内容直接发到群里；
 - 只作为共享 Skill 供秘书读取。
 
-## 五、创建公共开场草稿
+## 四、创建公共开场草稿
 
 根据当前帕拉丁世界设定和 `simulation/campaign/palatinia/03-opening-post.md` 或更新后的设定，写一条**世界内**公共开场。
 
@@ -141,7 +131,7 @@ tf_publication_opening
    - 自审结果。
 4. **暂停，不要调用 `tf_post_decide` 或 `tf_post_publish`**，等待真人 GM 明确确认。
 
-## 六、真人确认后再注册玩家
+## 五、真人确认后再注册玩家
 
 只有在开场稿经真人 GM 明确同意后，才继续：
 
@@ -157,7 +147,7 @@ tf_publication_opening
 - 共享 Skill 可读；
 - 所有玩家可见 onboarding 都通过 `PRIVATE` 推文或直接私聊，不要求玩家读文件。
 
-## 七、玩家引导规则
+## 六、玩家引导规则
 
 每名玩家首次私聊时，秘书必须只给一张简短玩法卡：
 
@@ -180,7 +170,7 @@ tf_publication_opening
 - 要求玩家理解 MCP/workspace/draftId/ticketId；
 - 在报名时反复确认。
 
-## 八、正式行动
+## 七、正式行动
 
 秘书整理正式行动草案时：
 
@@ -193,7 +183,7 @@ tf_publication_opening
 - 未确认的 ACTION_DRAFT 不得 promote/commit；
 - GM 不得代玩家确认。
 
-## 九、发布边界
+## 八、发布边界
 
 - 只有 `tf_post_publish` 会触发真实 QQ 外发；
 - 所有玩家可见内容先过 `06-editorial-checklist.md`；
@@ -202,7 +192,7 @@ tf_publication_opening
 - 真实出站前先向真人 GM 报告 postId/目标/摘要并等待明确确认；
 - 出现 `FAILED` 或 `UNKNOWN` 立即停发并报告，不自动重试。
 
-## 十、本轮初始化完成后的报告格式
+## 九、本轮初始化完成后的报告格式
 
 向真人 GM 报告：
 
