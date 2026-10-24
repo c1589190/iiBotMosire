@@ -1,11 +1,14 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-24 04:52（Asia/Shanghai）
+> **更新时间**：2026-10-24 05:20（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
 ## 1. 当前目标
 
+- **v3 工作树已实现行动池 + AgentLib 裁定包 + 48 MCP 工具**：尚未提交、尚未最终 full gate；应用进程已停止。
+- **本轮先完成设计/计划，不继续写代码**：理想 GM 控制工作流与 `events.db` 单一事实源已形成设计 P0–P8 计划。
+- **下一步 P0**：停服确认后运行 `tools/gate.sh full`，稳定 v3 工作树并独立提交，再进入 P1 `events.db` 完整内容基础。
 - **v2 功能切片已落地**：即时 ACK、每玩家秘书工作区、GM 工作区/秘书对话、推文草稿→GM 审核→GM 发布、多模型路由、只读 GM 推演秘书。
 - **v1 真实单人 E2E 已完成**：玩家私聊 → 真实 LLM 秘书草稿 → 玩家 `/确认` → MCP 冻结 → 中央推演 Agent（真实 LLM）→ COMMITTED → MCP 发布 → 公共群公开叙事 + 玩家私聊 outcome 均已真实出站。
 - 当前运行服务恢复状态为第 1 回合 `PUBLISHED`，`worldVersion=2`，`eventSeq=14`；v2 真实 QQ ACK/工作区/GM aide/私人推文发布已验证。
@@ -30,15 +33,15 @@
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
 | 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.3`（Pages 固定版） |
 | 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`，约 21 MB |
-| Git/提交 | 已提交并推送；HEAD 以 `git log --oneline -1` 为准 |
+| Git/提交 | 远程 HEAD `16a2499`；工作树含 v3 未提交改动（行动池/裁定包/48 工具） |
 | 本机工作树 | 仅本项目文件；`target/` 等构建产物存在 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
-| 最新构建 | `tools/gate.sh full`：**BUILD SUCCESS**；**345 tests / 0 failures / 0 errors / 0 skipped** |
-| 分模块 | connect 29、connect-agent 21、taskflow 172、app 123 |
+| 最新构建 | 远程 v2 基线 **345 tests PASS**；v3 工作树子集 **374 tests PASS（192 taskflow + 132 app + 29 connect + 21 connect-agent）**；v3 full gate **NOT_RUN** |
+| 分模块（v3 工作树） | connect 29、connect-agent 21、taskflow 192、app 132 |
 | 最近 full clean | **345 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（v2 + delivery-ledger 修复后停服复跑） |
 | Shade | 产出可运行 `iibot-app-0.1.0-SNAPSHOT.jar`（约 21 MB），Main-Class 已核 |
 | 文档/工具链 | `tools/gate.sh pre` PASS（docs + skills + `./mvnw -v`） |
@@ -74,6 +77,9 @@
 | 真实单人 E2E 历史快照 | `docs/superpowers/status/2026-10-24-real-single-player-e2e.md` |
 | v2 功能切片历史快照 | `docs/superpowers/status/2026-10-24-v2-agent-workspace-permissions-models.md` |
 | 共享 Skill / 投诉历史快照 | `docs/superpowers/status/2026-10-24-shared-skills-and-complaints.md` |
+| v3 设计 | `docs/superpowers/specs/2026-10-24-decision-packages-action-pool-and-turn-records.md` |
+| 理想工作流/events.db 设计 | `docs/superpowers/specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md` |
+| 理想工作流实施计划 | `docs/superpowers/plans/2026-10-24-ideal-workflow-implementation-plan.md` |
 
 ## 5. 已实现与已验证的能力
 
@@ -121,8 +127,7 @@
 
 ## 7. 下一步
 
-1. 等待用户给出第二轮行动意图；通过 MCP 开回合并完成真实秘书草稿/`/确认`/GM 审核/发布。
-2. 验证公共推文真实公共群发布；验证多玩家隔离。
-3. 接入真实 DSH host 会话，验证外部 Agent 观察/推进/事件游标。
-4. 做多回合/断线重连/长跑；事件逐条回放与崩溃点注入、跨进程 ledger 并发。
-5. 真实 E2E 证据写入 `docs/superpowers/status/`；未跑项继续标 `NOT_RUN`。
+1. **P0**：确认应用已停服，运行 `tools/gate.sh full` 稳定 v3 工作树；通过后独立提交 v3 行动池/裁定包。
+2. **P1**：新增 `events` 元数据 + `event_contents` 正文 schema、`EventContentStore`、hash/visibility/迁移测试，不先写工单/发布编排。
+3. P2–P8 按 [`plans/2026-10-24-ideal-workflow-implementation-plan.md`](../superpowers/plans/2026-10-24-ideal-workflow-implementation-plan.md) 顺序推进。
+4. 真实 QQ/LLM/MCP 仍按 M-004 等用户协同；未跑项继续标 `NOT_RUN`。
