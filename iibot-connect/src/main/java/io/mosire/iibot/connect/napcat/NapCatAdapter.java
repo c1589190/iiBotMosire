@@ -11,6 +11,10 @@ import io.mosire.iibot.connect.core.ChatHistoryMessage;
 import io.mosire.iibot.connect.core.ChatHistoryPage;
 import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.connect.core.ChatHistoryQuery;
+import io.mosire.iibot.connect.core.ChatConversation;
+import io.mosire.iibot.connect.core.ChatMessageDetail;
+import io.mosire.iibot.connect.core.GroupMember;
+import io.mosire.iibot.connect.core.QqPlatformCapability;
 import io.mosire.iibot.connect.core.AdapterEvent;
 import io.mosire.iibot.connect.core.AdapterEventListener;
 import io.mosire.iibot.connect.core.AdapterStatus;
@@ -60,7 +64,8 @@ import org.slf4j.LoggerFactory;
  * <p>线程安全：状态、发送幂等表、去重缓存与限速器均可并发访问；
  * {@link #close()} 幂等，并会完成所有未完成的发送 future。</p>
  */
-public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvider, ChatHistoryProvider {
+public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvider,
+        ChatHistoryProvider, QqPlatformCapability {
 
     private static final Logger LOG = LoggerFactory.getLogger(NapCatAdapter.class);
     private static final Pattern SAFE_EVENT_NAME = Pattern.compile("[A-Za-z0-9_.-]{1,64}");
@@ -249,6 +254,7 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
             }
             List<ChatHistoryMessage> messages = new ArrayList<>();
             List<String> rawMessageIds = new ArrayList<>();
+            int nonTextSkipped = 0;
             for (JsonNode messageNode : messagesNode) {
                 String rawMessageId = scalarText(messageNode.get("message_id"));
                 if (rawMessageId != null) {
@@ -257,6 +263,8 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
                 ChatHistoryMessage message = parseHistoryMessage(messageNode);
                 if (message != null) {
                     messages.add(message);
+                } else {
+                    nonTextSkipped++;
                 }
             }
             boolean exhausted = messagesNode.size() < query.count();
@@ -266,8 +274,272 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
                         ? rawMessageIds.getFirst()
                         : rawMessageIds.getLast();
             }
-            return new ChatHistoryPage(messages, nextCursor, exhausted);
+            return new ChatHistoryPage(messages, nextCursor, exhausted, nonTextSkipped);
         });
+    }
+
+    @Override
+    public CompletionStage<List<ChatConversation>> recentConversations(int count) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (count < 1 || count > 200) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException(
+                    "count 必须在 1–200 之间"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("count", count);
+        return postAction("get_recent_contact", payload).thenApply(root -> {
+            JsonNode data = root.path("data");
+            if (!data.isArray()) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "INVALID_DIRECTORY_RESPONSE",
+                        "最近会话响应缺少 data 数组"));
+            }
+            List<ChatConversation> result = new ArrayList<>();
+            for (JsonNode item : data) {
+                ChatConversation conversation = parseRecentConversation(item);
+                if (conversation != null && result.size() < count) {
+                    result.add(conversation);
+                }
+            }
+            return List.copyOf(result);
+        });
+    }
+
+    @Override
+    public CompletionStage<List<ChatConversation>> joinedGroups() {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        return postAction("get_group_list", objectMapper.createObjectNode()).thenApply(root -> {
+            JsonNode data = root.path("data");
+            if (!data.isArray()) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "INVALID_DIRECTORY_RESPONSE",
+                        "群列表响应缺少 data 数组"));
+            }
+            List<ChatConversation> result = new ArrayList<>();
+            for (JsonNode item : data) {
+                String groupId = scalarText(item.get("group_id"));
+                if (groupId == null || groupId.isBlank()) {
+                    continue;
+                }
+                String groupName = scalarText(item.get("group_name"));
+                String remark = scalarText(item.get("group_remark"));
+                result.add(new ChatConversation(InboundMessage.SessionType.GROUP,
+                        groupId, groupName == null ? "" : groupName,
+                        remark == null ? "" : remark, null, null));
+            }
+            return List.copyOf(result);
+        });
+    }
+
+    @Override
+    public CompletionStage<List<ChatConversation>> friends(boolean noCache) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("no_cache", noCache);
+        return postAction("get_friend_list", payload).thenApply(root -> {
+            JsonNode data = root.path("data");
+            if (!data.isArray()) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "INVALID_DIRECTORY_RESPONSE",
+                        "好友列表响应缺少 data 数组"));
+            }
+            List<ChatConversation> result = new ArrayList<>();
+            for (JsonNode item : data) {
+                String userId = scalarText(item.get("user_id"));
+                if (userId == null || userId.isBlank()) {
+                    continue;
+                }
+                String nickname = scalarText(item.get("nickname"));
+                String remark = scalarText(item.get("remark"));
+                result.add(new ChatConversation(InboundMessage.SessionType.PRIVATE,
+                        userId, nickname == null ? "" : nickname,
+                        remark == null ? "" : remark, null, null));
+            }
+            return List.copyOf(result);
+        });
+    }
+
+    @Override
+    public CompletionStage<List<GroupMember>> groupMembers(String groupId) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (groupId == null || groupId.isBlank()) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("groupId 不能为空"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("group_id", groupId.trim());
+        return postAction("get_group_member_list", payload).thenApply(root -> {
+            JsonNode data = root.path("data");
+            if (!data.isArray()) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "INVALID_DIRECTORY_RESPONSE",
+                        "群成员响应缺少 data 数组"));
+            }
+            List<GroupMember> result = new ArrayList<>();
+            for (JsonNode item : data) {
+                String qqId = scalarText(item.get("user_id"));
+                if (qqId == null || qqId.isBlank()) {
+                    continue;
+                }
+                String nickname = scalarText(item.get("nickname"));
+                String card = scalarText(item.get("card"));
+                String role = scalarText(item.get("role"));
+                result.add(new GroupMember(groupId.trim(), qqId,
+                        nickname == null ? "" : nickname,
+                        card == null ? "" : card,
+                        role == null ? "" : role));
+            }
+            return List.copyOf(result);
+        });
+    }
+
+    @Override
+    public CompletionStage<ChatMessageDetail> message(String messageId) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (messageId == null || messageId.isBlank()) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("messageId 不能为空"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("message_id", messageId.trim());
+        return postAction("get_msg", payload).thenApply(root -> {
+            JsonNode data = root.path("data");
+            if (!data.isObject()) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "INVALID_MESSAGE_RESPONSE",
+                        "消息响应缺少 data 对象"));
+            }
+            String resolvedId = scalarText(data.get("message_id"));
+            if (resolvedId == null) {
+                resolvedId = messageId.trim();
+            }
+            String groupId = scalarText(data.get("group_id"));
+            String senderId = scalarText(data.path("sender").get("user_id"));
+            if (senderId == null) {
+                senderId = scalarText(data.get("user_id"));
+            }
+            if (senderId == null) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "INVALID_MESSAGE_RESPONSE",
+                        "消息响应缺少发送者"));
+            }
+            boolean group = groupId != null && !groupId.isBlank();
+            String targetId = group ? groupId : senderId;
+            String senderName = scalarText(data.path("sender").get("card"));
+            if (senderName == null) {
+                senderName = scalarText(data.path("sender").get("nickname"));
+            }
+            if (senderName == null) {
+                senderName = senderId;
+            }
+            String text = OneBot11Codec.extractText(data.get("message"));
+            Instant sentAt = parseEpoch(scalarText(data.get("time")));
+            return new ChatMessageDetail(resolvedId,
+                    group ? InboundMessage.SessionType.GROUP : InboundMessage.SessionType.PRIVATE,
+                    targetId, senderId, senderName, text == null ? "" : text, sentAt,
+                    countNonTextSegments(data.get("message")));
+        });
+    }
+
+    @Override
+    public CompletionStage<SendReceipt> sendPrivate(String targetQqId, String temporaryGroupId,
+                                                    List<String> textSegments,
+                                                    String idempotencyKey) {
+        if (targetQqId == null || targetQqId.isBlank()) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("targetQqId 不能为空"));
+        }
+        OutboundMessage message = temporaryGroupId == null || temporaryGroupId.isBlank()
+                ? OutboundMessage.privateMessage(targetQqId.trim(), textSegments, idempotencyKey)
+                : OutboundMessage.privateTemporaryMessage(targetQqId.trim(),
+                        temporaryGroupId.trim(), textSegments, idempotencyKey);
+        return send(message);
+    }
+
+    @Override
+    public CompletionStage<SendReceipt> sendGroup(String groupId, List<String> textSegments,
+                                                  String idempotencyKey) {
+        if (groupId == null || groupId.isBlank()) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("groupId 不能为空"));
+        }
+        return send(OutboundMessage.groupMessage(groupId.trim(), textSegments, idempotencyKey));
+    }
+
+    private static ChatConversation parseRecentConversation(JsonNode item) {
+        if (item == null || !item.isObject()) {
+            return null;
+        }
+        String targetId = scalarText(item.get("peerUin"));
+        if (targetId == null || targetId.isBlank()) {
+            return null;
+        }
+        JsonNode latest = item.path("lastestMsg");
+        String messageType = scalarText(latest.get("message_type"));
+        InboundMessage.SessionType type;
+        if ("group".equalsIgnoreCase(messageType)) {
+            type = InboundMessage.SessionType.GROUP;
+        } else if ("private".equalsIgnoreCase(messageType)) {
+            type = InboundMessage.SessionType.PRIVATE;
+        } else {
+            String chatType = scalarText(item.get("chatType"));
+            type = "2".equals(chatType)
+                    ? InboundMessage.SessionType.GROUP
+                    : InboundMessage.SessionType.PRIVATE;
+        }
+        if (type == InboundMessage.SessionType.GROUP) {
+            String groupId = scalarText(latest.get("group_id"));
+            if (groupId != null && !groupId.isBlank()) {
+                targetId = groupId;
+            }
+        }
+        String displayName = scalarText(item.get("peerName"));
+        String remark = scalarText(item.get("remark"));
+        Instant lastAt = parseEpoch(scalarText(item.get("msgTime")));
+        if (lastAt == null) {
+            lastAt = parseEpoch(scalarText(latest.get("time")));
+        }
+        String lastId = scalarText(item.get("msgId"));
+        return new ChatConversation(type, targetId,
+                displayName == null ? "" : displayName,
+                remark == null ? "" : remark, lastAt, lastId);
+    }
+
+    private static Instant parseEpoch(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            long epoch = Long.parseLong(raw.trim());
+            return epoch > 0 ? Instant.ofEpochSecond(epoch) : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static int countNonTextSegments(JsonNode message) {
+        if (message == null || !message.isArray()) {
+            return 0;
+        }
+        int count = 0;
+        for (JsonNode segment : message) {
+            String type = scalarText(segment.get("type"));
+            if (type != null && !"text".equalsIgnoreCase(type)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static ChatHistoryMessage parseHistoryMessage(JsonNode node) {

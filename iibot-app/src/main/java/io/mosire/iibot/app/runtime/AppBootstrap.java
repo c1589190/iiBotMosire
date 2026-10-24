@@ -27,6 +27,10 @@ import io.mosire.iibot.app.decision.ActionPackageRecoveryService;
 import io.mosire.iibot.app.decision.LlmActionBatchExecutor;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
 import io.mosire.iibot.app.publication.EventSourcedPostStore;
+import io.mosire.iibot.app.chat.QqChatDirectoryService;
+import io.mosire.iibot.app.control.PlayerOnboardingService;
+import io.mosire.iibot.app.control.QqPlatformSendService;
+import io.mosire.iibot.app.publication.ExternalPostService;
 import io.mosire.iibot.app.publication.PublicationOrchestrator;
 import io.mosire.iibot.app.records.RecordQueryService;
 import io.mosire.iibot.app.records.TurnRecordProjector;
@@ -34,6 +38,7 @@ import io.mosire.iibot.app.ticket.EventSourcedTicketStore;
 import io.mosire.iibot.app.world.WorldDocs;
 import io.mosire.iibot.app.world.WorldFactsLoader;
 import io.mosire.iibot.connect.core.ChatHistoryProvider;
+import io.mosire.iibot.connect.core.QqPlatformCapability;
 import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.napcat.NapCatAdapter;
 import io.mosire.iibot.connect.napcat.NapCatConfig;
@@ -331,9 +336,26 @@ public final class AppBootstrap {
             if (chatHistoryProvider == null && adapter instanceof ChatHistoryProvider provider) {
                 chatHistoryProvider = provider;
             }
+            QqPlatformCapability qqPlatformCapability =
+                    adapter instanceof QqPlatformCapability platform ? platform : null;
+            QqChatDirectoryService chatDirectoryService = qqPlatformCapability == null ? null
+                    : new QqChatDirectoryService(qqPlatformCapability,
+                            controlBootstrapService::publicGroupId);
+            ExternalPostService externalPostService = new ExternalPostService(postService,
+                    playerId -> controlBootstrapService.qqForPlayer(playerId).isPresent());
             OutboxSender outbox = new OutboxSender(adapter,
                     Duration.ofSeconds(config.outbox().sendTimeoutSeconds()),
                     config.napcat().privateTempGroupId().orElse(null));
+            PlayerOnboardingService playerOnboardingService =
+                    qqPlatformCapability == null ? null : new PlayerOnboardingService(
+                            qqPlatformCapability, controlBootstrapService, outbox,
+                            deliveryLedger, controlBootstrapService::publicGroupId,
+                            config.control().platform());
+            QqPlatformSendService qqPlatformSendService =
+                    config.control().platform().allowArbitrarySend()
+                            ? new QqPlatformSendService(outbox, deliveryLedger,
+                                    config.control().platform())
+                            : null;
             TurnResultDistributor resultDistributor = new TurnResultDistributor(
                     engine, outbox, controlBootstrapService::publicGroupId,
                     controlBootstrapService::qqForPlayerOrNull, deliveryLedger);
@@ -363,7 +385,9 @@ public final class AppBootstrap {
                     options, config, engine, eventReadPort, secrets, clock,
                     adjudicationService, gmAideAgent, resultDistributor, postDistributor,
                     complaintDistributor, secretaryWorkspaceStore, secretaryRegistry,
-                    chatHistoryProvider, postService, sharedSkillStore, complaintService,
+                    chatHistoryProvider, qqPlatformCapability, chatDirectoryService,
+                    externalPostService, playerOnboardingService, qqPlatformSendService,
+                    postService, sharedSkillStore, complaintService,
                     actionPoolService, actionPackageService, actionBatchExecutor,
                     publicationOrchestrator, recordQueryService,
                     controlBootstrapService, gmPrivateDocs, ticketService,
@@ -530,6 +554,11 @@ public final class AppBootstrap {
                                                     SecretaryWorkspaceStore secretaryWorkspaceStore,
                                                     SecretarySessionRegistry secretaryRegistry,
                                                     ChatHistoryProvider chatHistoryProvider,
+                                                    QqPlatformCapability qqPlatformCapability,
+                                                    QqChatDirectoryService chatDirectoryService,
+                                                    ExternalPostService externalPostService,
+                                                    PlayerOnboardingService playerOnboardingService,
+                                                    QqPlatformSendService qqPlatformSendService,
                                                     PostService postService,
                                                     SharedSkillStore sharedSkillStore,
                                                     ComplaintService complaintService,
@@ -565,6 +594,11 @@ public final class AppBootstrap {
                 .secretaryWorkspaceStore(secretaryWorkspaceStore)
                 .secretarySessions(secretaryRegistry)
                 .chatHistoryProvider(chatHistoryProvider)
+                .qqPlatformCapability(qqPlatformCapability)
+                .chatDirectoryService(chatDirectoryService)
+                .externalPostService(externalPostService)
+                .playerOnboardingService(playerOnboardingService)
+                .qqPlatformSendService(qqPlatformSendService)
                 .postService(postService)
                 .postDistributor(postDistributor)
                 .sharedSkillStore(sharedSkillStore)

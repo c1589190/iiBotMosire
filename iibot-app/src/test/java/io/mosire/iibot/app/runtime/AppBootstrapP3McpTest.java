@@ -36,6 +36,16 @@ import io.mosire.iibot.connect.core.ChatHistoryMessage;
 import io.mosire.iibot.connect.core.ChatHistoryPage;
 import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.connect.core.ChatHistoryQuery;
+import io.mosire.iibot.connect.core.ChatConversation;
+import io.mosire.iibot.connect.core.ChatMessageDetail;
+import io.mosire.iibot.connect.core.GroupMember;
+import io.mosire.iibot.connect.core.QqPlatformCapability;
+import io.mosire.iibot.connect.core.SendReceipt;
+import io.mosire.iibot.connect.core.AdapterEventListener;
+import io.mosire.iibot.connect.core.AdapterStatus;
+import io.mosire.iibot.connect.core.InboundHandler;
+import io.mosire.iibot.connect.core.MessagingAdapter;
+import io.mosire.iibot.connect.core.InboundMessage.SessionType;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.taskflow.ActorRole;
 import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
@@ -85,7 +95,7 @@ class AppBootstrapP3McpTest {
 
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(71)
+            assertThat(names).hasSize(72)
             .containsAll(GmPublicationMcpTools.NAMES)
                     .contains(GmPublicationMcpTools.OPENING)
             .containsAll(GmRecordMcpTools.NAMES)
@@ -534,7 +544,7 @@ class AppBootstrapP3McpTest {
             client = client(server);
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(72).contains(GmChatHistoryTool.NAME);
+            assertThat(names).hasSize(73).contains(GmChatHistoryTool.NAME, "tf_post_compose");
 
             McpSchema.CallToolResult result = client.callTool(
                     new McpSchema.CallToolRequest(GmChatHistoryTool.NAME, Map.of(
@@ -548,11 +558,125 @@ class AppBootstrapP3McpTest {
             assertThat(queries.getFirst().targetId()).isEqualTo("group-public");
             assertThat(queries.getFirst().reverseOrder()).isTrue();
 
-            McpSchema.CallToolResult denied = client.callTool(
+            McpSchema.CallToolResult arbitraryPrivate = client.callTool(
                     new McpSchema.CallToolRequest(GmChatHistoryTool.NAME, Map.of(
                             "chatType", "private", "targetId", "qq-not-registered")));
-            assertThat(denied.isError()).isTrue();
-            assertThat(wireText(denied)).contains("TARGET_NOT_ALLOWED");
+            assertThat(arbitraryPrivate.isError()).as(wireText(arbitraryPrivate)).isFalse();
+            assertThat(wireText(arbitraryPrivate)).contains("历史文本", "qq-not-registered");
+            assertThat(queries).hasSize(2);
+            assertThat(queries.get(1).sessionType())
+                    .isEqualTo(io.mosire.iibot.connect.core.InboundMessage.SessionType.PRIVATE);
+            assertThat(queries.get(1).targetId()).isEqualTo("qq-not-registered");
+        } finally {
+            if (client != null) {
+                client.closeGracefully();
+            }
+            runtime.close();
+        }
+    }
+
+    @Test
+    void platformCapabilityAddsDirectoryMessageAndOnboardingTools() throws Exception {
+        PlatformFakeAdapter adapter = new PlatformFakeAdapter();
+        AppRuntime runtime = AppBootstrap.build(config(),
+                BootstrapOptions.fake(secrets(), Clock.systemUTC(),
+                        FakeLlmClient.with(), adapter));
+        McpSyncClient client = null;
+        try {
+            runtime.start();
+            client = client(controlServer(runtime));
+            List<String> names = client.listTools().tools().stream()
+                    .map(McpSchema.Tool::name).toList();
+            assertThat(names).hasSize(77).contains(
+                    GmChatHistoryTool.NAME,
+                    "tf_qq_chat_list",
+                    "tf_qq_group_members",
+                    "tf_qq_message_get",
+                    "tf_player_onboard_from_group",
+                    "tf_post_compose")
+                    .doesNotContain("tf_qq_send_private", "tf_qq_send_group");
+
+            assertToolOk(client.callTool(new McpSchema.CallToolRequest(
+                    "tf_qq_chat_list", Map.of("scope", "configured"))),
+                    "chat list");
+            assertThat(wireText(client.callTool(new McpSchema.CallToolRequest(
+                    "tf_qq_chat_list", Map.of("scope", "configured")))))
+                    .contains("group-public");
+
+            assertToolOk(client.callTool(new McpSchema.CallToolRequest(
+                    "tf_qq_group_members", Map.of("groupId", "group-public"))),
+                    "group members");
+            assertThat(wireText(client.callTool(new McpSchema.CallToolRequest(
+                    "tf_qq_group_members", Map.of("groupId", "group-public")))))
+                    .contains("qq-new-player");
+
+            assertToolOk(client.callTool(new McpSchema.CallToolRequest(
+                    "tf_qq_message_get", Map.of("messageId", "msg-join"))),
+                    "message get");
+            assertThat(wireText(client.callTool(new McpSchema.CallToolRequest(
+                    "tf_qq_message_get", Map.of("messageId", "msg-join")))))
+                    .contains("我想报名加入");
+
+            McpSchema.CallToolResult composed = client.callTool(
+                    new McpSchema.CallToolRequest("tf_post_compose", Map.of(
+                            "mode", "DRAFT",
+                            "visibility", "PUBLIC",
+                            "title", "外部公告",
+                            "body", "这是外部控制方直接撰写的公告。",
+                            "idempotencyKey", "platform-mcp-compose-draft")));
+            assertThat(composed.isError()).as(wireText(composed)).isFalse();
+            assertThat(wireText(composed)).contains("PENDING_APPROVAL", "tf_post_compose");
+            assertThat(adapter.delegate.sent()).isEmpty();
+
+            McpSchema.CallToolResult onboard = client.callTool(
+                    new McpSchema.CallToolRequest("tf_player_onboard_from_group", Map.of(
+                            "sourceGroupId", "group-public",
+                            "sourceMessageId", "msg-join",
+                            "qqId", "qq-new-player",
+                            "displayName", "新玩家",
+                            "idempotencyKey", "platform-mcp-onboard-1")));
+            assertThat(onboard.isError()).as(wireText(onboard)).isFalse();
+            assertThat(wireText(onboard)).contains(
+                    "player-", "secretaryBound", "SENT", "registrationCard");
+            assertThat(adapter.delegate.sent()).hasSize(1);
+            assertThat(adapter.delegate.sent().getFirst().targetId())
+                    .isEqualTo("qq-new-player");
+            assertThat(adapter.delegate.sent().getFirst().temporaryGroupId())
+                    .isEqualTo("group-public");
+        } finally {
+            if (client != null) {
+                client.closeGracefully();
+            }
+            runtime.close();
+        }
+    }
+
+    @Test
+    void platformSendToolsRequireExplicitEnableAndUseDeliveryLedger() throws Exception {
+        PlatformFakeAdapter adapter = new PlatformFakeAdapter();
+        AppRuntime runtime = AppBootstrap.build(config(true),
+                BootstrapOptions.fake(secrets(), Clock.systemUTC(),
+                        FakeLlmClient.with(), adapter));
+        McpSyncClient client = null;
+        try {
+            runtime.start();
+            client = client(controlServer(runtime));
+            List<String> names = client.listTools().tools().stream()
+                    .map(McpSchema.Tool::name).toList();
+            assertThat(names).hasSize(79)
+                    .contains("tf_qq_send_private", "tf_qq_send_group");
+
+            McpSchema.CallToolResult sent = client.callTool(
+                    new McpSchema.CallToolRequest("tf_qq_send_group", Map.of(
+                            "groupId", "99999",
+                            "text", "平台级测试公告",
+                            "idempotencyKey", "platform-send-group-1")));
+            assertThat(sent.isError()).as(wireText(sent)).isFalse();
+            assertThat(wireText(sent)).contains("SENT", "messageIds");
+            assertThat(adapter.delegate.sent()).singleElement().satisfies(message -> {
+                assertThat(message.targetType()).isEqualTo(OutboundMessage.TargetType.GROUP);
+                assertThat(message.targetId()).isEqualTo("99999");
+            });
         } finally {
             if (client != null) {
                 client.closeGracefully();
@@ -562,6 +686,10 @@ class AppBootstrapP3McpTest {
     }
 
     private AppConfig config() throws Exception {
+        return config(false);
+    }
+
+    private AppConfig config(boolean allowArbitrarySend) throws Exception {
         Path factsFile = TestSupport.writeFacts(tempDir.resolve("world").resolve("facts.json"), """
                 {"facts": [
                   {"factId": "public-1", "content": "港口迷雾与失踪船队", "visibility": "PUBLIC"}
@@ -574,6 +702,9 @@ class AppBootstrapP3McpTest {
         control.put("port", 0);
         control.put("path", CONTROL_PATH);
         control.put("bearerTokenEnv", "IIBOT_CONTROL_TOKEN");
+        if (allowArbitrarySend) {
+            control.putObject("platform").put("allowArbitrarySend", true);
+        }
         return TestSupport.loadConfig(TestSupport.writeConfig(
                 tempDir.resolve("iibot-p3.json"), root));
     }
@@ -659,5 +790,104 @@ class AppBootstrapP3McpTest {
             }
         }
         throw new AssertionError(message);
+    }
+
+    private static final class PlatformFakeAdapter
+            implements MessagingAdapter, QqPlatformCapability {
+        private final FakeMessagingAdapter delegate = new FakeMessagingAdapter();
+
+        @Override
+        public String adapterId() {
+            return delegate.adapterId();
+        }
+
+        @Override
+        public void start(InboundHandler handler) {
+            delegate.start(handler);
+        }
+
+        @Override
+        public java.util.concurrent.CompletionStage<SendReceipt> send(
+                OutboundMessage message) {
+            return delegate.send(message);
+        }
+
+        @Override
+        public AdapterStatus status() {
+            return delegate.status();
+        }
+
+        @Override
+        public void addEventListener(AdapterEventListener listener) {
+            delegate.addEventListener(listener);
+        }
+
+        @Override
+        public void removeEventListener(AdapterEventListener listener) {
+            delegate.removeEventListener(listener);
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
+        }
+
+        @Override
+        public CompletableFuture<List<ChatConversation>> recentConversations(int count) {
+            return CompletableFuture.completedFuture(List.of(new ChatConversation(
+                    SessionType.GROUP, "group-public", "测试推演群", "", null, null)));
+        }
+
+        @Override
+        public CompletableFuture<List<ChatConversation>> joinedGroups() {
+            return recentConversations(10);
+        }
+
+        @Override
+        public CompletableFuture<List<ChatConversation>> friends(boolean noCache) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+
+        @Override
+        public CompletableFuture<List<GroupMember>> groupMembers(String groupId) {
+            return CompletableFuture.completedFuture(List.of(new GroupMember(
+                    groupId, "qq-new-player", "新玩家", "新玩家", "member")));
+        }
+
+        @Override
+        public CompletableFuture<ChatMessageDetail> message(String messageId) {
+            return CompletableFuture.completedFuture(new ChatMessageDetail(
+                    messageId, SessionType.GROUP, "group-public", "qq-new-player",
+                    "新玩家", "我想报名加入", java.time.Instant.parse(
+                            "2026-10-24T00:00:00Z"), 0));
+        }
+
+        @Override
+        public CompletableFuture<SendReceipt> sendPrivate(String targetQqId,
+                                                          String temporaryGroupId,
+                                                          List<String> textSegments,
+                                                          String idempotencyKey) {
+            return delegate.send(OutboundMessage.privateTemporaryMessage(
+                    targetQqId, temporaryGroupId, textSegments, idempotencyKey))
+                    .toCompletableFuture();
+        }
+
+        @Override
+        public CompletableFuture<SendReceipt> sendGroup(String groupId,
+                                                        List<String> textSegments,
+                                                        String idempotencyKey) {
+            return delegate.send(OutboundMessage.groupMessage(
+                    groupId, textSegments, idempotencyKey))
+                    .toCompletableFuture();
+        }
+
+        @Override
+        public CompletableFuture<ChatHistoryPage> history(ChatHistoryQuery query) {
+            return CompletableFuture.completedFuture(new ChatHistoryPage(
+                    List.of(new ChatHistoryMessage("msg-1", "qq-p1", "Player One",
+                            "历史文本", java.time.Instant.parse(
+                                    "2026-10-24T00:00:00Z"))),
+                    null, true, 0));
+        }
     }
 }

@@ -3,7 +3,8 @@
 > 用途：把下面从“你现在接手”开始的内容作为**首条用户提示词**发给已连接 iiBot MCP 的 DSH GM Agent。
 > 前提：宿主已停止旧 app、备份旧 runtime、执行 `01-prepare.sh` 与 `02-start.sh`；**本提示词发给 DSH 时 app 与 MCP 必须正在运行**。
 > **重要**：不要在本 DSH 会话里停止 app 或移动 runtime，否则 MCP 连接会断开；runtime 复位必须由宿主 shell 在启动 DSH 之前完成。
-> 本提示词不授权自动向真实 QQ 发布任何内容；所有真实出站仍须真人 GM 确认。
+> 开场/公告的真实出站仍须真人 GM 确认。D-017 的公屏自主入团是受控例外：
+> 来源消息 opt-in、群 allowlist、配额和单 QQ 幂等全部通过时，Agent 可自主发送报名卡。
 
 ---
 
@@ -59,7 +60,12 @@ DSH 开始后只做只读检查：
    - 无活动回合。
 3. 确认 `tools/list` 中至少存在：
    - `tf_publication_opening`
+   - `tf_post_compose`
+   - `tf_qq_chat_list`
    - `tf_qq_history_read`
+   - `tf_qq_group_members`
+   - `tf_qq_message_get`
+   - `tf_player_onboard_from_group`
    - `tf_gm_secretary_cache_list`
    - `tf_gm_secretary_cache_create`
 4. 工具总数以实际 `tools/list` 为准，不要凭记忆写死。
@@ -106,7 +112,7 @@ skills/palatinia-secretary.md
 
 ## 四、创建公共开场草稿
 
-根据当前帕拉丁世界设定和 `simulation/campaign/palatinia/03-opening-post.md` 或更新后的设定，写一条**世界内**公共开场。
+根据当前帕拉丁世界设定、`simulation/campaign/palatinia/03-opening-post.md` 与 `simulation/campaign/palatinia/08-personal-opening.md`，写一条**世界内**公共开场。个人本只固定时代与宏观局势，不得在开场里替玩家锁定职位、关系、秘密或第一项行动。
 
 调用：
 
@@ -137,8 +143,9 @@ tf_publication_opening
 
 1. `tf_post_decide` 批准；
 2. `tf_post_publish` 发布；
-3. 运行 `simulation/scripts/05b-register-players.sh` 注册玩家；
-4. **不要注册后立刻开回合**。
+3. 确认 `simulation/init/identities.local.json` 中的玩家列表与本轮一致；个人本只应注册该玩家，不得把旧 9 人列表直接带入；
+4. 运行 `simulation/scripts/05b-register-players.sh` 注册玩家；
+5. **不要注册后立刻开回合**。
 
 注册后检查：
 
@@ -149,26 +156,70 @@ tf_publication_opening
 
 ## 六、玩家引导规则
 
-每名玩家首次私聊时，秘书必须只给一张简短玩法卡：
+每名玩家首次私聊时，秘书必须只给一张简短报名卡。个人本以单玩家为准，只收集以下五项：
 
 ```text
-你是帕拉丁帝国西境的一名地方官/军官。
-先告诉我三件事就可以开始：
-1. 你想被怎么称呼；
-2. 你想当什么身份；
-3. 你最想先玩哪一类事。
+《七柱之下：败退之后》个人本可以开始了。
 
-其余身份细节我先替你暂定，随时可以改。
+这个世界是古比奥战败后的帕拉丁帝国西境。你只需要告诉我五项：
+姓名、性别、年龄、职位、其他介绍。
+
+其他介绍可以写出身、性格、经历、目标、关系、秘密，或者你希望开局关注什么；一句话也可以。职位不必从固定列表里选，按你想要的来。
 ```
 
 不得：
 
-- 要求填 18 项长表；
+- 要求填长表；
+- 把职位限制为固定模板；
+- 替玩家锁死秘密、私人目标、关系或第一项行动；
 - 要求 QQ 后四位；
 - 要求六位确认码；
 - 要求玩家阅读 `player/*.md`；
 - 要求玩家理解 MCP/workspace/draftId/ticketId；
 - 在报名时反复确认。
+
+## 六点四、工单板等待
+
+当没有待处理工单时，不要高频轮询。调用：
+
+```text
+tf_ticket_board {"wait":true,"waitSeconds":300}
+```
+
+- 已有 OPEN/CLAIMED/CONFIRMED 工单时立即返回；
+- 否则阻塞到下一次成功工单变更/新工单到达或超时；
+- 超时返回 `waitTimedOut=true`，可再次调用；
+- `waitTimedOut` 不表示可以自动回复或自动处理，只表示本轮等待结束。
+
+## 六点五、公屏玩家自主入团
+
+当公屏群消息中出现明确报名/加入意图时：
+
+1. 先通过 `tf_qq_history_read` 读取该群当前页，确认消息确实存在；
+2. 用 `tf_qq_message_get` 核验 `sourceMessageId`、群号和发送者 QQ；
+3. 调用：
+
+```text
+tf_player_onboard_from_group
+```
+
+参数：
+
+- `sourceGroupId`：来源群号；
+- `sourceMessageId`：报名消息 ID；
+- `qqId`：消息发送者 QQ；
+- `displayName`：可选，通常用群昵称；
+- `registrationForm`：可选，省略用默认五项报名卡；
+- `idempotencyKey`：本轮稳定幂等键。
+
+约束：
+
+- 默认只允许当前推演群；其他群必须由宿主显式加入
+  `control.platform.onboardingAllowedGroupIds`；
+- 默认要求报名/加入类 opt-in 文案；不得对普通闲聊用户主动私信；
+- 单 QQ 只发送一次报名卡；`FAILED/UNKNOWN` 不自动重发；
+- 该路径不要求 app 内 Agent 审核或逐次真人确认，但必须报告最终结果；
+- 不向未报名用户批量私信，不自行扩大 allowlist。
 
 ## 七、正式行动
 
@@ -185,7 +236,10 @@ tf_publication_opening
 
 ## 八、发布边界
 
-- 只有 `tf_post_publish` 会触发真实 QQ 外发；
+- 真实 QQ 外发路径包括 `tf_post_publish`、经真人确认的
+  `tf_post_compose(mode=PUBLISH_NOW)`、D-017 自主入团报名卡，以及显式启用的
+  `tf_qq_send_private/tf_qq_send_group`；
+- DRAFT、生成器、包 commit 和记录投影不自动外发；
 - 所有玩家可见内容先过 `06-editorial-checklist.md`；
 - 不允许自动日推、自动推进世界时间、自动回复工单、自动确认行动；
 - `simulation/scripts/board-autopilot.py` 默认只能用于只读采样；

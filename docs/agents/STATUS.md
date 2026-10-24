@@ -1,8 +1,27 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-24 21:25（Asia/Shanghai）
+> **更新时间**：2026-10-24 22:10（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
+
+## 0. 最新更新（2026-10-24 22:10）
+
+- **D-017 平台级 QQ 能力与受控自主入团已实现代码与自动化测试**：
+  connectlib `QqPlatformCapability`、NapCat 目录/历史/消息定位/临时私聊发送；
+  MCP `tf_qq_chat_list`、`tf_qq_history_read`（任意 Bot 可访问目标）、
+  `tf_qq_group_members`、`tf_qq_message_get`、`tf_post_compose`、
+  `tf_player_onboard_from_group`；显式开启后 `tf_qq_send_private/group`。
+- D-018 工单板 `wait` 长轮询已实现：`tf_ticket_board {"wait":true,"waitSeconds":300}`；
+  已有待处理工单立即返回，否则阻塞到下一次成功工单变更/新工单或超时。
+- `tools/gate.sh full` **PASS**：全仓 **604 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 36、connect-agent 21、taskflow 251、app 296）；shaded jar 构建成功，
+  sha256 `36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`。
+- 证据：[`../superpowers/status/2026-10-24-mcp-platform-capability-and-autonomous-onboarding.md`](../superpowers/status/2026-10-24-mcp-platform-capability-and-autonomous-onboarding.md)。
+- 默认模拟 MCP 工具面 **77**；`control.platform.allowArbitrarySend=true` 后 **79**。
+- **未部署**：`simulation/dist` 仍是旧 jar；当前 app 未运行、8765 空闲；本轮未重启、
+  未替换 jar、未发送真实 QQ 消息；真实 NapCat smoke 与真实自主入团均 `NOT_RUN`。
+- 下一步：先处理已发现的 fresh-init/runtime 与 campaign 世界事实问题，再按宿主流程
+  停旧 app、备份、替换 jar、启动并做真实只读 smoke。真实外发需用户明确目标与授权。
 
 ## 1. 当前目标
 

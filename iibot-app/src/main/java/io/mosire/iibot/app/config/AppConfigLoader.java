@@ -59,7 +59,10 @@ public final class AppConfigLoader {
     private static final Set<String> OUTBOX_FIELDS = Set.of("sendTimeoutSeconds");
     private static final Set<String> SCHEDULER_FIELDS = Set.of("autoFreezeIntervalSeconds");
     private static final Set<String> CONTROL_FIELDS = Set.of(
-            "enabled", "host", "port", "path", "bearerTokenEnv", "maxRequestBytes");
+            "enabled", "host", "port", "path", "bearerTokenEnv", "maxRequestBytes", "platform");
+    private static final Set<String> PLATFORM_FIELDS = Set.of(
+            "allowArbitrarySend", "onboardingEnabled", "onboardingAllowedGroupIds",
+            "onboardingRequireOptIn", "onboardingMaxPlayers");
 
     private AppConfigLoader() {
     }
@@ -280,10 +283,46 @@ public final class AppConfigLoader {
         if (enabled && tokenEnv.isBlank()) {
             throw new ConfigException("control.enabled=true 时必须配置 control.bearerTokenEnv（token 只从环境变量读取）");
         }
+        ControlMcpConfig.PlatformPolicy platform = optionalObject(node, "platform", "control")
+                .map(AppConfigLoader::parsePlatformPolicy)
+                .orElseGet(ControlMcpConfig.PlatformPolicy::defaults);
         try {
-            return new ControlMcpConfig(enabled, host, port, path, tokenEnv, maxBytes);
+            return new ControlMcpConfig(enabled, host, port, path, tokenEnv, maxBytes, platform);
         } catch (IllegalArgumentException invalid) {
             throw new ConfigException("control 配置非法: " + invalid.getMessage());
+        }
+    }
+
+    private static ControlMcpConfig.PlatformPolicy parsePlatformPolicy(JsonNode node) {
+        rejectUnknown(node, PLATFORM_FIELDS, "control.platform");
+        boolean allowArbitrarySend = optionalBoolean(
+                node, "allowArbitrarySend", "control.platform", false);
+        boolean onboardingEnabled = optionalBoolean(
+                node, "onboardingEnabled", "control.platform", true);
+        boolean onboardingRequireOptIn = optionalBoolean(
+                node, "onboardingRequireOptIn", "control.platform", true);
+        int onboardingMaxPlayers = optionalInt(
+                node, "onboardingMaxPlayers", "control.platform", 64);
+        Set<String> allowed = new java.util.LinkedHashSet<>();
+        JsonNode allowedNode = node.get("onboardingAllowedGroupIds");
+        if (allowedNode != null && !allowedNode.isNull()) {
+            if (!allowedNode.isArray()) {
+                throw new ConfigException(
+                        "control.platform.onboardingAllowedGroupIds 必须是字符串数组");
+            }
+            for (JsonNode item : allowedNode) {
+                if (!item.isTextual() || item.asText().isBlank()) {
+                    throw new ConfigException(
+                            "control.platform.onboardingAllowedGroupIds 不能包含空值");
+                }
+                allowed.add(item.asText().trim());
+            }
+        }
+        try {
+            return new ControlMcpConfig.PlatformPolicy(allowArbitrarySend,
+                    onboardingEnabled, allowed, onboardingRequireOptIn, onboardingMaxPlayers);
+        } catch (IllegalArgumentException invalid) {
+            throw new ConfigException("control.platform 配置非法: " + invalid.getMessage());
         }
     }
 

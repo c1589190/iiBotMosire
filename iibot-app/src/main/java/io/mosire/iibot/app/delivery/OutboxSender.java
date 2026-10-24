@@ -52,9 +52,14 @@ public final class OutboxSender {
     }
 
     private OutboundMessage privateOutbound(String userId, String text, String key) {
-        return privateTempGroupId == null
+        return privateOutbound(userId, privateTempGroupId, text, key);
+    }
+
+    private OutboundMessage privateOutbound(String userId, String temporaryGroupId,
+                                            String text, String key) {
+        return temporaryGroupId == null || temporaryGroupId.isBlank()
                 ? OutboundMessage.privateMessage(userId, List.of(text), key)
-                : OutboundMessage.privateTemporaryMessage(userId, privateTempGroupId,
+                : OutboundMessage.privateTemporaryMessage(userId, temporaryGroupId,
                         List.of(text), key);
     }
 
@@ -106,6 +111,16 @@ public final class OutboxSender {
      */
     public List<SendOutcome> sendPrivateToUser(String userId, List<String> texts,
                                                 String correlationKey) {
+        return sendPrivateToUser(userId, privateTempGroupId, texts, correlationKey);
+    }
+
+    /**
+     * 向指定私聊用户发送一条或多条正文，可显式指定群临时会话来源群。
+     * 仅平台级 onboarding 等受控路径使用；普通回复仍走配置的 privateTempGroupId。
+     */
+    public List<SendOutcome> sendPrivateToUser(String userId, String temporaryGroupId,
+                                                List<String> texts,
+                                                String correlationKey) {
         if (userId == null || userId.isBlank()) {
             throw new IllegalArgumentException("userId 不能为空");
         }
@@ -124,7 +139,8 @@ public final class OutboxSender {
                         "OUTBOX_BLANK_TEXT", "空白正文被拒绝（未发送）"));
                 continue;
             }
-            OutboundMessage outbound = privateOutbound(userId, text, idempotencyKey);
+            OutboundMessage outbound = privateOutbound(
+                    userId, temporaryGroupId, text, idempotencyKey);
             outcomes.add(send(index, idempotencyKey, outbound));
         }
         return List.copyOf(outcomes);

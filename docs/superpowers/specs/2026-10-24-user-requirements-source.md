@@ -234,6 +234,49 @@
   - `AGENTS.md` 是秘书规则的运行时正本；共享 Skill 是可复用补充。
 - **状态**：有效；已实现，待真实 playtest 验证 V4.1flash 行为。
 
+### 5.6 补充裁定（2026-10-24，平台级 QQ 能力与自主入团）
+
+#### D-017 connectlib 平台级 QQ 能力与受控自主入团
+
+- **用户原话（逐字）**：
+  > 「此外需求还有，MCP读取群聊之后，可能有公屏玩家想直接加入，应当允许Agent自主把这名玩家加入游戏，并自主发送报名表，这个能实现吗？裁定你自己先做一遍，我认为应该直接扩大到平台量级，做成connectlib的全局最高权限工具，然后通过限制权限来限制执行」
+- **裁定**：
+  1. **方向采纳**：`iibot-connect` 提供平台级 QQ 能力，作为全局最高权限的 typed capability port：
+     读取 Bot 可访问的私聊/群历史、最近会话、群列表、群成员、消息定位，以及发送私聊/群消息。
+     不提供 raw OneBot action、任意 JSON、任意数据库或任意 shell 的执行口。
+  2. **“平台量级”边界**：只能是 Bot 账号 / NapCat 当前可访问的会话与群；不能读取两个其他用户之间的私聊，
+     也不能读取 Bot 未加入的群。承载能力不等于突破 QQ 平台权限。
+  3. **权限分层**：connectlib 只实现能力，不决定游戏权限；对外暴露由 app/MCP 的
+     `ToolCallAuthorizer` 控制。权限至少覆盖 role/allowlist、operation scope、target scope、
+     rate/quota、idempotency 和 audit。默认只开放读取与当前推演群；任意发送、任意群入团必须显式配置
+     allowlist 或 `*` 后才启用。
+  4. **公屏自主入团**：允许外部控制方 Agent 根据群消息自主调用高层 onboarding 工具，完成
+     注册玩家、创建秘书、发送报名表，不要求再由 app 内 Agent 审核，也不要求逐次真人确认；
+     用来源证据与权限策略替代逐次确认。调用必须带
+     `sourceGroupId` / `sourceMessageId` / `qqId` 作为证据，由宿主校验消息真实存在且发送者匹配；
+     默认要求报名/加入类 opt-in 文案，默认只允许当前推演群，支持配置放宽。
+  5. **安全限制**：不能一次调用批量抓取或群发；单玩家幂等；单 QQ 只注册一次；报名表发送走
+     delivery ledger，`UNKNOWN` 不自动重发；日志不记录正文、token 或完整协议数据。
+     该自主入团例外只覆盖“校验通过的报名响应”，不自动扩大到任意群发或任意公告。
+- **正本**：[`../plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md`](../plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md)
+- **状态**：已实现代码与自动化测试；未部署 simulation jar、未做真实 NapCat/QQ smoke。
+
+### 5.7 补充裁定（2026-10-24，工单板等待模式）
+
+#### D-018 工单板长轮询等待
+
+- **用户原话（逐字）**：
+  > 「别急，再加一个新功能，那就是给Agent看的那个告示板加一个等待，如果处于等待模式，那么在第一条信息来临前，这个工具的调用不会结束」
+- **裁定**：
+  - `tf_ticket_board` 增加 `wait=true` 与 `waitSeconds`；
+  - 已有 OPEN/CLAIMED/CONFIRMED 工单时立即返回；
+  - 没有待处理工单时，调用阻塞到下一次成功工单变更/新工单到达，或 `waitSeconds` 超时；
+  - 默认等待 300 秒，上限 1800 秒；超时返回 `waitTimedOut=true` 和当前板面，Agent 可再次调用；
+  - 只有成功提交的工单变更才唤醒；存储失败不唤醒；
+  - 等待是宿主内部 condition 通知，不要求外部 Agent 轮询 MCP；
+  - 超时/中断不等于自动处理工单，Agent 仍需按工单流程操作。
+- **状态**：已实现代码与自动化测试；未部署、未做真实 DSH 长等待 smoke。
+
 ## 六、待补问题
 
 - Q5：LLM provider / 模型路由；

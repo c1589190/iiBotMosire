@@ -16,10 +16,15 @@ import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolRegistry;
 import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.control.ControlBootstrapService;
+import io.mosire.iibot.app.chat.QqChatDirectoryService;
+import io.mosire.iibot.app.control.PlayerOnboardingService;
+import io.mosire.iibot.app.control.QqPlatformSendService;
+import io.mosire.iibot.app.publication.ExternalPostService;
 import io.mosire.iibot.app.publication.PublicationOrchestrator;
 import io.mosire.iibot.app.records.RecordQueryService;
 import io.mosire.iibot.app.runtime.ControlPlane;
 import io.mosire.iibot.connect.core.ChatHistoryProvider;
+import io.mosire.iibot.connect.core.QqPlatformCapability;
 import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.action.ActionPoolService;
@@ -128,7 +133,12 @@ public final class ControlMcpServer implements ControlPlane {
     private final SecretaryWorkspaceStore secretaryWorkspaceStore;
     private final SecretarySessionRegistry secretarySessions;
     private final ChatHistoryProvider chatHistoryProvider;
+    private final QqPlatformCapability qqPlatformCapability;
+    private final QqChatDirectoryService chatDirectoryService;
+    private final PlayerOnboardingService playerOnboardingService;
+    private final QqPlatformSendService qqPlatformSendService;
     private final PostService postService;
+    private final ExternalPostService externalPostService;
     private final io.mosire.iibot.app.delivery.PostDistributor postDistributor;
     private final SharedSkillStore sharedSkillStore;
     private final ComplaintService complaintService;
@@ -167,7 +177,12 @@ public final class ControlMcpServer implements ControlPlane {
         this.secretaryWorkspaceStore = builder.secretaryWorkspaceStore;
         this.secretarySessions = builder.secretarySessions;
         this.chatHistoryProvider = builder.chatHistoryProvider;
+        this.qqPlatformCapability = builder.qqPlatformCapability;
+        this.chatDirectoryService = builder.chatDirectoryService;
+        this.playerOnboardingService = builder.playerOnboardingService;
+        this.qqPlatformSendService = builder.qqPlatformSendService;
         this.postService = builder.postService;
+        this.externalPostService = builder.externalPostService;
         this.postDistributor = builder.postDistributor;
         this.sharedSkillStore = builder.sharedSkillStore;
         this.complaintService = builder.complaintService;
@@ -257,13 +272,28 @@ public final class ControlMcpServer implements ControlPlane {
                 }
                 if (chatHistoryProvider != null && controlBootstrapService != null) {
                     registry.register(new GmChatHistoryTool(chatHistoryProvider,
-                            controlBootstrapService::resolve,
-                            controlBootstrapService::publicGroupId));
+                            controlBootstrapService::publicGroupId, chatDirectoryService));
+                }
+                if (qqPlatformCapability != null) {
+                    registry.register(new GmQqGroupMembersTool(qqPlatformCapability));
+                    registry.register(new GmQqMessageGetTool(qqPlatformCapability));
+                    if (chatDirectoryService != null) {
+                        registry.register(new GmQqChatListTool(chatDirectoryService));
+                    }
+                }
+                if (playerOnboardingService != null) {
+                    registry.register(new GmPlayerOnboardFromGroupTool(
+                            playerOnboardingService, supervisor));
+                }
+                if (qqPlatformSendService != null) {
+                    registry.register(new GmQqSendPrivateTool(
+                            qqPlatformSendService, supervisor));
+                    registry.register(new GmQqSendGroupTool(
+                            qqPlatformSendService, supervisor));
                 }
                 if (postService != null) {
-                    var postTools = postDistributor == null
-                            ? GmPostMcpTools.all(postService, supervisor)
-                            : GmPostMcpTools.all(postService, postDistributor, supervisor);
+                    var postTools = GmPostMcpTools.all(postService, postDistributor,
+                            supervisor, externalPostService);
                     for (var tool : postTools) {
                         registry.register(tool);
                     }
@@ -672,9 +702,26 @@ public final class ControlMcpServer implements ControlPlane {
         if (chatHistoryProvider != null && controlBootstrapService != null) {
             allTools.add(GmChatHistoryTool.NAME);
         }
+        if (qqPlatformCapability != null) {
+            allTools.add(GmQqGroupMembersTool.NAME);
+            allTools.add(GmQqMessageGetTool.NAME);
+            if (chatDirectoryService != null) {
+                allTools.add(GmQqChatListTool.NAME);
+            }
+        }
+        if (playerOnboardingService != null) {
+            allTools.add(GmPlayerOnboardFromGroupTool.NAME);
+        }
+        if (qqPlatformSendService != null) {
+            allTools.add(GmQqSendPrivateTool.NAME);
+            allTools.add(GmQqSendGroupTool.NAME);
+        }
         if (postService != null) {
             allTools.addAll(postDistributor == null
                     ? GmPostMcpTools.BASE_NAMES : GmPostMcpTools.NAMES);
+            if (externalPostService != null) {
+                allTools.add(GmPostMcpTools.COMPOSE_NAME);
+            }
         }
         if (publicationOrchestrator != null) {
             allTools.addAll(GmPublicationMcpTools.NAMES);
@@ -723,6 +770,24 @@ public final class ControlMcpServer implements ControlPlane {
         if (chatHistoryProvider != null && controlBootstrapService != null) {
             scopes.put(GmChatHistoryTool.RESOURCE_NAMESPACE,
                     ResourceScope.of("read"));
+        }
+        if (qqPlatformCapability != null) {
+            scopes.put(GmQqGroupMembersTool.RESOURCE_NAMESPACE,
+                    ResourceScope.of("read"));
+            scopes.put(GmQqMessageGetTool.RESOURCE_NAMESPACE,
+                    ResourceScope.of("read"));
+            if (chatDirectoryService != null) {
+                scopes.put(GmQqChatListTool.RESOURCE_NAMESPACE,
+                        ResourceScope.of("read"));
+            }
+        }
+        if (playerOnboardingService != null) {
+            scopes.put(GmPlayerOnboardFromGroupTool.RESOURCE_NAMESPACE,
+                    ResourceScope.of("write"));
+        }
+        if (qqPlatformSendService != null) {
+            scopes.put(GmQqSendPrivateTool.RESOURCE_NAMESPACE,
+                    ResourceScope.of("write"));
         }
         if (postService != null) {
             scopes.put(PostStore.RESOURCE_NAMESPACE,
@@ -822,7 +887,12 @@ public final class ControlMcpServer implements ControlPlane {
         private SecretaryWorkspaceStore secretaryWorkspaceStore;
         private SecretarySessionRegistry secretarySessions;
         private ChatHistoryProvider chatHistoryProvider;
+        private QqPlatformCapability qqPlatformCapability;
+        private QqChatDirectoryService chatDirectoryService;
+        private PlayerOnboardingService playerOnboardingService;
+        private QqPlatformSendService qqPlatformSendService;
         private PostService postService;
+        private ExternalPostService externalPostService;
         private io.mosire.iibot.app.delivery.PostDistributor postDistributor;
         private SharedSkillStore sharedSkillStore;
         private ComplaintService complaintService;
@@ -915,12 +985,42 @@ public final class ControlMcpServer implements ControlPlane {
             return this;
         }
 
+        /** 注入平台级 QQ 能力；未注入时不注册平台目录/消息工具。 */
+        public Builder qqPlatformCapability(QqPlatformCapability qqPlatformCapability) {
+            this.qqPlatformCapability = qqPlatformCapability;
+            return this;
+        }
+
+        /** 注入 QQ 会话目录服务；未注入时 chat-list 不注册。 */
+        public Builder chatDirectoryService(QqChatDirectoryService chatDirectoryService) {
+            this.chatDirectoryService = chatDirectoryService;
+            return this;
+        }
+
+        /** 注入自主入团服务；未注入时不注册 onboarding 工具。 */
+        public Builder playerOnboardingService(PlayerOnboardingService playerOnboardingService) {
+            this.playerOnboardingService = playerOnboardingService;
+            return this;
+        }
+
+        /** 注入平台任意发送服务；仅 allowArbitrarySend=true 时由组合根提供。 */
+        public Builder qqPlatformSendService(QqPlatformSendService qqPlatformSendService) {
+            this.qqPlatformSendService = qqPlatformSendService;
+            return this;
+        }
+
         /**
          * 可选注入推文服务。注入后额外注册四个 GM 审批/发布工具；未注入时工具面保持
          * 与既有行为完全一致。
          */
         public Builder postService(PostService postService) {
             this.postService = Objects.requireNonNull(postService, "postService");
+            return this;
+        }
+
+        /** 注入外部自由发帖服务；未注入时不注册 tf_post_compose。 */
+        public Builder externalPostService(ExternalPostService externalPostService) {
+            this.externalPostService = externalPostService;
             return this;
         }
 

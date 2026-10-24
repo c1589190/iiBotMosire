@@ -12,5 +12,6 @@
         url: http://127.0.0.1:8765/mcp/control
         headers:
           Authorization: !!js '`Bearer ${process.env.IIBOT_CONTROL_TOKEN}`'
-        toolCallTimeoutMs: 180000
+        # tf_ticket_board waitSeconds 默认 300；给 MCP client 留足余量。
+        toolCallTimeoutMs: 360000
         failOnStartupError: true

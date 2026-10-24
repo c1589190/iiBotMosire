@@ -12,93 +12,113 @@ import io.mosire.agentlib.tool.ToolCallAuthorizer;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolRegistry;
 import io.mosire.agentlib.tool.ToolResult;
+import io.mosire.iibot.app.chat.QqChatDirectoryService;
+import io.mosire.iibot.connect.core.ChatConversation;
 import io.mosire.iibot.connect.core.ChatHistoryMessage;
 import io.mosire.iibot.connect.core.ChatHistoryPage;
 import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.connect.core.ChatHistoryQuery;
+import io.mosire.iibot.connect.core.ChatMessageDetail;
+import io.mosire.iibot.connect.core.GroupMember;
 import io.mosire.iibot.connect.core.InboundMessage.SessionType;
-import io.mosire.iibot.taskflow.Actor;
-import io.mosire.iibot.taskflow.ActorRole;
-import io.mosire.iibot.taskflow.PlayerProfile;
-import io.mosire.iibot.taskflow.agent.MappedIdentity;
+import io.mosire.iibot.connect.core.QqPlatformCapability;
+import io.mosire.iibot.connect.core.SendReceipt;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** NapCat 只读历史 MCP 工具的目标白名单、协议中立结果与游标测试。 */
+/** 无白名单历史读取、默认推演群、自动类型解析与安全结果测试。 */
 class GmChatHistoryToolTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
-    private static final MappedIdentity PLAYER = new MappedIdentity(
-            "20002", new Actor("player-1", ActorRole.PLAYER),
-            new PlayerProfile("player-1", "20002", "Player One"));
 
     @Test
-    void readsAllowedPrivateHistoryAndReturnsNeutralMessagesAndCursor() throws Exception {
+    void omittedTargetDefaultsToConfiguredPublicGroup() throws Exception {
         RecordingProvider provider = new RecordingProvider();
-        GmChatHistoryTool tool = tool(provider);
-        ToolResult result = call(tool, Map.of(
-                "chatType", "private", "targetId", "20002", "count", 2));
+        GmChatHistoryTool tool = new GmChatHistoryTool(provider, () -> "30003", null);
+        ToolResult result = call(tool, Map.of("count", 2));
 
         assertThat(result.success()).isTrue();
-        JsonNode data = JSON.readTree(result.message()).path("data");
-        assertThat(data.path("chatType").asText()).isEqualTo("private");
-        assertThat(data.path("targetId").asText()).isEqualTo("20002");
-        assertThat(data.path("messages")).hasSize(1);
-        assertThat(data.path("messages").get(0).path("text").asText())
-                .isEqualTo("历史文本");
-        assertThat(data.path("messages").get(0).path("senderId").asText())
-                .isEqualTo("20002");
-        assertThat(data.path("nextCursor").asText()).isEqualTo("101");
-        assertThat(data.path("exhausted").asBoolean()).isFalse();
-        assertThat(provider.queries).hasSize(1);
-        assertThat(provider.queries.getFirst().sessionType())
-                .isEqualTo(SessionType.PRIVATE);
-        assertThat(provider.queries.getFirst().count()).isEqualTo(2);
-        assertThat(provider.queries.getFirst().reverseOrder()).isTrue();
+        assertThat(provider.queries).singleElement().satisfies(query -> {
+            assertThat(query.sessionType()).isEqualTo(SessionType.GROUP);
+            assertThat(query.targetId()).isEqualTo("30003");
+            assertThat(query.count()).isEqualTo(2);
+        });
     }
 
     @Test
-    void rejectsUnregisteredPrivateTargetAndNonPublicGroupBeforeProviderCall() {
+    void readsAnyPrivateOrGroupWithoutRegistrationAllowlist() throws Exception {
         RecordingProvider provider = new RecordingProvider();
-        GmChatHistoryTool tool = tool(provider);
+        GmChatHistoryTool tool = new GmChatHistoryTool(provider, () -> "30003", null);
 
-        ToolResult unknown = call(tool, Map.of(
+        ToolResult privateResult = call(tool, Map.of(
                 "chatType", "private", "targetId", "99999"));
-        assertThat(unknown.code()).isEqualTo("TARGET_NOT_ALLOWED");
+        ToolResult groupResult = call(tool, Map.of(
+                "chatType", "group", "targetId", "88888"));
 
-        ToolResult wrongGroup = call(tool, Map.of(
-                "chatType", "group", "targetId", "99999"));
-        assertThat(wrongGroup.code()).isEqualTo("TARGET_NOT_ALLOWED");
+        assertThat(privateResult.success()).isTrue();
+        assertThat(groupResult.success()).isTrue();
+        assertThat(provider.queries).extracting(ChatHistoryQuery::targetId)
+                .containsExactly("99999", "88888");
+    }
+
+    @Test
+    void autoResolvesPrivateAndGroupThroughDirectory() throws Exception {
+        RecordingProvider provider = new RecordingProvider();
+        FakePlatform platform = new FakePlatform();
+        platform.recent = List.of(conversation(SessionType.PRIVATE, "20002"));
+        platform.groups = List.of(conversation(SessionType.GROUP, "40004"));
+        QqChatDirectoryService directory =
+                new QqChatDirectoryService(platform, () -> "30003");
+        GmChatHistoryTool tool = new GmChatHistoryTool(provider, () -> "30003", directory);
+
+        ToolResult privateResult = call(tool, Map.of("targetId", "20002"));
+        ToolResult groupResult = call(tool, Map.of("targetId", "40004"));
+
+        assertThat(privateResult.success()).isTrue();
+        assertThat(groupResult.success()).isTrue();
+        assertThat(provider.queries).extracting(ChatHistoryQuery::sessionType)
+                .containsExactly(SessionType.PRIVATE, SessionType.GROUP);
+    }
+
+    @Test
+    void unknownAutoTargetFailsClosedBeforeProviderCall() {
+        RecordingProvider provider = new RecordingProvider();
+        FakePlatform platform = new FakePlatform();
+        QqChatDirectoryService directory =
+                new QqChatDirectoryService(platform, () -> "30003");
+        GmChatHistoryTool tool = new GmChatHistoryTool(provider, () -> "30003", directory);
+
+        ToolResult result = call(tool, Map.of("targetId", "77777"));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.code()).isEqualTo("CHAT_TYPE_REQUIRED");
         assertThat(provider.queries).isEmpty();
     }
 
     @Test
-    void acceptsCurrentPublicGroupAndOlderDirection() throws Exception {
+    void returnsNonTextSkippedAndNeutralMessages() throws Exception {
         RecordingProvider provider = new RecordingProvider();
-        GmChatHistoryTool tool = tool(provider);
+        GmChatHistoryTool tool = new GmChatHistoryTool(provider, () -> "30003", null);
         ToolResult result = call(tool, Map.of(
-                "chatType", "group", "targetId", "30003",
-                "cursor", "old", "direction", "older"));
+                "chatType", "group", "targetId", "30003", "count", 2));
 
-        assertThat(result.success()).isTrue();
-        assertThat(provider.queries.getFirst().sessionType())
-                .isEqualTo(SessionType.GROUP);
-        assertThat(provider.queries.getFirst().cursor()).isEqualTo("old");
-        assertThat(provider.queries.getFirst().reverseOrder()).isTrue();
+        JsonNode data = JSON.readTree(result.message()).path("data");
+        assertThat(data.path("messages")).hasSize(1);
+        assertThat(data.path("messages").get(0).path("text").asText()).isEqualTo("历史文本");
+        assertThat(data.path("nonTextSkipped").asInt()).isEqualTo(2);
+        assertThat(data.path("nextCursor").asText()).isEqualTo("101");
+        assertThat(data.path("exhausted").asBoolean()).isFalse();
     }
 
-    private static GmChatHistoryTool tool(RecordingProvider provider) {
-        return new GmChatHistoryTool(provider,
-                target -> "20002".equals(target) ? Optional.of(PLAYER) : Optional.empty(),
-                () -> "30003");
+    private static ChatConversation conversation(SessionType type, String targetId) {
+        return new ChatConversation(type, targetId, "name", "", null, null);
     }
 
     private static ToolResult call(GmChatHistoryTool tool, Map<String, Object> args) {
@@ -124,9 +144,59 @@ class GmChatHistoryToolTest {
         public CompletableFuture<ChatHistoryPage> history(ChatHistoryQuery query) {
             queries.add(query);
             return CompletableFuture.completedFuture(new ChatHistoryPage(
-                    List.of(new ChatHistoryMessage("101", "20002", "测试玩家",
+                    List.of(new ChatHistoryMessage("101", "20002", "玩家",
                             "历史文本", Instant.parse("2026-10-24T00:00:00Z"))),
-                    "101", false));
+                    "101", false, 2));
+        }
+    }
+
+    private static final class FakePlatform implements QqPlatformCapability {
+        private List<ChatConversation> recent = List.of();
+        private List<ChatConversation> groups = List.of();
+
+        @Override
+        public CompletableFuture<List<ChatConversation>> recentConversations(int count) {
+            return CompletableFuture.completedFuture(recent);
+        }
+
+        @Override
+        public CompletableFuture<List<ChatConversation>> joinedGroups() {
+            return CompletableFuture.completedFuture(groups);
+        }
+
+        @Override
+        public CompletableFuture<List<ChatConversation>> friends(boolean noCache) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+
+        @Override
+        public CompletableFuture<List<GroupMember>> groupMembers(String groupId) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+
+        @Override
+        public CompletableFuture<ChatMessageDetail> message(String messageId) {
+            return CompletableFuture.failedFuture(new IllegalStateException("not used"));
+        }
+
+        @Override
+        public CompletableFuture<SendReceipt> sendPrivate(String targetQqId,
+                                                          String temporaryGroupId,
+                                                          List<String> textSegments,
+                                                          String idempotencyKey) {
+            return CompletableFuture.failedFuture(new IllegalStateException("not used"));
+        }
+
+        @Override
+        public CompletableFuture<SendReceipt> sendGroup(String groupId,
+                                                        List<String> textSegments,
+                                                        String idempotencyKey) {
+            return CompletableFuture.failedFuture(new IllegalStateException("not used"));
+        }
+
+        @Override
+        public CompletableFuture<ChatHistoryPage> history(ChatHistoryQuery query) {
+            return CompletableFuture.failedFuture(new IllegalStateException("not used"));
         }
     }
 }

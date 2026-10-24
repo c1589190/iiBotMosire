@@ -93,6 +93,22 @@ class OutboxSenderTest {
     }
 
     @Test
+    void explicitTemporaryGroupOverridesConfiguredDefault() {
+        FakeMessagingAdapter adapter = new FakeMessagingAdapter();
+        OutboxSender outbox = new OutboxSender(adapter, Duration.ofSeconds(2),
+                "configured-group");
+
+        outbox.sendPrivateToUser("qq-new", "source-group", List.of("报名卡"),
+                "onboarding-source-group");
+
+        assertThat(adapter.sent()).singleElement().satisfies(message -> {
+            assertThat(message.targetId()).isEqualTo("qq-new");
+            assertThat(message.temporaryGroupId()).isEqualTo("source-group");
+            assertThat(message.textSegments()).containsExactly("报名卡");
+        });
+    }
+
+    @Test
     void failedBeforeSendIsRecordedAndNotRetried() {
         FakeMessagingAdapter adapter = new FakeMessagingAdapter(message ->
                 CompletableFuture.completedFuture(SendReceipt.failed("NAP", "server rejected")));

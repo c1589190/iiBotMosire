@@ -242,6 +242,67 @@ class AppConfigTest {
     }
 
     @Test
+    void controlPlatformPolicyDefaultsAreFailClosedForArbitrarySend() {
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("control-default-policy.json"),
+                TestSupport.validConfigNode(tempDir.resolve("data"), tempDir.resolve("facts.json")));
+        ObjectNode root = readNode(configFile);
+        ObjectNode control = root.putObject("control");
+        control.put("enabled", true);
+        control.put("bearerTokenEnv", "IIBOT_CONTROL_TOKEN");
+        TestSupport.writeJson(configFile, root);
+
+        AppConfig config = TestSupport.loadConfig(configFile);
+
+        assertThat(config.control().platform().allowArbitrarySend()).isFalse();
+        assertThat(config.control().platform().onboardingEnabled()).isTrue();
+        assertThat(config.control().platform().onboardingAllowedGroupIds()).isEmpty();
+        assertThat(config.control().platform().onboardingRequireOptIn()).isTrue();
+        assertThat(config.control().platform().onboardingMaxPlayers()).isEqualTo(64);
+    }
+
+    @Test
+    void controlPlatformPolicyParsesExplicitAllowlistAndLimits() {
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("control-platform-policy.json"),
+                TestSupport.validConfigNode(tempDir.resolve("data"), tempDir.resolve("facts.json")));
+        ObjectNode root = readNode(configFile);
+        ObjectNode control = root.putObject("control");
+        control.put("enabled", true);
+        control.put("bearerTokenEnv", "IIBOT_CONTROL_TOKEN");
+        ObjectNode platform = control.putObject("platform");
+        platform.put("allowArbitrarySend", false);
+        platform.put("onboardingEnabled", true);
+        platform.put("onboardingRequireOptIn", false);
+        platform.put("onboardingMaxPlayers", 7);
+        ArrayNode groups = platform.putArray("onboardingAllowedGroupIds");
+        groups.add("group-a");
+        groups.add("*");
+        TestSupport.writeJson(configFile, root);
+
+        AppConfig config = TestSupport.loadConfig(configFile);
+
+        assertThat(config.control().platform().onboardingAllowedGroupIds())
+                .containsExactlyInAnyOrder("group-a", "*");
+        assertThat(config.control().platform().onboardingRequireOptIn()).isFalse();
+        assertThat(config.control().platform().onboardingMaxPlayers()).isEqualTo(7);
+    }
+
+    @Test
+    void controlPlatformPolicyRejectsInvalidPlayerLimit() {
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("control-bad-policy.json"),
+                TestSupport.validConfigNode(tempDir.resolve("data"), tempDir.resolve("facts.json")));
+        ObjectNode root = readNode(configFile);
+        ObjectNode control = root.putObject("control");
+        control.put("enabled", true);
+        control.put("bearerTokenEnv", "IIBOT_CONTROL_TOKEN");
+        control.putObject("platform").put("onboardingMaxPlayers", 0);
+        TestSupport.writeJson(configFile, root);
+
+        assertThatThrownBy(() -> TestSupport.loadConfig(configFile))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("onboardingMaxPlayers");
+    }
+
+    @Test
     void loadsNamedLlmRoutesAndAgentRouteFallbacks() {
         Path facts = TestSupport.writeFacts(tempDir.resolve("routes-facts.json"),
                 "{\"facts\":[]}");

@@ -123,7 +123,7 @@ class AppBootstrapP6PublicationRecordsTest {
             client = client(server);
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(71)
+            assertThat(names).hasSize(72)
                     .containsAll(GmPublicationMcpTools.NAMES)
                     .contains(GmPublicationMcpTools.OPENING)
                     .containsAll(GmRecordMcpTools.NAMES)

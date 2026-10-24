@@ -3,8 +3,10 @@
 这个目录用于 **P8 真实链路联调**：真实 NapCat/QQ、真实 LLM、真实 DSH MCP 控制方。
 它使用独立的 `simulation/runtime/`，不会覆盖 `/home/cna/.config/iibot/runtime/`。
 
-> **真实发送边界**：只有 GM 调用 `tf_post_publish` 后，`PostDistributor` 才会发送 QQ。
-> 草稿生成、包 commit、记录投影都不会自动外发。第一次真实发送前先确认目标群/玩家。
+> **真实发送边界**：`tf_post_publish`、经真人确认的
+> `tf_post_compose(mode=PUBLISH_NOW)`、D-017 自主入团报名卡，以及显式启用的
+> `tf_qq_send_private/tf_qq_send_group` 会触发真实 QQ 外发。
+> DRAFT、生成器、包 commit、记录投影都不会自动外发。第一次真实发送前先确认目标群/玩家。
 
 ## 目录
 
@@ -163,11 +165,36 @@ simulation/scripts/05c-open-turn.sh
 完成后可查看：
 
 ```bash
-simulation/scripts/06-mcp.sh --list           # 应显示 67 个工具
+simulation/scripts/06-mcp.sh --list           # 默认模拟装配 77 个；以实际 tools/list 为准
 simulation/scripts/06-mcp.sh tf_status '{}'
 simulation/scripts/06-mcp.sh tf_record_query '{"kind":"opening"}'
 simulation/scripts/06-mcp.sh tf_ticket_board '{}'
 ```
+
+### 3.3 平台级 QQ 能力（D-017）
+
+默认工具：
+
+```text
+tf_qq_chat_list          # 默认 configured=当前推演群；可展开 recent/groups/friends/all
+tf_ticket_board          # wait=true 时长轮询到第一条工单/板面变更或超时
+tf_qq_history_read       # 省略目标默认当前群；可查任意 Bot 可访问私聊/群
+tf_qq_group_members      # 群成员
+tf_qq_message_get        # 按消息 ID 取一条消息，用于核验入团来源
+tf_post_compose          # 外部控制方自由撰写推文；DRAFT 或 PUBLISH_NOW
+tf_player_onboard_from_group  # 来源消息校验后自主注册、绑定秘书、发报名卡
+```
+
+显式开启 `control.platform.allowArbitrarySend=true` 后额外出现：
+
+```text
+tf_qq_send_private
+tf_qq_send_group
+```
+
+这些工具默认关闭且只暴露给 supervisor。自主入团默认只允许当前推演群；
+`control.platform.onboardingAllowedGroupIds` 可显式扩展，`["*"]` 表示全部
+Bot 可访问群。读取始终受 QQ/NapCat 权限约束，不能读取他人私聊或未加入的群。
 
 ## 4. 接 DSH Agent
 
@@ -217,16 +244,19 @@ mcp__iibot__tf_publication_generate
 mcp__iibot__tf_post_publish
 ```
 
+真正接入步骤（插件安装、token、patch、headless/web、验证）见：
+[`simulation/dsh/DSH_CONNECT.md`](dsh/DSH_CONNECT.md)。
+
 `simulation/dsh/GM_SYSTEM_PROMPT.md` 是给 DSH 的控制方提示词。把文件内容作为任务/系统提示
 传入；不要用 QQ 聊天内容提升身份。
 
 ### DSH 与「推演」的当前分工
 
 - DSH：外部 GM/控制方，负责初始化、驱动回合、看工单、组包、审核和发布；
+- DSH 还可以用 `tf_post_compose` 自行撰写普通公告/私聊，不依赖批次或 app 内 LLM；
 - app 内 `agentRoutes.adjudicator`：批次行动的实际中央 LLM 推演；
-- DSH 可以看到 `tf_turn_get` / `tf_package_get` / `tf_publication_generate` 的结果，但当前
-  不能直接替换 app 内 `LlmActionBatchExecutor` 的模型。P8 先按现有链路跑通；
-  若要让 DSH 直接产出推演正文，需要另改 adjudicator 路由或增加外部 proposal 提交口。
+- 批次行动正文仍由 app 内 adjudicator 生成；但控制方可以直接发独立推文，
+  不再需要先和 app 内 Agent 对账。
 
 ## 5. 一轮真实循环
 
@@ -239,6 +269,8 @@ mcp__iibot__tf_post_publish
   → DSH: tf_post_list / tf_post_get / tf_post_decide
   → DSH: tf_post_publish         （这一步才发公共群）
   → DSH: tf_control_register_player / tf_control_bind_secretary
+  → DSH: tf_qq_chat_list / tf_qq_history_read / tf_qq_message_get
+  → DSH: tf_player_onboard_from_group（公屏玩家报名时）
   → DSH: tf_open_turn
   → DSH: tf_record_query {"kind":"opening"} 查看开场投影摘要/hash
 ```
@@ -276,6 +308,15 @@ simulation/player-experience/
 - `06-editorial-checklist.md`：发布前审稿；
 - `07-automation-boundaries.md`：自动监控只读。
 
+Agent 没有待处理工单时，用：
+
+```bash
+simulation/scripts/06-mcp.sh tf_ticket_board '{"wait":true,"waitSeconds":300}'
+```
+
+长轮询会在已有待处理工单、下一次成功工单变更/新工单到达或超时时返回；
+`waitTimedOut=true` 后可以重新调用，不表示自动处理授权。
+
 `simulation/scripts/board-autopilot.py` 默认已降级为**只读 watchdog**：
 
 - 不生成日推；
@@ -308,6 +349,15 @@ simulation/scripts/06-mcp.sh --list
 
 # 只读状态
 simulation/scripts/06-mcp.sh tf_status '{}'
+
+# 查看当前推演群
+simulation/scripts/06-mcp.sh tf_qq_chat_list '{"scope":"configured"}'
+
+# 读取任意 Bot 可访问群历史（示例）
+simulation/scripts/06-mcp.sh tf_qq_history_read '{"chatType":"group","targetId":"123456","count":20}'
+
+# 外部控制方直接写草稿（不发送）
+simulation/scripts/06-mcp.sh tf_post_compose '{"mode":"DRAFT","visibility":"PUBLIC","title":"公告","body":"正文","idempotencyKey":"announce-001"}'
 
 # 创建公共开场草稿（推荐用 07-opening.sh 封装参数文件与权限）
 simulation/scripts/07-opening.sh "雾灯港·序章" "潮水退去后……" "opening-001"

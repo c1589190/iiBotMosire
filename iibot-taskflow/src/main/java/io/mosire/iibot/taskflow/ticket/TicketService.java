@@ -9,6 +9,7 @@ import io.mosire.iibot.taskflow.event.EventVisibility;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -54,7 +55,9 @@ public final class TicketService {
 
     private final TicketStore store;
     private final Clock clock;
+    private final Object changeMonitor = new Object();
     private TicketSnapshot state;
+    private long changeVersion;
 
     public TicketService(TicketStore store) {
         this(store, Clock.systemUTC());
@@ -568,6 +571,47 @@ public final class TicketService {
         return state;
     }
 
+    /** 原子读取快照与变更版本；长轮询用它避免漏掉快照读取前的竞态变更。 */
+    public synchronized StateView stateView() {
+        return new StateView(state, changeVersion);
+    }
+
+    /**
+     * 阻塞等待下一次成功工单变更。返回 true 表示版本已前进；false 表示超时。
+     *
+     * <p>等待期间不持有 TicketService 主锁，因此其他线程仍可提交/回复工单。
+     * commit 成功后才推进版本并通知；存储失败不会唤醒。</p>
+     */
+    public boolean awaitChange(long observedVersion, Duration timeout) throws InterruptedException {
+        Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException("timeout 不能为负");
+        }
+        long deadline = System.nanoTime() + timeout.toNanos();
+        synchronized (changeMonitor) {
+            while (changeVersion <= observedVersion) {
+                long remainingNanos = deadline - System.nanoTime();
+                if (remainingNanos <= 0) {
+                    return false;
+                }
+                long millis = remainingNanos / 1_000_000L;
+                int nanos = (int) (remainingNanos % 1_000_000L);
+                changeMonitor.wait(millis, nanos);
+            }
+            return true;
+        }
+    }
+
+    /** 工单板长轮询视图：快照与单调变更版本必须来自同一时刻。 */
+    public record StateView(TicketSnapshot snapshot, long version) {
+        public StateView {
+            Objects.requireNonNull(snapshot, "snapshot");
+            if (version < 0) {
+                throw new IllegalArgumentException("version 不能为负");
+            }
+        }
+    }
+
     /** 只读审计摘要；不含 title/body/reply 正文。 */
     public synchronized List<Map<String, Object>> audit() {
         List<Map<String, Object>> result = new ArrayList<>(state.size());
@@ -599,6 +643,10 @@ public final class TicketService {
         try {
             store.save(next, event);
             state = next;
+            synchronized (changeMonitor) {
+                changeVersion++;
+                changeMonitor.notifyAll();
+            }
             return success;
         } catch (RuntimeException failure) {
             return failure(STORE_UNAVAILABLE, "工单存储暂不可用，操作未生效",
