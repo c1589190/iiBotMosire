@@ -108,7 +108,8 @@
 | 全仓测试 | `./mvnw -o test` | **BUILD SUCCESS**；33 + 21 + 248 + 266 = **568 tests / 0 failures / 0 errors / 0 skipped** |
 | 完整门禁 | `tools/gate.sh full`（`clean verify`） | **PASS**；33 + 21 + 248 + 266 = **568 tests / 0 / 0 / 0**；shaded jar 成功 |
 | 打包 | `./mvnw -o -DskipTests package` | **BUILD SUCCESS**；`iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar` 已生成，22 MB |
-| jar help | `java -jar ... --help` | rc=0；最终 jar sha256=`f215af816fb6a1a0284c32e8e3576008b0bb027a11fd2ed9bd8d56d619b6d9fe` |
+| jar help | `java -jar ... --help` | rc=0 |
+| 模拟区部署 | `simulation/scripts/00-build.sh`；`sha256sum -c` | 成功；`simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar` sha256=`ba7c617039a57370e89de32b547be6de8772e6af1e700a6406e78207c7099cc6`；app 已停止、8765 空闲 |
 | watchdog py_compile | `python3 -m py_compile simulation/scripts/board-autopilot.py` | PASS |
 | watchdog 只读采样 | `python3 simulation/scripts/board-autopilot.py --once` | rc=0；post 数 85→85，无新内容 |
 | docs check | `python3 tools/check-docs.py` | PASS |
@@ -136,13 +137,13 @@
 
 ## 四、明确未完成
 
-1. **未部署**：运行中 app 仍使用 `simulation/dist` 旧 jar；新 jar 仅在 `iibot-app/target/`。未停止/重启 app。
+1. **已部署但未启动**：`simulation/dist` 已替换为新 jar；app 已停止，等待用户重新初始化。真实 playtest 尚未开始。
 2. **未真实 playtest**：未用真实 QQ 玩家执行 5 人验收。
 3. **未实现 canonical RegistrationApplication/CharacterSheet**：仍沿用现有报名/角色流程，只是去掉了阻塞式交互；领域模型留作下一责任区。
 4. **未实现直接 GM 私聊通知工具、秘书 status/reset、原生事件推送**。
 5. **当前 live simulation runtime 仍是被首轮事故污染的状态**，不能作为可靠性验收环境。
 6. **D-014 cache/history 仍未部署/未真实 NapCat 工具验证**。
-7. 本轮未 commit/push。
+7. 代码主提交已 push；随后状态/部署文档更新单独提交。
 
 ## 五、建议下一步
 

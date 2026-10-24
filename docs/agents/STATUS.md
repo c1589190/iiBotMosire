@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-24 21:17（Asia/Shanghai）
+> **更新时间**：2026-10-24 21:25（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -43,15 +43,15 @@
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
 | 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.3`（Pages 固定版） |
 | 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`，约 21 MB |
-| Git/提交 | `HEAD=8de76f0`（已推送 `origin/main`）；P8-A 历史 feature `1480c55`；本轮 cache/NapCat 历史改动尚未提交 |
-| 本机工作树 | 有未提交的 P8-A/cache 源码与测试；`simulation/campaign/`、`simulation/scripts/board-*.py` 为外部/模拟区文件，未纳入本轮提交；`target/` 构建产物存在 |
+| Git/提交 | 本轮代码提交 `da0b8d7`，已推送 `origin/main`；随后仅追加本状态文档更新。P8-A 历史 feature `1480c55` |
+| 本机工作树 | 代码/文档/模拟区资产已提交；`target/`、`simulation/dist/`、`simulation/runtime/` 按 gitignore 不入库 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
 | 最近 full clean（D-014 cache/history） | **549 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 33、connect-agent 21、taskflow 236、app 259），`tools/gate.sh full` PASS；日志 `.work/cache-full-final3.log` |
-| 最近 full clean（D-015 玩家体验运行时） | **568 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 33、connect-agent 21、taskflow 248、app 266），`tools/gate.sh full` PASS；日志 `/tmp/pe-final-gate-full-d016.log`；jar sha256 `f215af816fb6a1a0284c32e8e3576008b0bb027a11fd2ed9bd8d56d619b6d9fe`。**未部署到 simulation/dist**。 |
+| 最近 full clean（D-015 玩家体验运行时） | **568 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 33、connect-agent 21、taskflow 248、app 266），`tools/gate.sh full` PASS；日志 `/tmp/pe-final-gate-full-d016.log`。门禁后按同一源码重建并部署，当前 `simulation/dist` jar sha256 `ba7c617039a57370e89de32b547be6de8772e6af1e700a6406e78207c7099cc6`（`sha256sum -c` OK）。 |
 | 前次 full clean（P8-A） | **526 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 29、connect-agent 21、taskflow 230、app 246），`tools/gate.sh full` PASS；日志 `.work/p8a-full.log` |
 | P8-A focused / 评审 | focused **526/526 PASS**；独立评审已启动但在用户要求提交时主动中止，**无最终评审结论**；66 MCP 工具断言通过 |
 | P8-A MCP 工具面 | `tf_publication_opening` 接入；`players=[]` 启动、GM 公共开场草稿、records/openings、动态注册后开回合已测 |
