@@ -1,6 +1,6 @@
 # 理想 GM 控制工作流实施计划（2026-10-24）
 
-> **状态**：计划有效；P0（v3 行动池/裁定包）与 P1（events.db 完整内容基础）已提交；P2（现有领域事件接入与 JSON 迁移）已完成并提交 `0fbceaa`；P3（控制初始化 + GM 私有文档）已完成实现/测试/阶段评审，待 full gate 与提交；DecisionPackage/Batch 事件推迟 P5。
+> **状态**：计划有效；P0（v3 行动池/裁定包）与 P1（events.db 完整内容基础）已提交；P2（现有领域事件接入与 JSON 迁移）已完成并提交 `0fbceaa`；P3（控制初始化 + GM 私有文档）已完成实现/测试/阶段评审/full gate，提交 `615595d`；DecisionPackage/Batch 事件推迟 P5。
 > **性质**：计划不是设计；事件 schema、数据所有权、工具语义以
 > [`../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md`](../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md) 为准。
 > **当前事实**：以 [`../../agents/STATUS.md`](../../agents/STATUS.md) 为准。本文件里的测试数/工期是预测，不是实测。
@@ -139,7 +139,7 @@ P8 真实 MCP/LLM/多玩家/发布回归与发布
 
 ### P3 控制初始化 + GM 私有文档
 
-**状态**：已完成实现/测试/阶段评审；待 full gate 与提交。
+**状态**：已完成实现/测试/阶段评审/full gate（429 tests）；提交 `615595d`。
 
 **目标**：DSH/Hermes 通过 MCP 动态初始化世界、公开群、玩家 QQ、秘书绑定和 GM 私有文档。
 
