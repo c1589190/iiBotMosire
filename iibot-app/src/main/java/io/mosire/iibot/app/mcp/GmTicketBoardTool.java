@@ -54,7 +54,8 @@ public final class GmTicketBoardTool extends GmTicketToolSupport.BaseTool {
         List<Map<String, Object>> recent = new ArrayList<>();
         all.stream()
                 .filter(ticket -> ticket.status() == TicketStatus.OPEN
-                        || ticket.status() == TicketStatus.CLAIMED)
+                        || ticket.status() == TicketStatus.CLAIMED
+                        || ticket.status() == TicketStatus.CONFIRMED)
                 .sorted(Comparator.comparing(Ticket::updatedAt).reversed()
                         .thenComparing(Ticket::ticketId))
                 .limit(GmTicketToolSupport.RECENT_LIMIT)

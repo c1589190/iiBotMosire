@@ -32,6 +32,12 @@ sim["world"] = {
     "promptVersion": "sim-v1",
     "factsFile": "./world-facts.sim.json",
 }
+# Optional group for NapCat group-temporary private sessions. It must be a group
+# shared by the target players; never a public group assumption.
+temp_group = os.environ.get("IIBOT_PRIVATE_TEMP_GROUP_ID")
+if temp_group:
+    sim["napcat"] = dict(data.get("napcat", {}))
+    sim["napcat"]["privateTempGroupId"] = temp_group
 sim["scheduler"] = dict(data.get("scheduler", {}))
 sim["scheduler"]["autoFreezeIntervalSeconds"] = 30
 control = dict(data.get("control", {}))

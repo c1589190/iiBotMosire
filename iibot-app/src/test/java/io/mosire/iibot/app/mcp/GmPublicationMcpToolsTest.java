@@ -46,7 +46,7 @@ class GmPublicationMcpToolsTest {
     @Test
     void openingToolDeclaresSupervisorRoleStrictSchemaAndDestructiveSensitiveSpec()
             throws Exception {
-        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("opening-tool-metadata"))) {
+        try (P6Fixture fixture = P6Fixture.openForOpening(tempDir.resolve("opening-tool-metadata"))) {
             PublicationOrchestrator orchestrator =
                     fixture.publicationOrchestrator(FakeLlmClient.with());
             List<AgentTool> tools = GmPublicationMcpTools.all(
@@ -108,7 +108,7 @@ class GmPublicationMcpToolsTest {
 
     @Test
     void openingToolRejectsNonSupervisorAndInvalidArgumentsWithZeroPost() throws Exception {
-        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("opening-tool-denied"))) {
+        try (P6Fixture fixture = P6Fixture.openForOpening(tempDir.resolve("opening-tool-denied"))) {
             PublicationOrchestrator orchestrator =
                     fixture.publicationOrchestrator(FakeLlmClient.with());
             List<AgentTool> tools = GmPublicationMcpTools.all(

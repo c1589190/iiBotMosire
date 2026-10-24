@@ -135,7 +135,7 @@ class GmRecordMcpToolsTest {
     @Test
     void openingQueryReturnsPublicationIdPostIdAndHashWithoutBodyOrPhysicalPath()
             throws Exception {
-        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("record-tools-opening"))) {
+        try (P6Fixture fixture = P6Fixture.openForOpening(tempDir.resolve("record-tools-opening"))) {
             String body = "开场记录工具正文-不得回显-9ac1";
             PublicationOrchestrator orchestrator =
                     fixture.publicationOrchestrator(FakeLlmClient.with());

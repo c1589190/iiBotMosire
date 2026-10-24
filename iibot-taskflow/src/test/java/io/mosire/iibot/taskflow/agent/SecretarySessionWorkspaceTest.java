@@ -1,5 +1,7 @@
 package io.mosire.iibot.taskflow.agent;
 
+import io.mosire.agentlib.llm.ContentPart;
+import io.mosire.agentlib.llm.LlmMessage;
 import io.mosire.agentlib.llm.LlmResponse;
 import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,52 @@ class SecretarySessionWorkspaceTest {
                 .doesNotContain(SecretaryWorkspaceTools.LIST,
                         SecretaryWorkspaceTools.READ, SecretaryWorkspaceTools.NOTE);
         assertThat(session.permissions().isToolAllowed(SecretaryWorkspaceTools.LIST)).isFalse();
+    }
+
+    @Test
+    void firstPlayerTurnKeepsMinimalSystemPromptAndLoadsWorkspaceRulesOnce() {
+        AgentTestFixture f = AgentTestFixture.create();
+        f.loadFacts(new io.mosire.iibot.taskflow.WorldFact(
+                "visible-1", 1, "税关外排着三支车队", io.mosire.iibot.taskflow.Visibility.PUBLIC));
+        SecretaryWorkspaceStore store = SecretaryWorkspaceStore.open(tempDir,
+                List.of("player-1"));
+        ScriptedLlm llm = ScriptedLlm.with(
+                LlmResponse.text("第一轮回复"), LlmResponse.text("第二轮回复"));
+        SecretarySession session = new SecretarySession("player-1", f.p1, f.engine, llm,
+                f.noopBriefing(), f.director, f.clock, store);
+
+        assertThat(session.chat("第一条玩家消息")).isEqualTo("第一轮回复");
+        assertThat(session.chat("第二条玩家消息")).isEqualTo("第二轮回复");
+
+        assertThat(llm.requests()).hasSize(2);
+        assertThat(text(llm.requests().get(0).messages().get(0)))
+                .isEqualTo("You are a helpful software engineer assistant.");
+        String firstUser = lastUserText(llm.requests().get(0).messages());
+        assertThat(firstUser)
+                .contains("【宿主提醒：第一次与玩家交流】")
+                .contains("secretary_shared_skill_list")
+                .contains("secretary_workspace_read")
+                .contains("AGENTS.md")
+                .contains("税关外排着三支车队")
+                .contains("第一条玩家消息");
+        assertThat(lastUserText(llm.requests().get(1).messages()))
+                .isEqualTo("第二条玩家消息");
+    }
+
+    private static String lastUserText(List<LlmMessage> messages) {
+        return messages.stream()
+                .filter(message -> LlmMessage.ROLE_USER.equals(message.role()))
+                .reduce((ignored, last) -> last)
+                .map(SecretarySessionWorkspaceTest::text)
+                .orElseThrow();
+    }
+
+    private static String text(LlmMessage message) {
+        return message.content().stream()
+                .filter(ContentPart.Text.class::isInstance)
+                .map(ContentPart.Text.class::cast)
+                .map(ContentPart.Text::text)
+                .reduce("", String::concat);
     }
 
     @Test

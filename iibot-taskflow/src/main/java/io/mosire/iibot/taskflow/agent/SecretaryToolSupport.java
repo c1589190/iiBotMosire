@@ -14,7 +14,7 @@ final class SecretaryToolSupport {
 
     static final String INVALID_ARGUMENTS = "INVALID_ARGUMENTS";
     static final String INTERNAL_ERROR = "INTERNAL_ERROR";
-    static final String CONFIRM_HINT = "请玩家在私聊发送 `/确认 <draftId>` 进行确认；群聊、他人或自然语言“确认”都不会提交。";
+    static final String CONFIRM_HINT = "只把“玩家确认码”对应的 /确认 命令给玩家看一次；不要展示内部ID，已确认后不得再次索要确认。";
 
     private SecretaryToolSupport() {
     }
@@ -92,15 +92,18 @@ final class SecretaryToolSupport {
     }
 
     static String preview(DecisionDraft draft) {
+        String code = io.mosire.iibot.taskflow.ConfirmationCodes
+                .forDecisionDraft(draft.draftId());
         return "决策草稿预览\n"
-                + "draftId: " + draft.draftId() + "\n"
-                + "turnId: " + draft.turnId() + "\n"
-                + "previewHash: " + draft.previewHash() + "\n"
                 + "意图: " + draft.intent() + "\n"
                 + "行动: " + String.join("；", draft.actions()) + "\n"
                 + "资源: " + draft.resources() + "\n"
                 + "目标: " + draft.target() + "\n"
                 + "应急方案: " + draft.contingency() + "\n"
+                + "玩家确认码: " + code + "\n"
+                + "玩家可见指令: /确认 " + code + "\n"
+                + "内部ID（不得原样发给玩家）: draftId=" + draft.draftId()
+                + " turnId=" + draft.turnId() + " previewHash=" + draft.previewHash() + "\n"
                 + CONFIRM_HINT;
     }
 }

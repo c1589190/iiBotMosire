@@ -88,7 +88,7 @@ class AppBootstrapP8OpeningTest {
             client = client(server);
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(66)
+            assertThat(names).hasSize(71)
                     .contains(GmPublicationMcpTools.OPENING)
                     .containsAll(GmPublicationMcpTools.NAMES)
                     .containsAll(GmRecordMcpTools.NAMES);

@@ -7,6 +7,7 @@
     "httpBaseUri": "http://127.0.0.1:3000/",
     "accessTokenEnv": "IIBOT_NAPCAT_ACCESS_TOKEN",
     "accountId": "YOUR_BOT_QQ",
+    "privateTempGroupId": "YOUR_COMMON_GROUP_ID",
     "suppressSelfMessages": true,
     "requestTimeoutSeconds": 10,
     "maxTextLength": 2000

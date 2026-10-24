@@ -9,6 +9,7 @@ import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.TurnView;
 import io.mosire.iibot.taskflow.Visibility;
 import io.mosire.iibot.taskflow.WorldFact;
+import io.mosire.iibot.taskflow.agent.PlayerFacingTextGuard;
 import io.mosire.iibot.taskflow.decision.ActionBatch;
 import io.mosire.iibot.taskflow.decision.ActionBatchExecutor;
 import io.mosire.iibot.taskflow.decision.ActionBatchStatus;
@@ -44,6 +45,7 @@ public final class LlmActionBatchExecutor implements ActionBatchExecutor {
     static final String REJECT_INPUT_TOO_LARGE = "批次输入超过上下文上限，未调用模型";
     static final String REJECT_LLM_FAILED = "推演失败：模型调用未返回可用结果（内部原因已脱敏）";
     static final String REJECT_EMPTY_RESULT = "推演失败：模型返回空结果（未记为 COMMITTED）";
+    static final String REJECT_OUTPUT_INVALID = "推演失败：模型未返回严格结构化结果（未记为 COMMITTED）";
 
     private final TaskflowEngine engine;
     private final LlmClient adjudicatorLlm;
@@ -86,7 +88,19 @@ public final class LlmActionBatchExecutor implements ActionBatchExecutor {
             if (result.isBlank()) {
                 return correlated.withStatus(ActionBatchStatus.REJECTED, REJECT_EMPTY_RESULT);
             }
-            return correlated.committed(boundResult(result));
+            AdjudicationOutput output;
+            try {
+                output = AdjudicationOutput.parse(result);
+                output.validatePlayerScope(new java.util.LinkedHashSet<>(correlated.playerIds()));
+                output = sanitize(output);
+            } catch (RuntimeException invalid) {
+                return correlated.withStatus(ActionBatchStatus.REJECTED, REJECT_OUTPUT_INVALID);
+            }
+            String canonical = boundResult(output.canonicalJson());
+            if (output.isNoOp()) {
+                return correlated.withStatus(ActionBatchStatus.NO_OP, canonical);
+            }
+            return correlated.committed(canonical);
         } catch (RuntimeException failure) {
             // 不记录也不回显异常消息：供应商错误可能包含 prompt/正文/凭据片段。
             return correlated.withStatus(ActionBatchStatus.REJECTED, REJECT_LLM_FAILED);
@@ -135,9 +149,15 @@ public final class LlmActionBatchExecutor implements ActionBatchExecutor {
                 + facts
                 + "\n本批次按包内顺序的行动:\n"
                 + actions
-                + "\n请一次性推演以上全部行动，输出可直接阅读的多行动结果："
-                + "逐条说明结果、玩家可见变化、世界变化与后续钩子；"
-                + "不要调用工具，不要编造未提供的事实。";
+                + "\n只输出一个严格 JSON object，不要输出 Markdown、解释、前后缀或推理过程。\n"
+                + "JSON schema: {\"publicSummary\":\"可公开的世界级结果\","
+                + "\"privateOutcomes\":{\"<批次内 playerId>\":\"该玩家可见结果\"},"
+                + "\"worldChanged\":true,\"noOpReason\":\"\"}\n"
+                + "规则：publicSummary 不得包含任何玩家私密行动或 playerId；"
+                + "privateOutcomes 只能使用本批次 playerIds；没有公共内容时 publicSummary 用空串；"
+                + "如果没有产生任何世界变化，worldChanged=false 且 noOpReason 必须写明原因；"
+                + "玩家可见文本必须是自然中文，不得包含 ID、状态枚举、文件路径、Markdown 或工具信息。"
+                + "不要调用工具。";
         return prompt.length() <= MAX_PROMPT_CHARS ? prompt : null;
     }
 
@@ -152,9 +172,31 @@ public final class LlmActionBatchExecutor implements ActionBatchExecutor {
     }
 
     private static String systemPrompt() {
-        return "你是 iiBotMosire 的中央推演者。只基于给定世界版本、世界事实和本批次行动进行"
-                + "一次只读推演，输出结构化或清晰可读的中文结果。你没有工具，不得修改世界，"
-                + "不得把未提供的行动或事实当作已发生。";
+        return "你是历史政治推演的中央推演 GM。只基于给定世界版本、世界事实和本批次行动做一次"
+                + "只读推演。你没有工具，不得修改世界，不得把未提供的行动或事实当作已发生。"
+                + "只输出严格 JSON object，不输出推理过程。publicSummary/privateOutcomes 必须是"
+                + "玩家可读的世界内中文：不得出现 draftId/ticketId/postId/MCP/schema/路径/"
+                + "状态枚举/Markdown/代码块。公共文本不得泄露任何玩家私密信息。"
+                + "没有造成任何世界变化时 worldChanged=false 并写清 noOpReason。";
+    }
+
+    private static AdjudicationOutput sanitize(AdjudicationOutput output) {
+        String publicSummary = output.publicSummary().isBlank()
+                ? "" : PlayerFacingTextGuard.normalizeForPost(output.publicSummary());
+        if (!output.publicSummary().isBlank()
+                && !PlayerFacingTextGuard.remainingBackstageLeaks(publicSummary).isEmpty()) {
+            throw new IllegalArgumentException("publicSummary 含后台字段");
+        }
+        java.util.Map<String, String> privateOutcomes = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, String> entry : output.privateOutcomes().entrySet()) {
+            String clean = PlayerFacingTextGuard.normalizeForPost(entry.getValue());
+            if (!PlayerFacingTextGuard.remainingBackstageLeaks(clean).isEmpty()) {
+                throw new IllegalArgumentException("privateOutcome 含后台字段");
+            }
+            privateOutcomes.put(entry.getKey(), clean);
+        }
+        return new AdjudicationOutput(publicSummary, privateOutcomes,
+                output.worldChanged(), output.noOpReason());
     }
 
     private static String boundResult(String result) {

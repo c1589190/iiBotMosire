@@ -124,7 +124,7 @@ class ControlMcpServerDecisionToolsTest {
         McpSyncClient client = initializedClient();
 
         assertThat(client.listTools().tools().stream().map(McpSchema.Tool::name))
-                .hasSize(48)
+                .hasSize(52)
                 .containsAll(GmActionPoolMcpTools.NAMES)
                 .containsAll(GmDecisionPackageMcpTools.NAMES)
                 .containsAll(GmActionBatchMcpTools.NAMES)
@@ -177,7 +177,8 @@ class ControlMcpServerDecisionToolsTest {
     void createAppendFullReadDecideCommitExecutesOnlyApprovedAndReplayDoesNotCallLlmAgain()
             throws Exception {
         startFullAssembly(FakeLlmClient.with(
-                LlmResponse.text("多行动推演：甲与丙完成，乙未执行。")));
+                LlmResponse.text(batchJson("多行动推演：甲与丙完成",
+                        Map.of("player-1", "甲的调查已经完成。")))));
         McpSyncClient client = initializedClient();
 
         PlayerAction a1 = actionPool.submit(p1, "同一玩家行动甲-已批-4a",
@@ -294,8 +295,11 @@ class ControlMcpServerDecisionToolsTest {
     void firstItemDecisionFreezesEditsAndTurnOpenBoundaryStillAllowsMultipleBatches()
             throws Exception {
         startFullAssembly(FakeLlmClient.with(
-                LlmResponse.text("第一批次结果：甲执行。"),
-                LlmResponse.text("第二批次结果：乙与丙共同执行。")));
+                LlmResponse.text(batchJson("第一批次结果：甲执行。",
+                        Map.of("player-1", "甲的调查已经完成。"))),
+                LlmResponse.text(batchJson("第二批次结果：乙与丙共同执行。",
+                        Map.of("player-1", "乙的行动已经推进。",
+                                "player-2", "丙的行动已经推进。")))));
         McpSyncClient client = initializedClient();
 
         PlayerAction a1 = actionPool.submit(p1, "批次一行动甲-5d", "private-chat", "batch-a1");
@@ -654,6 +658,19 @@ class ControlMcpServerDecisionToolsTest {
         clients.add(client);
         client.initialize();
         return client;
+    }
+
+    private static String batchJson(String publicSummary,
+                                    Map<String, String> privateOutcomes) {
+        try {
+            return new ObjectMapper().writeValueAsString(Map.of(
+                    "publicSummary", publicSummary,
+                    "privateOutcomes", privateOutcomes,
+                    "worldChanged", true,
+                    "noOpReason", ""));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException impossible) {
+            throw new AssertionError(impossible);
+        }
     }
 
     private static McpSchema.CallToolResult callOk(McpSyncClient client, String tool,

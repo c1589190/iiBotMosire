@@ -120,6 +120,7 @@ public record AppConfig(
             URI httpBaseUri,
             Optional<String> accessTokenEnv,
             Optional<String> accountId,
+            Optional<String> privateTempGroupId,
             boolean suppressSelfMessages,
             int requestTimeoutSeconds,
             int maxTextLength) {
@@ -129,6 +130,8 @@ public record AppConfig(
             httpBaseUri = requireUri(httpBaseUri, "napcat.httpBaseUri", "http", "https");
             accessTokenEnv = normalizeOptional(accessTokenEnv, "napcat.accessTokenEnv");
             accountId = normalizeOptional(accountId, "napcat.accountId");
+            privateTempGroupId = normalizeOptional(privateTempGroupId,
+                    "napcat.privateTempGroupId");
             if (requestTimeoutSeconds <= 0) {
                 throw new ConfigException("napcat.requestTimeoutSeconds 必须为正整数");
             }
@@ -144,6 +147,7 @@ public record AppConfig(
                     + ", accessTokenEnv=" + accessTokenEnv.map(name -> "<env:" + name + ">")
                             .orElse("<absent>")
                     + ", accountId=" + accountId.orElse("<absent>")
+                    + ", privateTempGroupId=" + privateTempGroupId.orElse("<absent>")
                     + ", suppressSelfMessages=" + suppressSelfMessages
                     + ", requestTimeoutSeconds=" + requestTimeoutSeconds
                     + ", maxTextLength=" + maxTextLength + '}';

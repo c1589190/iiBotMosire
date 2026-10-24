@@ -87,6 +87,25 @@ class SecretaryTicketToolsTest {
     }
 
     @Test
+    void actionDraftSubmitReturnsOneShortConfirmationCodeWithoutBody() {
+        TicketService service = new TicketService(new InMemoryTicketStore(), CLOCK);
+        ToolResult result = execute(service, "player-a", SecretaryTicketTools.SUBMIT,
+                Map.of("type", "ACTION_DRAFT",
+                        "title", "行动草案标题",
+                        "body", "行动正文只进领域存储",
+                        "idempotencyKey", "ticket-tool-action"),
+                permissions("secretary", true));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.message())
+                .contains("玩家确认码", "/确认 ")
+                .doesNotContain("行动正文只进领域存储");
+        String ticketId = service.listForGm().getFirst().ticketId();
+        assertThat(result.message()).contains(
+                io.mosire.iibot.taskflow.ConfirmationCodes.forActionTicket(ticketId));
+    }
+
+    @Test
     void listAndReadArePlayerIsolatedAndForeignOrMissingShareStableError() {
         TicketService service = new TicketService(new InMemoryTicketStore(), CLOCK);
         TicketCommandResult a = service.submit(new Actor("player-a", ActorRole.PLAYER),

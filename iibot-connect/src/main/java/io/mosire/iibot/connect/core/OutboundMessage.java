@@ -13,12 +13,14 @@ import java.util.Objects;
  * @param targetId       私聊用户标识或群标识
  * @param textSegments   非空文本片段列表
  * @param idempotencyKey 调用方提供的稳定幂等键；相同键至多触发一次逻辑发送
+ * @param temporaryGroupId 私聊临时会话的来源群；null 表示普通私聊
  */
 public record OutboundMessage(
         TargetType targetType,
         String targetId,
         List<String> textSegments,
-        String idempotencyKey) {
+        String idempotencyKey,
+        String temporaryGroupId) {
 
     /** 发送目标类型。 */
     public enum TargetType {
@@ -41,12 +43,32 @@ public record OutboundMessage(
             throw new IllegalArgumentException("空文本被拒绝");
         }
         idempotencyKey = requireText(idempotencyKey, "idempotencyKey");
+        if (temporaryGroupId != null && temporaryGroupId.isBlank()) {
+            throw new IllegalArgumentException("temporaryGroupId 不能为空白");
+        }
+        if (targetType != TargetType.PRIVATE && temporaryGroupId != null) {
+            throw new IllegalArgumentException("temporaryGroupId 只适用于私聊");
+        }
     }
 
-    /** 构造私聊消息。 */
+    /** 兼容旧 4 参构造：普通私聊/群聊。 */
+    public OutboundMessage(TargetType targetType, String targetId,
+                           List<String> textSegments, String idempotencyKey) {
+        this(targetType, targetId, textSegments, idempotencyKey, null);
+    }
+
+    /** 构造普通私聊消息。 */
     public static OutboundMessage privateMessage(
             String userId, List<String> textSegments, String idempotencyKey) {
-        return new OutboundMessage(TargetType.PRIVATE, userId, textSegments, idempotencyKey);
+        return new OutboundMessage(TargetType.PRIVATE, userId, textSegments, idempotencyKey,
+                null);
+    }
+
+    /** 构造群临时会话私聊消息。 */
+    public static OutboundMessage privateTemporaryMessage(
+            String userId, String groupId, List<String> textSegments, String idempotencyKey) {
+        return new OutboundMessage(TargetType.PRIVATE, userId, textSegments, idempotencyKey,
+                requireText(groupId, "temporaryGroupId"));
     }
 
     /** 构造群消息。 */

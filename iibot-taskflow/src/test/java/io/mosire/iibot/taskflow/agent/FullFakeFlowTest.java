@@ -67,7 +67,7 @@ class FullFakeFlowTest {
 
         List<InteractionReply> confirmed = service.handle(privateMessage("qq-p1",
                 "/确认 " + draft.draftId(), "m-confirm"));
-        assertThat(confirmed.get(0).text()).contains("已确认决策");
+        assertThat(confirmed.get(0).text()).contains("已确认");
         assertThat(f.turn().decisions()).hasSize(1);
 
         List<InteractionReply> locked = service.handle(privateMessage("qq-director",

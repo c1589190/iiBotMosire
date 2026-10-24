@@ -41,6 +41,58 @@ class OutboxSenderTest {
     }
 
     @Test
+    void sanitizesMarkdownAndBackstageFieldsAtFinalSendBoundary() {
+        FakeMessagingAdapter adapter = new FakeMessagingAdapter();
+        OutboxSender outbox = new OutboxSender(adapter, Duration.ofSeconds(2));
+        String raw = """
+                ## 当前局势
+                你的位置在卡普亚北隘。
+                draftId: 11111111-1111-1111-1111-111111111111
+                请打开 player/registration-form-v2.md 阅读。
+                **请发送** `/确认 K7Q2M9`
+                """;
+
+        outbox.sendReplies(TestSupport.privateMessage("qq-p1", "hello", "dedupe-safe"),
+                List.of(new InteractionReply(raw)));
+
+        assertThat(adapter.sent()).hasSize(1);
+        String sent = adapter.sent().get(0).textSegments().get(0);
+        assertThat(sent)
+                .contains("当前局势", "你的位置在卡普亚北隘", "/确认 K7Q2M9")
+                .doesNotContain("##", "**", "draftId", "11111111",
+                        "registration-form-v2.md", "player/");
+    }
+
+    @Test
+    void publicBroadcastAlsoStripsBackstageAndMarkdown() {
+        FakeMessagingAdapter adapter = new FakeMessagingAdapter();
+        OutboxSender outbox = new OutboxSender(adapter, Duration.ofSeconds(2));
+
+        outbox.broadcastToPublicGroup("group-public", List.of("""
+                **世界公告**
+                城外的车队开始入城。
+                ticketId: 11111111-1111-1111-1111-111111111111
+                """), "public-safe");
+
+        assertThat(adapter.sent()).hasSize(1);
+        String sent = adapter.sent().get(0).textSegments().get(0);
+        assertThat(sent).contains("世界公告", "城外的车队开始入城")
+                .doesNotContain("**", "ticketId", "11111111");
+    }
+
+    @Test
+    void privateTemporaryGroupIsCarriedIntoOutboundMessage() {
+        FakeMessagingAdapter adapter = new FakeMessagingAdapter();
+        OutboxSender outbox = new OutboxSender(adapter, Duration.ofSeconds(2),
+                "1104560326");
+
+        outbox.sendPrivateToUser("qq-p4", List.of("hello"), "temp-group-test");
+
+        assertThat(adapter.sent()).hasSize(1);
+        assertThat(adapter.sent().get(0).temporaryGroupId()).isEqualTo("1104560326");
+    }
+
+    @Test
     void failedBeforeSendIsRecordedAndNotRetried() {
         FakeMessagingAdapter adapter = new FakeMessagingAdapter(message ->
                 CompletableFuture.completedFuture(SendReceipt.failed("NAP", "server rejected")));

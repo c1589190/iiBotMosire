@@ -1,11 +1,13 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-24 18:50（Asia/Shanghai）
+> **更新时间**：2026-10-24 21:17（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
 ## 1. 当前目标
 
+- **玩家体验复盘与推演文档系统（2026-10-24）**：已登记首轮真实推演中的工程/状态/玩家体验/自动化问题，并形成 D-015 提议设计；未改生产代码、未部署 jar、未跑构建/playtest。事实底稿：[`../superpowers/reports/2026-10-24-first-live-run-player-experience-audit.md`](../superpowers/reports/2026-10-24-first-live-run-player-experience-audit.md)；提议：[`../superpowers/specs/2026-10-24-player-experience-interaction-document-system.md`](../superpowers/specs/2026-10-24-player-experience-interaction-document-system.md)。
+- **玩家体验运行时本轮已实现**：D-016 保持最小 system prompt，详细规则写入秘书 `AGENTS.md` + 共享 Skill；玩家文本守卫、短确认码、ACTION_DRAFT 确认门、结构化裁定/NO_OP、opening 门禁、只读 watchdog、体验文档包均已落地；`tools/gate.sh full` **PASS**，全仓 **568 tests / 0 failures / 0 errors / 0 skipped**，shaded jar 成功，5 项变异验证通过。**未部署、未真实 playtest、未 commit。** 证据：[`../superpowers/status/2026-10-24-player-experience-runtime-implementation.md`](../superpowers/status/2026-10-24-player-experience-runtime-implementation.md)；架构：[`../superpowers/specs/2026-10-24-player-experience-runtime-architecture.md`](../superpowers/specs/2026-10-24-player-experience-runtime-architecture.md)；计划：[`../superpowers/plans/2026-10-24-player-experience-runtime-plan.md`](../superpowers/plans/2026-10-24-player-experience-runtime-plan.md)。
 - **P0 已完成**：v3 行动池 + AgentLib 裁定包 + 48 MCP 工具已通过 full gate，提交为 `0695675`；应用保持停止。
 - **P1 已完成**：`events.db` 完整内容基础（events + event_contents、`EventContentStore`/`EventAppendPort`、schema v1、迁移、hash/可见性/脱敏/事务）已通过 full gate 与阶段评审，提交为 `a52626f`。
 - **P2 已完成**：Post/Complaint/ActionPool 已改 events.db 事件源；Taskflow 完整快照事件已接入；旧 posts/complaints/taskflow-state 已有两阶段迁移与 reconciled 对账；阶段评审 PASS，full gate 413 tests PASS，提交 `0fbceaa`。DecisionPackage/Batch 因 AgentLib 缺 restore/事务边界推迟 P5。
@@ -41,20 +43,22 @@
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
 | 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.3`（Pages 固定版） |
 | 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`，约 21 MB |
-| Git/提交 | 本地 P8-A feature `1480c55`；P6 为 `d3a9c91`；远程原 HEAD `99dc328`（本次 push 后更新）；STATUS 收口提交随后 |
-| 本机工作树 | 仅本项目文件；`target/` 等构建产物存在 |
+| Git/提交 | `HEAD=8de76f0`（已推送 `origin/main`）；P8-A 历史 feature `1480c55`；本轮 cache/NapCat 历史改动尚未提交 |
+| 本机工作树 | 有未提交的 P8-A/cache 源码与测试；`simulation/campaign/`、`simulation/scripts/board-*.py` 为外部/模拟区文件，未纳入本轮提交；`target/` 构建产物存在 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
-| 最近 full clean（P8-A） | **526 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 29、connect-agent 21、taskflow 230、app 246），`tools/gate.sh full` PASS；日志 `.work/p8a-full.log` |
+| 最近 full clean（D-014 cache/history） | **549 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 33、connect-agent 21、taskflow 236、app 259），`tools/gate.sh full` PASS；日志 `.work/cache-full-final3.log` |
+| 最近 full clean（D-015 玩家体验运行时） | **568 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 33、connect-agent 21、taskflow 248、app 266），`tools/gate.sh full` PASS；日志 `/tmp/pe-final-gate-full-d016.log`；jar sha256 `f215af816fb6a1a0284c32e8e3576008b0bb027a11fd2ed9bd8d56d619b6d9fe`。**未部署到 simulation/dist**。 |
+| 前次 full clean（P8-A） | **526 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 29、connect-agent 21、taskflow 230、app 246），`tools/gate.sh full` PASS；日志 `.work/p8a-full.log` |
 | P8-A focused / 评审 | focused **526/526 PASS**；独立评审已启动但在用户要求提交时主动中止，**无最终评审结论**；66 MCP 工具断言通过 |
 | P8-A MCP 工具面 | `tf_publication_opening` 接入；`players=[]` 启动、GM 公共开场草稿、records/openings、动态注册后开回合已测 |
-| 当前门禁状态 | P8-A 已完成；P8 真实模拟进行中/等待真实环境协同；未跑项写 `NOT_RUN` |
+| 当前门禁状态 | D-014 源码/focused/full gate 已过；P8 真实模拟仍未完成；真实 NapCat 历史读取未跑，写 `NOT_RUN` |
 | Shade | 产出可运行 `iibot-app-0.1.0-SNAPSHOT.jar`（约 21 MB），Main-Class 已核 |
-| 文档/工具链 | `tools/gate.sh pre` PASS（docs + skills + `./mvnw -v`） |
-| 文档 selftest | check-docs 11/11；skills-lint 6/6 |
+| 文档/工具链 | `tools/gate.sh full` PASS；`tools/gate.sh docs` 当前有 1 个与外部 Skill 相关的既有失败（`.agents/skills/iibot-live-simulation-gm` 未登记），本轮未改该 Skill |
+| 文档 selftest | 当前受上述外部 Skill 失败影响，`tools/gate.sh docs` 未 PASS；不能写成全绿 |
 | `./mvnw -v` | Apache Maven 3.9.16 + Java 21，rc=0 |
 | `java -jar ... --help` | rc=0，输出用法 |
 | 真实 NapCat 私聊收发 + 真实 LLM 秘书回复 | **PASS（部分真实 E2E）**：玩家 `<player-qq>` 私聊“你先说句话证明你能说和”，Bot 于 03:14:51 返回真实秘书文本；来源为用户提供的 QQ 对话记录 |
@@ -125,6 +129,7 @@
 - P4 统一工单已实现：Ticket 类型 SETTING_QUERY/ACTION_DRAFT/COMPLAINT/GM_NOTE；秘书 submit/list/read 按 playerId 隔离；GM board/list/get/claim/reply/batch_reply/close/note_create；TicketSnapshot 写入 events.db，幂等结果带 actor/request fingerprint；batchReply 100 条整批原子。
 - P5 行动/裁定包已实现：ACTION_DRAFT ticket 可 promote 为 ActionPool 行动；包命令 STARTED/APPLIED/FAILED 与 BATCH_COMPLETED 全状态写入 events.db；启动命令重放恢复包/批次（commit 不重跑 executor）；canonical action 单 owner；ActionPool 投影可 reconcile；ignore/create 同锁防 TOCTOU。
 - P6 发布/记录已实现：COMMITTED batch 由 GM 触发生成 Public/Private 草稿；PostService 跨命令 fingerprint 与 publication-draft-aware 复用；`PUBLICATION_GENERATED` 确定性 ID/恢复；records/turns staging 原子投影、manifest/hash 对账、父级软链防护；`tf_publication_generate` + `tf_record_turn_list/get/query`。
+- D-014 秘书会话 cache / NapCat 历史已实现（源码，未部署到 simulation/dist）：`SecretaryCacheStore` + `SqliteSecretaryCacheStore` 保存 raw `LlmMessage`、每玩家 activeCacheId、启动水合与 cache 切换；玩家工具 `secretary_cache_list/read`；GM 工具 `tf_gm_secretary_cache_list/create/read/switch`；`ChatHistoryProvider` + `NapCatAdapter.history` + `tf_qq_history_read`；`gmChat` 使用独立临时窗口，不写玩家 cache。完整 MCP 工具面在无 provider 时为 71，真实 `NapCatAdapter` 实现 provider 时为 72。
 - P8-A 零玩家/开场已实现：`players=[]` 可启动，directors 仍非空；GM 通过 `tf_publication_opening` 创建 PUBLIC `PENDING_APPROVAL` 开场草稿，必须经 `tf_post_decide`/`tf_post_publish` 才发公共群；records/openings 独立投影；完整 MCP 66 工具。模拟区 jar 在 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar`（本地忽略，不在 Git）。
 
 ## 6. 未验证 / 风险 / blocker
@@ -135,7 +140,7 @@
 4. **模型热切换未实现**：当前按 `agentRoutes` 配置切换模型并重启；无运行时 admin 工具。
 5. **跨进程并发 ledger 未验**：`JsonDeliveryLedger` 保证同 JVM 多实例与重启场景；多进程同时写同一 ledger 未验。
 6. **投诉状态有限**：当前只有 SUBMITTED→RESPONDED，无关闭/升级/多次回复。
-7. **逐事件回放未实现，重启恢复依赖完整快照**：`taskflow-state.json` 原子持久化并在启动时恢复，事件库 seq 只做一致性锚点；快照与事件 seq 不一致时 fail-closed。Secretary 的 ContextWindow 聊天历史不恢复。
+7. **逐事件回放未实现，重启恢复依赖完整快照**：`taskflow-state.json` 原子持久化并在启动时恢复，事件库 seq 只做一致性锚点；快照与事件 seq 不一致时 fail-closed。Secretary 的 ContextWindow 在装配 `SecretaryCacheStore` 后已可从 cache 恢复，且 `AppRestartRecoveryTest` 有离线重启回归；cache 摘要/压缩、跨进程并发写与真实 app 重启仍未验证。
 8. **公共群目前只作为公开广播边界**：群内玩家对话、@ 触发、群内决策未接入。
 9. **外部 MCP 仅本地单 supervisor**：远程 TLS/多租户/长期 SSE/Last-Event-ID 重放未验；不要把端口暴露公网。
 10. **events.db 尚未成为完整领域事实源**：P2 已接 Post/Complaint/ActionPool 和 Taskflow 完整快照；P3 控制/审计事件与 P4 Ticket 快照已写；P5 包/批次命令事件已写并从 events.db 恢复。事件回放仍未覆盖全部领域，AgentLibEventSink 仍为旧读取端口兼容双写 payload/payload_json。
@@ -145,8 +150,13 @@
 14. **P1 非阻断硬化点**：极端自重叠 secret 的掩码填充复杂度未做基准；chmod 故障注入、并发 close/append 压力、真实历史 events.db 迁移演练未跑。
 15. **依赖/静态质量门禁有限**：当前 `verify` 主要有 enforcer + tests + shade，尚未接入 Spotless/Checkstyle/SpotBugs；不要把它等同于完整质量门禁。
 16. **上游编译 warning**：AgentLib 注解在 javac 编译期有 `SuppressFBWarnings` 缺失 warning，不影响当前构建，但说明注解仅编译期处理。
+17. **D-014 未验证边界**：真实 NapCat `get_friend_msg_history/get_group_msg_history` 尚未调用；群临时会话的来源群歧义、短 `message_seq` LRU、历史清理、真实 QQ 发送副作用均未验证。`simulation/dist` 仍是旧 jar，实际工具面仍为 67；新源码构建为 72（含 `tf_qq_history_read`）。cache 只做 raw append，不做摘要压缩。
+18. **文档门禁外部阻塞**：`tools/gate.sh docs` 因 `.agents/skills/iibot-live-simulation-gm` 未登记而失败；该 Skill 不属于本轮改动，未删除/改写。
 
 ## 7. 下一步
 
-1. **P8 真实模拟**：真实 DSH/Hermes MCP、真实 LLM/NapCat/QQ，零玩家公共开场→审核发布→动态注册玩家→多玩家/多工单/多批次/发布/记录全链路；真实外部发送按 M-004 先与用户确认。
-2. P7 已跳过；P8-A 独立评审未完成，需在真实模拟前决定是否补评审；未跑项继续标 `NOT_RUN`，不得用 Mock/loopback 代替真实联调结论。
+1. **玩家体验真实 playtest**：先用新 target jar 在干净 runtime 上按 `simulation/player-experience/09-playtest-and-acceptance.md` 做 5 人 playtest；未通过前不进入多玩家长跑。下列 D-014/P8 项仍有效。
+2. **D-014 收口**：在用户明确授权后，用新构建 jar 替换 `simulation/dist` 前先停/备份并按用户确认执行；不要在本轮自动重启 app。
+3. **真实 NapCat 历史验证**：只对用户指定/已注册 QQ 和当前公共群调用 `tf_qq_history_read`，记录真实游标、临时会话、超时/1200 结果；未跑前保持 `NOT_RUN`。
+4. **P8 真实模拟**：真实 DSH/Hermes MCP、真实 LLM/NapCat/QQ，零玩家公共开场→审核发布→动态注册玩家→多玩家/多工单/多批次/发布/记录全链路；真实外部发送按 M-004 先与用户确认。
+5. P7 已跳过；P8-A 独立评审未完成，需在真实模拟前决定是否补评审；未跑项继续标 `NOT_RUN`，不得用 Mock/loopback 代替真实联调结论。

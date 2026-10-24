@@ -70,13 +70,24 @@ public final class P6Fixture implements AutoCloseable {
         return open(dataDir, SqliteDomainEventJournal::new);
     }
 
+    /** 零玩家、无活动回合的 opening 夹具；只注册 director。 */
+    public static P6Fixture openForOpening(Path dataDir) {
+        return new P6Fixture(dataDir, SqliteDomainEventJournal::new, false);
+    }
+
     public static P6Fixture open(Path dataDir,
                                  Function<EventContentStore, DomainEventJournal> journalFactory) {
-        return new P6Fixture(dataDir, journalFactory);
+        return new P6Fixture(dataDir, journalFactory, true);
+    }
+
+    public static P6Fixture openForOpening(Path dataDir,
+                                            Function<EventContentStore, DomainEventJournal> journalFactory) {
+        return new P6Fixture(dataDir, journalFactory, false);
     }
 
     private P6Fixture(Path dataDir,
-                      Function<EventContentStore, DomainEventJournal> journalFactory) {
+                      Function<EventContentStore, DomainEventJournal> journalFactory,
+                      boolean seedPlayersAndTurn) {
         try {
             Files.createDirectories(dataDir);
         } catch (IOException failure) {
@@ -97,14 +108,16 @@ public final class P6Fixture implements AutoCloseable {
         requireOk(engine.registerDirector(director,
                 new PlayerProfile("director-1", "qq-director", "Director"),
                 engine.status().engineRevision(), "p6-register-director"), "register director");
-        seedPlayer("player-1", "qq-p1", "Player One");
-        seedPlayer("player-2", "qq-p2", "Player Two");
-        requireOk(engine.loadWorldFacts(director, engine.status().worldVersion(),
-                List.of(new WorldFact("fact-1", engine.status().worldVersion() + 1,
-                        "雾港世界事实：北码头封闭。", Visibility.PUBLIC)),
-                engine.status().engineRevision(), "p6-load-facts"), "load facts");
-        requireOk(engine.openTurn(director, engine.status().engineRevision(),
-                "p6-open-turn", clock.instant().plusSeconds(3_600)), "open turn");
+        if (seedPlayersAndTurn) {
+            seedPlayer("player-1", "qq-p1", "Player One");
+            seedPlayer("player-2", "qq-p2", "Player Two");
+            requireOk(engine.loadWorldFacts(director, engine.status().worldVersion(),
+                    List.of(new WorldFact("fact-1", engine.status().worldVersion() + 1,
+                            "雾港世界事实：北码头封闭。", Visibility.PUBLIC)),
+                    engine.status().engineRevision(), "p6-load-facts"), "load facts");
+            requireOk(engine.openTurn(director, engine.status().engineRevision(),
+                    "p6-open-turn", clock.instant().plusSeconds(3_600)), "open turn");
+        }
     }
 
     private void seedPlayer(String playerId, String qqId, String displayName) {
@@ -117,6 +130,13 @@ public final class P6Fixture implements AutoCloseable {
 
     public List<String> seededPlayerIds() {
         return List.copyOf(seededPlayerIds);
+    }
+
+    /** 仅供 opening/records 测试：在开场创建后补一个空回合，验证 openings 不混入 turn 树。 */
+    public void openTurnForProjection() {
+        requireOk(engine.openTurn(director, engine.status().engineRevision(),
+                "p6-open-turn-for-projection", clock.instant().plusSeconds(3_600)),
+                "open turn for projection");
     }
 
     public String turnId() {

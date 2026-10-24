@@ -7,6 +7,7 @@
     "httpBaseUri": "http://127.0.0.1:3000/",
     "accessTokenEnv": "IIBOT_NAPCAT_ACCESS_TOKEN",
     "accountId": "100000001",
+    "privateTempGroupId": "",
     "suppressSelfMessages": true,
     "requestTimeoutSeconds": 10,
     "maxTextLength": 2000

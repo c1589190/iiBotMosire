@@ -165,7 +165,7 @@ class AppRuntimeNapCatE2ETest {
                 assertPrivateSend(sends, "qq-p1", "玩家命令");
                 assertPrivateSend(sends, "qq-director", "回合已开启");
                 assertPrivateSend(sends, "qq-p1", "行动草稿请通过工单提交给 GM");
-                assertPrivateSend(sends, "qq-p1", "已确认决策");
+                assertPrivateSend(sends, "qq-p1", "已确认");
                 assertPrivateSend(sends, "qq-director", "回合已冻结");
                 assertPrivateSend(sends, "qq-director", "推演已提交");
                 assertPrivateSend(sends, "qq-director", "回合已发布");

@@ -89,7 +89,7 @@ class AppBootstrapTicketMcpTest {
 
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(66)
+            assertThat(names).hasSize(71)
             .containsAll(GmPublicationMcpTools.NAMES)
                     .contains(GmPublicationMcpTools.OPENING)
             .containsAll(GmRecordMcpTools.NAMES)
@@ -243,8 +243,10 @@ class AppBootstrapTicketMcpTest {
     void promoteActionTicketsThroughPackageFlowProducesTwoIndependentBatches() throws Exception {
         AppConfig config = config();
         FakeLlmClient llm = FakeLlmClient.with(
-                LlmResponse.text("P5 批次一推演完成"),
-                LlmResponse.text("P5 批次二推演完成"));
+                LlmResponse.text(batchJson("P5 批次一推演完成",
+                        Map.of("player-1", "批次一行动已完成。"))),
+                LlmResponse.text(batchJson("P5 批次二推演完成",
+                        Map.of("player-1", "批次二行动已完成。"))));
         AppRuntime runtime = AppBootstrap.build(config,
                 BootstrapOptions.fake(secrets(), Clock.systemUTC(), llm,
                         new FakeMessagingAdapter()));
@@ -264,12 +266,16 @@ class AppBootstrapTicketMcpTest {
             String t4 = submitTicket(session, "player-1", TicketType.ACTION_DRAFT,
                     "行动草稿四", "行动正文四-丁", "p5-ad-submit-4");
 
-            String a1 = promoteAction(client, t1, 1L, "p5-promote-1");
-            assertThat(promoteAction(client, t1, 2L, "p5-promote-1-repeat"))
+            confirmTicket(server, t1, 1L, "p5-confirm-1");
+            confirmTicket(server, t2, 1L, "p5-confirm-2");
+            confirmTicket(server, t3, 1L, "p5-confirm-3");
+            confirmTicket(server, t4, 1L, "p5-confirm-4");
+            String a1 = promoteAction(client, t1, 2L, "p5-promote-1");
+            assertThat(promoteAction(client, t1, 3L, "p5-promote-1-repeat"))
                     .isEqualTo(a1);
-            String a2 = promoteAction(client, t2, 1L, "p5-promote-2");
-            String a3 = promoteAction(client, t3, 1L, "p5-promote-3");
-            String a4 = promoteAction(client, t4, 1L, "p5-promote-4");
+            String a2 = promoteAction(client, t2, 2L, "p5-promote-2");
+            String a3 = promoteAction(client, t3, 2L, "p5-promote-3");
+            String a4 = promoteAction(client, t4, 2L, "p5-promote-4");
             assertThat(ticketService(server).getForGm(t1).orElseThrow().relatedActionId())
                     .isEqualTo(a1);
             assertThat(actionPoolService(server).listForGm()).hasSize(4)
@@ -430,13 +436,34 @@ class AppBootstrapTicketMcpTest {
         }
     }
 
+    private static void confirmTicket(ControlMcpServer server, String ticketId,
+                                       long expectedRevision, String key) throws Exception {
+        var result = ticketService(server).confirmActionDraft(
+                new Actor("player-1", ActorRole.PLAYER), ticketId, expectedRevision, key);
+        assertThat(result.ok()).as(result.toString()).isTrue();
+    }
+
+    private static String batchJson(String publicSummary,
+                                    Map<String, String> privateOutcomes) {
+        try {
+            return new ObjectMapper().writeValueAsString(Map.of(
+                    "publicSummary", publicSummary,
+                    "privateOutcomes", privateOutcomes,
+                    "worldChanged", true,
+                    "noOpReason", ""));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException impossible) {
+            throw new AssertionError(impossible);
+        }
+    }
+
     private static String promoteAction(McpSyncClient client, String ticketId,
                                         long expectedRevision, String idempotencyKey) {
         McpSchema.CallToolResult result = client.callTool(
                 new McpSchema.CallToolRequest(GmTicketPromoteActionTool.NAME, Map.of(
                         "ticketId", ticketId,
                         "expectedRevision", expectedRevision,
-                        "idempotencyKey", idempotencyKey)));
+                        "idempotencyKey", idempotencyKey,
+                        "reason", "测试晋升：玩家已硬确认")));
         assertToolOk(result, "ticket promote action");
         JsonNode resultData = data(result);
         assertThat(resultData.path("status").asText()).isEqualTo("CLAIMED");

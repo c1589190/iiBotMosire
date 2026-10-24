@@ -2,6 +2,7 @@ package io.mosire.iibot.app.runtime;
 
 import io.mosire.agentlib.llm.LlmClient;
 import io.mosire.iibot.app.config.SecretProvider;
+import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.connect.core.MessagingAdapter;
 
 import java.time.Clock;
@@ -24,6 +25,7 @@ import java.util.Objects;
  * @param adapter     可选消息适配器覆盖（测试）
  * @param controlPlane 控制面钩子；默认 {@link NoopControlPlane}
  * @param llmRoutes   可选命名 LLM 路由覆盖（测试/显式注入）
+ * @param chatHistoryProvider 可选只读聊天历史 provider；null 时由 adapter 自身实现决定
  */
 public record BootstrapOptions(
         SecretProvider secrets,
@@ -31,7 +33,8 @@ public record BootstrapOptions(
         LlmClient llm,
         MessagingAdapter adapter,
         ControlPlane controlPlane,
-        Map<String, LlmClient> llmRoutes) {
+        Map<String, LlmClient> llmRoutes,
+        ChatHistoryProvider chatHistoryProvider) {
 
     public BootstrapOptions {
         secrets = Objects.requireNonNull(secrets, "secrets");
@@ -48,10 +51,23 @@ public record BootstrapOptions(
         }
     }
 
+    /** 兼容既有六参构造：无显式 ChatHistoryProvider 覆盖。 */
+    public BootstrapOptions(SecretProvider secrets, Clock clock, LlmClient llm,
+                            MessagingAdapter adapter, ControlPlane controlPlane,
+                            Map<String, LlmClient> llmRoutes) {
+        this(secrets, clock, llm, adapter, controlPlane, llmRoutes, null);
+    }
+
     /** 兼容既有五参构造：无命名 route 覆盖。 */
     public BootstrapOptions(SecretProvider secrets, Clock clock, LlmClient llm,
                             MessagingAdapter adapter, ControlPlane controlPlane) {
-        this(secrets, clock, llm, adapter, controlPlane, Map.of());
+        this(secrets, clock, llm, adapter, controlPlane, Map.of(), null);
+    }
+
+    /** 返回一个附带只读聊天历史 provider 的副本；便于测试或显式装配。 */
+    public BootstrapOptions withChatHistoryProvider(ChatHistoryProvider provider) {
+        return new BootstrapOptions(secrets, clock, llm, adapter, controlPlane,
+                llmRoutes, provider);
     }
 
     /** 生产默认：环境变量密钥 + 系统时钟 + 真实实现 + 未启用控制面。 */

@@ -1,6 +1,7 @@
 package io.mosire.iibot.app.event.content;
 
 import io.mosire.iibot.taskflow.event.EventAppendPort;
+import io.mosire.iibot.taskflow.event.DomainEventTypes;
 import io.mosire.iibot.taskflow.event.EventAppendRequest;
 import io.mosire.iibot.taskflow.event.EventContent;
 import io.mosire.iibot.taskflow.event.EventContentType;
@@ -200,7 +201,7 @@ public final class EventContentStore implements EventAppendPort, AutoCloseable {
         }
 
         String payloadJson = sanitizer.sanitizeJson(request.payloadJson(), true);
-        EventContent content = sanitizeContent(request.content());
+        EventContent content = sanitizeContent(request.content(), request.eventType());
         String eventType = sanitizer.sanitizeHeaderValue(request.eventType());
         String agent = sanitizer.sanitizeHeaderValue(request.agent());
         String correlationId = sanitizer.sanitizeHeaderValue(request.correlationId());
@@ -447,10 +448,12 @@ public final class EventContentStore implements EventAppendPort, AutoCloseable {
         return dbFile;
     }
 
-    private EventContent sanitizeContent(EventContent original) {
+    private EventContent sanitizeContent(EventContent original, String eventType) {
+        boolean losslessSnapshot = DomainEventTypes.TASKFLOW_SNAPSHOT.equals(eventType)
+                || DomainEventTypes.TASKFLOW_SNAPSHOT_MIGRATED.equals(eventType);
         return switch (original.type()) {
             case JSON -> new EventContent(EventContentType.JSON,
-                    sanitizer.sanitizeJson(original.json(), false), null);
+                    sanitizer.sanitizeJson(original.json(), false, !losslessSnapshot), null);
             case MARKDOWN, TEXT -> new EventContent(original.type(), null,
                     sanitizer.sanitizeText(original.text()));
         };

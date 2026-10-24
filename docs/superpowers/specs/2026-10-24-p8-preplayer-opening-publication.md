@@ -77,6 +77,14 @@ records/openings/<publicationId>/
 - `tf_record_query` 支持 `kind=opening`，返回 publicationId/postId/hash 摘要，不返回正文；
 - 既有 turn 记录结构不变。
 
+## 3.1 私聊失败重试
+
+- NapCat 私聊可配置 `napcat.privateTempGroupId`：当目标不是好友时，使用
+  `send_private_msg {user_id, group_id}` 走群临时会话；目标必须在来源群中且 QQ 允许临时会话。
+- `tf_post_retry_delivery`：只允许把 PUBLISHED 且 `deliveryState=FAILED` 的推文重置为 PENDING，
+  由 afterMutation 的 PostDistributor 再尝试一次；UNKNOWN/SENT 不得自动重发。
+- `OutboxSender` 的普通 ACK、私聊推文、投诉回应、回合私聊结果统一使用同一临时会话群配置。
+
 ## 4. 失败语义
 
 - 配置 `players=[]` + directors 非空 => 加载成功；
@@ -88,7 +96,7 @@ records/openings/<publicationId>/
 
 ## 5. 验收
 
-- 零玩家启动，MCP 65→66 工具；
+- 零玩家启动，MCP 65→67 工具；
 - 零玩家时 `tf_publication_opening` 创建 PUBLIC PENDING_APPROVAL 草稿；
 - GM approve/publish 后只发公共群，不需要玩家 QQ 映射；
 - 重复 opening 调用/重启不重复 post/event；

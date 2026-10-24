@@ -1,7 +1,9 @@
 package io.mosire.iibot.taskflow.agent;
 
 import io.mosire.agentlib.context.ContextWindow;
+import io.mosire.agentlib.llm.ContentPart;
 import io.mosire.agentlib.llm.LlmClient;
+import io.mosire.agentlib.llm.LlmMessage;
 import io.mosire.agentlib.permission.AccessToken;
 import io.mosire.agentlib.permission.AgentPermissionSet;
 import io.mosire.agentlib.permission.ResourceScope;
@@ -22,6 +24,9 @@ import io.mosire.iibot.taskflow.TurnView;
 import io.mosire.iibot.taskflow.WorldFact;
 import io.mosire.iibot.taskflow.action.ActionPoolService;
 import io.mosire.iibot.taskflow.action.ActionPoolStore;
+import io.mosire.iibot.taskflow.cache.CacheSummary;
+import io.mosire.iibot.taskflow.cache.SecretaryCacheException;
+import io.mosire.iibot.taskflow.cache.SecretaryCacheStore;
 import io.mosire.iibot.taskflow.complaint.ComplaintService;
 import io.mosire.iibot.taskflow.complaint.ComplaintStore;
 import io.mosire.iibot.taskflow.post.PostService;
@@ -40,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.StringJoiner;
 
 /**
  * 每玩家一个的私聊秘书会话。
@@ -64,7 +70,7 @@ public final class SecretarySession {
     private final Duration draftTtl;
     private final Duration briefTtl;
     private final AgentRunner runner;
-    private final ContextWindow window;
+    private volatile ContextWindow window;
     private final List<AgentTool> tools;
     private final AgentPermissionSet permissions;
     private final SecretaryWorkspaceStore workspaceStore;
@@ -73,7 +79,11 @@ public final class SecretarySession {
     private final ComplaintService complaintService;
     private final ActionPoolService actionPoolService;
     private final TicketService ticketService;
+    private final SecretaryCacheStore cacheStore;
+    private volatile String activeCacheId;
+    private volatile String cacheError;
     private final List<ToolInvocation> toolInvocations = new ArrayList<>();
+    private boolean firstPlayerTurn = true;
 
     /** 使用 15 分钟草稿/brief 有效期的便捷装配。 */
     public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
@@ -343,6 +353,19 @@ public final class SecretarySession {
                 sharedSkillStore, complaintService, actionPoolService, ticketService);
     }
 
+    /** 工作区、推文、共享 Skill、投诉/行动池兼容服务、统一 Ticket 与持久化 cache。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock,
+                            SecretaryWorkspaceStore workspaceStore, PostService postService,
+                            SharedSkillStore sharedSkillStore, ComplaintService complaintService,
+                            ActionPoolService actionPoolService, TicketService ticketService,
+                            SecretaryCacheStore cacheStore) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                Duration.ofMinutes(15), Duration.ofMinutes(15), workspaceStore, postService,
+                sharedSkillStore, complaintService, actionPoolService, ticketService, cacheStore);
+    }
+
     /** 工作区、推文、共享 Skill、旧投诉与统一 Ticket 服务（无行动池）。 */
     public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
                             LlmClient llm, BriefingService briefingService,
@@ -423,6 +446,20 @@ public final class SecretarySession {
                             PostService postService, SharedSkillStore sharedSkillStore,
                             ComplaintService complaintService,
                             ActionPoolService actionPoolService, TicketService ticketService) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock, draftTtl,
+                briefTtl, workspaceStore, postService, sharedSkillStore, complaintService,
+                actionPoolService, ticketService, null);
+    }
+
+    /** 完整装配：在上一构造器基础上接入持久化会话 cache。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock, Duration draftTtl,
+                            Duration briefTtl, SecretaryWorkspaceStore workspaceStore,
+                            PostService postService, SharedSkillStore sharedSkillStore,
+                            ComplaintService complaintService,
+                            ActionPoolService actionPoolService, TicketService ticketService,
+                            SecretaryCacheStore cacheStore) {
         if (playerId == null || playerId.isBlank()) {
             throw new IllegalArgumentException("playerId 不能为空");
         }
@@ -453,7 +490,25 @@ public final class SecretarySession {
         this.complaintService = complaintService;
         this.actionPoolService = actionPoolService;
         this.ticketService = ticketService;
-        this.window = new ContextWindow("secretary:" + playerId);
+        this.cacheStore = cacheStore;
+        CacheSummary initialCache = null;
+        String initialCacheError = null;
+        List<LlmMessage> initialMessages = List.of();
+        if (cacheStore != null) {
+            try {
+                initialCache = cacheStore.ensureDefaultCache(playerId);
+                initialMessages = cacheStore.loadMessages(playerId, initialCache.cacheId());
+            } catch (RuntimeException failure) {
+                initialCacheError = SecretaryCacheException.CACHE_UNAVAILABLE;
+            }
+        }
+        this.activeCacheId = initialCache == null ? null : initialCache.cacheId();
+        this.cacheError = initialCacheError;
+        this.window = initialCache == null
+                ? new ContextWindow("secretary:" + playerId)
+                : new ContextWindow("secretary:" + playerId + ":" + initialCache.cacheId(),
+                        initialMessages);
+        this.firstPlayerTurn = initialMessages.isEmpty();
 
         List<AgentTool> availableTools = new ArrayList<>();
         if (ticketService == null) {
@@ -483,6 +538,9 @@ public final class SecretarySession {
         if (ticketService == null && actionPoolService != null) {
             availableTools.addAll(SecretaryActionTools.all(actionPoolService));
         }
+        if (cacheStore != null) {
+            availableTools.addAll(SecretaryCacheTools.all(this));
+        }
         this.tools = List.copyOf(availableTools);
 
         AgentPermissionSet.Builder permissionBuilder = AgentPermissionSet.builder(AccessToken.DEFAULT)
@@ -509,6 +567,11 @@ public final class SecretarySession {
                     SecretarySharedSkillTools.READ);
             resourceScopes.put(SharedSkillStore.RESOURCE_NAMESPACE,
                     ResourceScope.of(SharedSkillStore.RESOURCE_NAMESPACE));
+        }
+        if (cacheStore != null) {
+            permissionBuilder.allow(SecretaryCacheTools.LIST, SecretaryCacheTools.READ);
+            resourceScopes.put(SecretaryCacheStore.RESOURCE_NAMESPACE,
+                    ResourceScope.of("conversation"));
         }
         if (postService != null) {
             permissionBuilder.allow(SecretaryPostTools.LIST,
@@ -569,6 +632,11 @@ public final class SecretarySession {
         return sharedSkillStore;
     }
 
+    /** 注入的持久化 cache（无注入时为 null）。 */
+    public SecretaryCacheStore cacheStore() {
+        return cacheStore;
+    }
+
     /** 注入的投诉服务（无注入时为 null）；供宿主装配观察，不进入模型上下文。 */
     public ComplaintService complaintService() {
         return complaintService;
@@ -599,6 +667,127 @@ public final class SecretarySession {
         return List.copyOf(toolInvocations);
     }
 
+    /** 当前 active cacheId；未装配 cache 时为 null。 */
+    public String activeCacheId() {
+        return activeCacheId;
+    }
+
+    /** READY / CONTEXT_LOST / DISABLED。 */
+    public String cacheStatus() {
+        if (cacheStore == null) {
+            return "DISABLED";
+        }
+        return cacheError == null ? "READY" : "CONTEXT_LOST";
+    }
+
+    /** 当前玩家可见的 cache 摘要；跨玩家读取由 cache store 的 owner 校验兜底。 */
+    public synchronized List<CacheSummary> cacheSummaries() {
+        requireCacheReady();
+        return cacheStore.listCaches(playerId);
+    }
+
+    /** 为当前玩家新建一个空 cache；不自动切换 active。 */
+    public synchronized CacheSummary createCache(String title) {
+        requireCacheReady();
+        String safeTitle = title == null || title.isBlank() ? "新对话" : title.trim();
+        try {
+            return cacheStore.createCache(playerId, safeTitle, "APP");
+        } catch (SecretaryCacheException failure) {
+            throw failure;
+        } catch (RuntimeException failure) {
+            cacheError = SecretaryCacheException.CACHE_WRITE_FAILED;
+            throw new SecretaryCacheException(SecretaryCacheException.CACHE_WRITE_FAILED,
+                    "创建会话 cache 失败");
+        }
+    }
+
+    /**
+     * 切换当前玩家的 active cache。旧窗口先落库；任何一步失败都保留旧窗口。
+     */
+    public synchronized void switchCache(String cacheId) {
+        requireCacheReady();
+        if (cacheId == null || cacheId.isBlank()) {
+            throw new SecretaryCacheException(SecretaryCacheException.INVALID_ARGUMENTS,
+                    "cacheId 不能为空白");
+        }
+        CacheSummary target;
+        try {
+            target = cacheStore.findCache(playerId, cacheId.trim())
+                    .orElseThrow(() -> new SecretaryCacheException(
+                            SecretaryCacheException.CACHE_NOT_FOUND, "cache 不存在"));
+        } catch (SecretaryCacheException failure) {
+            throw failure;
+        } catch (RuntimeException failure) {
+            throw new SecretaryCacheException(SecretaryCacheException.CACHE_UNAVAILABLE,
+                    "读取 cache 失败");
+        }
+        if (!playerId.equals(target.playerId())) {
+            throw new SecretaryCacheException(SecretaryCacheException.CACHE_OWNER_MISMATCH,
+                    "cache 不属于当前玩家");
+        }
+        List<LlmMessage> targetMessages;
+        try {
+            targetMessages = cacheStore.loadMessages(playerId, target.cacheId());
+        } catch (RuntimeException failure) {
+            throw new SecretaryCacheException(SecretaryCacheException.CACHE_UNAVAILABLE,
+                    "读取目标 cache 失败");
+        }
+        ContextWindow targetWindow = new ContextWindow(
+                "secretary:" + playerId + ":" + target.cacheId(), targetMessages);
+        persistPlayerWindowOrThrow();
+        try {
+            cacheStore.setActiveCache(playerId, target.cacheId());
+        } catch (RuntimeException failure) {
+            throw new SecretaryCacheException(SecretaryCacheException.CACHE_WRITE_FAILED,
+                    "切换 active cache 失败");
+        }
+        this.activeCacheId = target.cacheId();
+        this.window = targetWindow;
+        this.firstPlayerTurn = targetMessages.isEmpty();
+        this.cacheError = null;
+    }
+
+    /**
+     * 读取一页当前玩家可见的历史对话。只渲染 user/assistant 文本；tool_call/tool_result
+     * 不进入工具结果，避免把内部参数和未展示内容重新注入模型。
+     */
+    public synchronized String readCacheTranscript(String cacheId, int limit) {
+        requireCacheReady();
+        if (limit < 1 || limit > 50) {
+            throw new SecretaryCacheException(SecretaryCacheException.INVALID_ARGUMENTS,
+                    "limit 必须在 1–50 之间");
+        }
+        String targetId = cacheId == null || cacheId.isBlank()
+                ? activeCacheId : cacheId.trim();
+        if (targetId == null || targetId.isBlank()) {
+            throw new SecretaryCacheException(SecretaryCacheException.CACHE_UNAVAILABLE,
+                    "当前没有 active cache");
+        }
+        CacheSummary summary;
+        try {
+            summary = cacheStore.findCache(playerId, targetId)
+                    .orElseThrow(() -> new SecretaryCacheException(
+                            SecretaryCacheException.CACHE_NOT_FOUND, "cache 不存在"));
+        } catch (SecretaryCacheException failure) {
+            throw failure;
+        } catch (RuntimeException failure) {
+            throw new SecretaryCacheException(SecretaryCacheException.CACHE_UNAVAILABLE,
+                    "读取 cache 失败");
+        }
+        if (!playerId.equals(summary.playerId())) {
+            throw new SecretaryCacheException(SecretaryCacheException.CACHE_OWNER_MISMATCH,
+                    "cache 不属于当前玩家");
+        }
+        List<LlmMessage> messages;
+        try {
+            messages = cacheStore.loadMessages(playerId, targetId);
+        } catch (RuntimeException failure) {
+            throw new SecretaryCacheException(SecretaryCacheException.CACHE_UNAVAILABLE,
+                    "读取 cache 消息失败");
+        }
+        return renderTranscript(summary, messages, limit);
+    }
+
     /**
      * 与当前玩家进行一个私聊回合。
      *
@@ -608,46 +797,203 @@ public final class SecretarySession {
         if (userText == null || userText.isBlank()) {
             throw new IllegalArgumentException("userText 不能为空白");
         }
+        if (cacheStore != null && cacheError != null) {
+            return "秘书历史上下文暂不可用，请稍后重试。";
+        }
         ToolContext base = baseContext();
+        String effectiveInput = firstPlayerTurn
+                ? firstTurnReminder() + userText : userText;
         AgentRunResult result = runner.runTurn(
                 window,
                 () -> AgentPrompts.secretary(engine.knowledgeForSecretary(playerId)),
-                tools, base, userText);
-        return recordAndRender(result);
+                tools, base, effectiveInput);
+        firstPlayerTurn = false;
+        try {
+            persistPlayerWindow();
+        } catch (SecretaryCacheException ignored) {
+            // 回复已经产生；cache 失败状态由 cacheStatus/read 工具明确暴露。
+        }
+        return recordAndRender(result, true);
     }
 
     /**
      * 处理一条来自已认证 GM 的直接消息。GM 身份由宿主/MCP 认证层绑定；本方法不接收
      * playerId，也不发送 QQ 消息。回复只返回给调用方（宿主/MCP）。
      *
-     * <p>与 {@link #chat(String)} 共用同一 {@link ContextWindow} 和同一套工具；system
-     * prompt 明确本轮消息来自 GM，不是玩家本人。</p>
+     * <p>GM 使用独立的临时窗口，以玩家当前消息作为只读种子；GM 消息不会写回玩家
+     * cache，也不会污染玩家后续回合。</p>
      */
     public synchronized String gmChat(String gmMessage) {
         if (gmMessage == null || gmMessage.isBlank()) {
             throw new IllegalArgumentException("gmMessage 不能为空白");
         }
         ToolContext base = baseContext();
+        ContextWindow debugWindow = new ContextWindow(
+                "secretary:" + playerId + ":gm", window.messages());
         AgentRunResult result = runner.runTurn(
-                window,
+                debugWindow,
                 () -> AgentPrompts.secretaryGm(engine.knowledgeForSecretary(playerId)),
-                tools, base, gmMessage);
-        return recordAndRender(result);
+                tools, base,
+                "【宿主说明】消息来自 GM，不是玩家；不是玩家硬确认。\n\n"
+                        + gmMessage);
+        return recordAndRender(result, false);
     }
 
-    private String recordAndRender(AgentRunResult result) {
+    private void requireCacheReady() {
+        if (cacheStore == null) {
+            throw new SecretaryCacheException(SecretaryCacheException.CACHE_UNAVAILABLE,
+                    "当前秘书未装配持久化 cache");
+        }
+        if (cacheError != null) {
+            throw new SecretaryCacheException(cacheError, "秘书历史上下文不可用");
+        }
+    }
+
+    private void persistPlayerWindow() {
+        persistPlayerWindowOrThrow();
+    }
+
+    private void persistPlayerWindowOrThrow() {
+        if (cacheStore == null) {
+            return;
+        }
+        if (cacheError != null) {
+            throw new SecretaryCacheException(cacheError, "秘书历史上下文不可用");
+        }
+        if (activeCacheId == null || activeCacheId.isBlank()) {
+            cacheError = SecretaryCacheException.CACHE_UNAVAILABLE;
+            throw new SecretaryCacheException(cacheError, "当前没有 active cache");
+        }
+        List<LlmMessage> tail = window.unsavedTail();
+        if (tail.isEmpty()) {
+            return;
+        }
+        try {
+            cacheStore.appendMessages(playerId, activeCacheId, tail);
+            window.markSaved();
+        } catch (RuntimeException failure) {
+            cacheError = SecretaryCacheException.CACHE_WRITE_FAILED;
+            throw new SecretaryCacheException(cacheError, "保存会话 cache 失败");
+        }
+    }
+
+    private static String renderTranscript(CacheSummary summary, List<LlmMessage> messages,
+                                           int limit) {
+        List<String> rendered = new ArrayList<>();
+        for (LlmMessage message : messages) {
+            if (!LlmMessage.ROLE_USER.equals(message.role())
+                    && !LlmMessage.ROLE_ASSISTANT.equals(message.role())) {
+                continue;
+            }
+            String text = textOf(message);
+            if (LlmMessage.ROLE_USER.equals(message.role())) {
+                text = stripFirstTurnReminder(text);
+            }
+            if (text.isBlank()) {
+                continue;
+            }
+            String role = LlmMessage.ROLE_USER.equals(message.role()) ? "玩家" : "秘书";
+            rendered.add("[" + role + "] " + text);
+        }
+        int from = Math.max(0, rendered.size() - limit);
+        List<String> page = rendered.subList(from, rendered.size());
+        StringJoiner out = new StringJoiner("\n\n");
+        out.add("cacheId=" + summary.cacheId() + " | title=" + summary.title()
+                + " | active=" + summary.active() + " | messages=" + messages.size()
+                + " | returned=" + page.size());
+        if (page.isEmpty()) {
+            out.add("（该 cache 没有可读取的文本对话）");
+        } else {
+            for (String line : page) {
+                out.add(line);
+            }
+        }
+        return out.toString();
+    }
+
+    private static String textOf(LlmMessage message) {
+        return message.content().stream()
+                .filter(ContentPart.Text.class::isInstance)
+                .map(ContentPart.Text.class::cast)
+                .map(ContentPart.Text::text)
+                .reduce("", (left, right) -> left + (left.isEmpty() ? "" : "\n") + right);
+    }
+
+    private static String stripFirstTurnReminder(String text) {
+        String marker = "\n\n玩家消息：\n";
+        if (text.startsWith("【宿主提醒：第一轮】")) {
+            int index = text.indexOf(marker);
+            if (index >= 0) {
+                return text.substring(index + marker.length());
+            }
+        }
+        return text;
+    }
+
+    /**
+     * 第一轮玩家消息的宿主提醒：只注入 user 字段，不修改 system prompt。
+     *
+     * <p>玩家只有 QQ 聊天窗口，不能读工作区。首轮必须把当前身份/局势/可行动方向直接
+     * 在聊天里给出，而不是要求玩家打开文件。</p>
+     */
+    private String firstTurnReminder() {
+        StringBuilder reminder = new StringBuilder("""
+                【宿主提醒：第一次与玩家交流】
+                1. 先调用 secretary_shared_skill_list / secretary_shared_skill_read 读取相关共享 Skill。
+                2. 再调用 secretary_workspace_read 读取工作区 AGENTS.md（path=AGENTS.md）。
+                3. 严格按 Skill 与 AGENTS.md 中的交互规则处理本轮；不要把文件路径、内部规则或后台字段发给玩家。
+                4. 下面只提供已经过可见性过滤的玩家资料；资料不足时明确说明，不要编造。
+
+                【玩家可见资料】
+                """);
+        SecretaryKnowledge knowledge = engine.knowledgeForSecretary(playerId);
+        if (knowledge.profile() != null) {
+            reminder.append("- 玩家称呼：").append(knowledge.profile().displayName()).append('\n');
+        }
+        if (!knowledge.turnSummary().isBlank()) {
+            reminder.append("- 当前局势：").append(knowledge.turnSummary()).append('\n');
+        }
+        int used = 0;
+        for (WorldFact fact : knowledge.visibleFacts()) {
+            String content = fact.content();
+            if (content == null || content.isBlank()) {
+                continue;
+            }
+            if (content.length() > 1_000) {
+                content = content.substring(0, 1_000) + "……";
+            }
+            if (used + content.length() > 8_000) {
+                reminder.append("- 其余资料按需从工作区读取。\n");
+                break;
+            }
+            reminder.append("- 可见事实：").append(content).append('\n');
+            used += content.length();
+        }
+        for (InfoBrief brief : knowledge.briefs()) {
+            reminder.append("- 玩家简报：").append(brief.content()).append('\n');
+        }
+        reminder.append("\n玩家消息：\n");
+        return reminder.toString();
+    }
+
+    private String recordAndRender(AgentRunResult result, boolean playerFacing) {
         toolInvocations.addAll(result.toolInvocations());
         String text = result.text();
-        if (!text.isBlank()) {
-            return text;
+        if (text != null && !text.isBlank()) {
+            return playerFacing ? PlayerFacingTextGuard.normalizeForChat(text) : text;
         }
         if (result.turnResult().stopReason() == StopReason.LLM_ERROR) {
-            return "秘书暂时无法回复，请稍后重试。";
+            return playerFacing
+                    ? "我这边暂时没接上思路。你把刚才的意思再说一句，我马上接着处理。"
+                    : "秘书暂时无法回复，请稍后重试。";
         }
         if (result.stoppedByPolicy()) {
-            return "秘书处理超时或达到安全上限，请稍后重试。";
+            return playerFacing
+                    ? "刚才处理太久了，我先停一下。你可以把最重要的一步再说一次。"
+                    : "秘书处理超时或达到安全上限，请稍后重试。";
         }
-        return "秘书暂未生成回复。";
+        return playerFacing ? "我还没组织好怎么回答。你再给我一句话，我直接说重点。"
+                : "秘书暂未生成回复。";
     }
 
     /**

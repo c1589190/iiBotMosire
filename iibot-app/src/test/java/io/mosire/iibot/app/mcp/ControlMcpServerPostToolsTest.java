@@ -100,10 +100,10 @@ class ControlMcpServerPostToolsTest {
 
         McpSchema.ListToolsResult list = client.listTools();
         List<String> names = list.tools().stream().map(McpSchema.Tool::name).toList();
-        assertThat(names).hasSize(48)
+        assertThat(names).hasSize(52)
                 .containsAll(GmSharedSkillMcpTools.NAMES)
                 .containsAll(GmComplaintMcpTools.NAMES)
-                .containsAll(GmPostMcpTools.NAMES)
+                .containsAll(GmPostMcpTools.BASE_NAMES)
                 .containsAll(GmActionPoolMcpTools.NAMES)
                 .containsAll(GmDecisionPackageMcpTools.NAMES)
                 .containsAll(GmActionBatchMcpTools.NAMES)
@@ -116,7 +116,7 @@ class ControlMcpServerPostToolsTest {
         List<AgentTool> tools = GmPostMcpTools.all(postService,
                 new Actor("external-supervisor", ActorRole.SUPERVISOR));
         assertThat(tools).extracting(AgentTool::name)
-                .containsExactlyElementsOf(GmPostMcpTools.NAMES);
+                .containsExactlyElementsOf(GmPostMcpTools.BASE_NAMES);
         assertThat(tools).allSatisfy(tool -> {
             assertThat(tool.roles()).containsExactly("supervisor").doesNotContain("*", "SYSTEM");
             assertThat(tool.resources().namespaces())

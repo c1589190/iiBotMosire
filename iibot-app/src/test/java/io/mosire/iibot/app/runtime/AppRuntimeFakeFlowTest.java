@@ -86,7 +86,7 @@ class AppRuntimeFakeFlowTest {
             assertThat(draft.playerId()).isEqualTo("player-1");
 
             send(runtime, adapter, "qq-p1", "/确认 " + draft.draftId(), "m-confirm");
-            assertThat(lastText(adapter)).contains("已确认决策");
+            assertThat(lastText(adapter)).contains("已确认");
 
             send(runtime, adapter, "qq-director", "/冻结", "m-lock");
             assertThat(lastText(adapter)).contains("回合已冻结");

@@ -11,6 +11,7 @@ import io.mosire.agentlib.llm.LlmClient;
 import io.mosire.agentlib.llm.LlmMessage;
 import io.mosire.agentlib.llm.LlmRequest;
 import io.mosire.agentlib.llm.LlmResponse;
+import io.mosire.iibot.app.decision.AdjudicationOutput;
 import io.mosire.iibot.app.event.content.EventContentStore;
 import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.ActorRole;
@@ -18,6 +19,7 @@ import io.mosire.iibot.taskflow.Hashes;
 import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.Visibility;
 import io.mosire.iibot.taskflow.WorldFact;
+import io.mosire.iibot.taskflow.agent.PlayerFacingTextGuard;
 import io.mosire.iibot.taskflow.decision.ActionBatch;
 import io.mosire.iibot.taskflow.decision.ActionBatchStatus;
 import io.mosire.iibot.taskflow.decision.ActionPackageService;
@@ -156,6 +158,11 @@ public final class PublicationOrchestrator {
             throw new PublicationException(PublicationException.BATCH_NOT_COMMITTED,
                     "只有 COMMITTED 行动批次可以生成发布草稿");
         }
+        if (AdjudicationOutput.tryParse(batch.result()).map(AdjudicationOutput::isNoOp)
+                .orElse(false)) {
+            throw new PublicationException(PublicationException.BATCH_NO_OP,
+                    "批次没有产生世界变化，不能生成正式发布草稿");
+        }
         if (batch.playerIds().isEmpty()) {
             throw new PublicationException(PublicationException.PUBLICATION_OUTPUT_INVALID,
                     "行动批次没有可发布玩家");
@@ -182,7 +189,7 @@ public final class PublicationOrchestrator {
             throw new PublicationException(PublicationException.PUBLICATION_INPUT_TOO_LARGE,
                     "批次输入超过发布生成上下文上限，未调用模型");
         }
-        PublicationOutput output = callModel(prompt);
+        PublicationOutput output = sanitizeOutput(callModel(prompt));
         validateOutput(output, batch);
 
         Post publicPost = resolvePublicationPost(gm, existingPublic, publicKey,
@@ -267,12 +274,21 @@ public final class PublicationOrchestrator {
         requireText(body, "body", PostService.MAX_BODY_LENGTH);
         requireText(idempotencyKey, "idempotencyKey",
                 PostService.MAX_IDEMPOTENCY_KEY_LENGTH);
-
         String publicationId = publicationIdForOpening(gm.actorId(), idempotencyKey);
         reloadRecordsFromEvents();
         PublicationRecord existing = recordsByPublication.get(publicationId);
         if (existing != null) {
             return existing;
+        }
+        if (engine != null) {
+            if (engine.status().playerCount() > 0) {
+                throw new PublicationException(PublicationException.OPENING_NOT_ALLOWED,
+                        "已有玩家注册，不能再用零玩家开场发布口");
+            }
+            if (engine.status().hasActiveTurn()) {
+                throw new PublicationException(PublicationException.OPENING_NOT_ALLOWED,
+                        "存在活动回合，不能创建独立开场推文");
+            }
         }
 
         String publicKey = openingPublicKey(publicationId);
@@ -522,6 +538,26 @@ public final class PublicationOrchestrator {
         return new PublicationOutput(publicNarrative, privateOutcomes);
     }
 
+    private static PublicationOutput sanitizeOutput(PublicationOutput output) {
+        String publicNarrative = output.publicNarrative().isBlank()
+                ? "" : PlayerFacingTextGuard.normalizeForPost(output.publicNarrative());
+        if (!output.publicNarrative().isBlank()
+                && !PlayerFacingTextGuard.remainingBackstageLeaks(publicNarrative).isEmpty()) {
+            throw new PublicationException(PublicationException.PUBLICATION_OUTPUT_INVALID,
+                    "公共正文含后台字段");
+        }
+        Map<String, String> privateOutcomes = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : output.privateOutcomes().entrySet()) {
+            String clean = PlayerFacingTextGuard.normalizeForPost(entry.getValue());
+            if (!PlayerFacingTextGuard.remainingBackstageLeaks(clean).isEmpty()) {
+                throw new PublicationException(PublicationException.PUBLICATION_OUTPUT_INVALID,
+                        "私密正文含后台字段");
+            }
+            privateOutcomes.put(entry.getKey(), clean);
+        }
+        return new PublicationOutput(publicNarrative, privateOutcomes);
+    }
+
     private static void validateOutput(PublicationOutput output, ActionBatch batch) {
         Objects.requireNonNull(output, "output");
         if (output.publicNarrative() == null || output.privateOutcomes() == null) {
@@ -571,7 +607,14 @@ public final class PublicationOrchestrator {
                         + "没有某玩家私密内容时不要包含该 key。\n")
                 .append("4) 不得编造未提供的事实，不得创建新玩家、新行动或新世界规则。\n")
                 .append("5) 公共与私密文本各自不超过 ")
-                .append(PostService.MAX_BODY_LENGTH).append(" 字符。\n");
+                .append(PostService.MAX_BODY_LENGTH).append(" 字符。\n")
+                .append("6) 玩家可见文本必须是世界内自然中文：禁止 Markdown、代码块、反引号、")
+                .append("draftId/ticketId/postId/turnId/revision/contentHash、文件路径、MCP/schema、")
+                .append("状态枚举、异常或工具回执。\n")
+                .append("7) publicNarrative 只写具体地点/人物/事件/公开可感知变化/下一步钩子；")
+                .append("不要写系统流程或 GM 未做什么。每条只保留一个焦点。\n")
+                .append("8) privateOutcomes 先写已发生事实，再写玩家新增知道的信息和 2–3 个下一步；")
+                .append("不要整段都是“可能/待定”。\n");
         prompt.append("\n批次 ID: ").append(batch.batchId())
                 .append("\n包 ID: ").append(batch.packageId())
                 .append("\n回合 ID: ").append(batch.turnId() == null ? "" : batch.turnId())
@@ -629,7 +672,8 @@ public final class PublicationOrchestrator {
     private static String systemPrompt() {
         return "你是 iiBotMosire 的发布编排者。你只根据给定批次、世界事实和裁定结果，"
                 + "生成公共叙事与各玩家私密结果。公共与私密边界必须硬隔离；你没有工具，"
-                + "不发送消息，不修改世界。只输出 schema 指定的严格 JSON。";
+                + "不发送消息，不修改世界。只输出 schema 指定的严格 JSON。玩家可见文本必须是"
+                + "世界内自然中文，禁止 Markdown、内部 ID、文件路径、状态枚举、工具/系统口吻。";
     }
 
     private static String visibilityLabel(Visibility visibility) {

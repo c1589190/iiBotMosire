@@ -86,10 +86,19 @@ public final class SecretaryTicketTools {
                     if (!result.ok()) {
                         return ToolResult.error(result.code(), result.message());
                     }
-                    return ToolResult.ok("工单已提交。\nticketId: " + result.ticketId()
+                    String output = "工单已提交。\nticketId: " + result.ticketId()
                             + "\ntype: " + type.name()
                             + "\nstatus: OPEN"
-                            + "\nrevision: " + result.revision());
+                            + "\nrevision: " + result.revision();
+                    if (type == TicketType.ACTION_DRAFT) {
+                        String code = io.mosire.iibot.taskflow.ConfirmationCodes
+                                .forActionTicket(result.ticketId());
+                        output += "\n玩家确认码: " + code
+                                + "\n玩家可见指令: /确认 " + code
+                                + "\n提示：只把上面的 /确认 命令一次发给玩家；"
+                                + "已确认或已提交后不得再次索要确认。";
+                    }
+                    return ToolResult.ok(output);
                 }) {
             @Override
             public Map<String, Object> ledgerArgs(ToolContext context) {

@@ -12,6 +12,10 @@ import io.mosire.iibot.taskflow.TurnState;
 import io.mosire.iibot.taskflow.TurnView;
 import io.mosire.iibot.taskflow.Visibility;
 import io.mosire.iibot.taskflow.WorldFact;
+import io.mosire.iibot.taskflow.ticket.Ticket;
+import io.mosire.iibot.taskflow.ticket.TicketCommandResult;
+import io.mosire.iibot.taskflow.ticket.TicketService;
+import io.mosire.iibot.taskflow.ticket.TicketStatus;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -43,6 +47,7 @@ public final class InteractionTaskflowService {
     private final Clock clock;
     private final int maxTurnMinutes;
     private final Actor autoFreezeActor;
+    private final TicketService ticketService;
 
     public InteractionTaskflowService(TaskflowEngine engine, IdentityResolver identityResolver,
                                       SecretarySessionRegistry sessionRegistry,
@@ -59,6 +64,17 @@ public final class InteractionTaskflowService {
                                       Supplier<List<WorldFact>> worldFactsSupplier,
                                       String publicGroupId, Clock clock, int maxTurnMinutes,
                                       Actor autoFreezeActor) {
+        this(engine, identityResolver, sessionRegistry, adjudicationService, worldFactsSupplier,
+                publicGroupId, clock, maxTurnMinutes, autoFreezeActor, null);
+    }
+
+    /** 完整构造器：额外注入 ACTION_DRAFT 工单确认服务。 */
+    public InteractionTaskflowService(TaskflowEngine engine, IdentityResolver identityResolver,
+                                      SecretarySessionRegistry sessionRegistry,
+                                      AdjudicationService adjudicationService,
+                                      Supplier<List<WorldFact>> worldFactsSupplier,
+                                      String publicGroupId, Clock clock, int maxTurnMinutes,
+                                      Actor autoFreezeActor, TicketService ticketService) {
         this.engine = Objects.requireNonNull(engine, "engine");
         this.identityResolver = Objects.requireNonNull(identityResolver, "identityResolver");
         this.sessionRegistry = Objects.requireNonNull(sessionRegistry, "sessionRegistry");
@@ -74,6 +90,7 @@ public final class InteractionTaskflowService {
         }
         this.maxTurnMinutes = maxTurnMinutes;
         this.autoFreezeActor = autoFreezeActor;
+        this.ticketService = ticketService;
     }
 
     /** 从 QQ 映射 map 构造，便捷用于 app/tests。 */
@@ -320,36 +337,96 @@ public final class InteractionTaskflowService {
                                                   String text) {
         String[] parts = text.split("\\s+");
         if (parts.length != 2 || !parts[1].matches("[A-Za-z0-9._:-]+")) {
-            return reply("确认失败：格式必须是 `/确认 <draftId>`。自然语言“确认”不会提交。");
+            return reply("确认没有成功。请直接复制秘书最后给你的那一行：/确认 <确认码>。");
         }
-        String draftId = parts[1];
         if (!identity.isPlayer()) {
-            return reply("确认失败：只有映射到玩家的私聊账号可以确认决策。");
+            return reply("确认没有成功。只有玩家本人的私聊可以确认行动。");
         }
-        DecisionDraft draft = engine.draft(draftId).orElse(null);
-        if (draft == null) {
-            return reply("确认失败：草稿不存在。");
+        String token = parts[1];
+        String playerId = identity.profile().playerId();
+
+        DecisionDraft draft = engine.draft(token)
+                .or(() -> engine.findDraftByConfirmationCode(playerId, token))
+                .orElse(null);
+        if (draft != null) {
+            return confirmDecisionDraft(message, identity, draft);
         }
+
+        if (ticketService != null) {
+            Ticket ticket = ticketService.findActionDraftByConfirmationCode(playerId, token)
+                    .orElse(null);
+            if (ticket != null) {
+                return confirmActionTicket(message, identity, ticket);
+            }
+        }
+
+        return reply("这个确认码无效、已经过期，或者不属于你。让秘书重新发你一份行动，再确认一次即可。");
+    }
+
+    private List<InteractionReply> confirmDecisionDraft(InboundMessage message,
+                                                        MappedIdentity identity,
+                                                        DecisionDraft draft) {
         if (!draft.playerId().equals(identity.profile().playerId())) {
-            return reply("确认失败：不能确认他人的草稿。");
+            return reply("这个确认码不属于你。");
+        }
+        if (draft.status() == io.mosire.iibot.taskflow.DraftStatus.CONFIRMED) {
+            return reply("这份行动已经确认过了，不需要再确认。等我或 GM 给你结果即可。");
+        }
+        if (draft.status() != io.mosire.iibot.taskflow.DraftStatus.DRAFT) {
+            return reply("这份行动已经失效或已经被新的草案替代。让秘书重新发你一份即可。");
         }
         TurnView turn = engine.turnView().orElse(null);
         if (turn == null) {
-            return reply("确认失败：当前没有进行中的回合。");
+            return reply("现在没有进行中的回合，暂时不能确认行动。");
         }
         if (!draft.turnId().equals(turn.turnId())) {
-            return reply("确认失败：草稿不属于当前回合。");
+            return reply("这份行动不属于当前回合，已经失效。让秘书重新发你一份即可。");
         }
-        CommandResult result = engine.confirmDecision(identity.actor(), draftId,
+        if (!draft.expiresAt().isAfter(clock.instant())) {
+            return reply("这份行动的确认时间已经过了。让秘书重新发你一份即可。");
+        }
+        CommandResult result = engine.confirmDecision(identity.actor(), draft.draftId(),
                 draft.previewHash(), turn.revision(), idempotency(message, "confirm"));
         if (!result.ok()) {
-            return reply("确认失败：[" + result.code() + "] " + result.message());
+            return reply(friendlyConfirmFailure(result.code()));
         }
-        String decisionId = result.referenceId().orElse("");
-        return reply("已确认决策。\ndraftId: " + draftId
-                + "\ndecisionId: " + decisionId
-                + "\ncontentHash: " + result.details().getOrDefault("contentHash", "")
-                + "\nturnId: " + result.details().getOrDefault("turnId", turn.turnId()));
+        return reply("已确认。你说的这一步已经记下来了，GM 处理后我会把结果和下一步告诉你。");
+    }
+
+    private List<InteractionReply> confirmActionTicket(InboundMessage message,
+                                                       MappedIdentity identity, Ticket ticket) {
+        if (!ticket.playerId().equals(identity.profile().playerId())) {
+            return reply("这个确认码不属于你。");
+        }
+        if (ticket.status() == TicketStatus.CONFIRMED) {
+            return reply("这份行动已经确认过了，不需要再确认。GM 会继续处理。");
+        }
+        if (ticket.status() != TicketStatus.OPEN && ticket.status() != TicketStatus.CLAIMED) {
+            return reply("这份行动已经失效或已被处理。让秘书重新发你一份即可。");
+        }
+        TicketCommandResult result = ticketService.confirmActionDraft(identity.actor(),
+                ticket.ticketId(), ticket.revision(), idempotency(message, "confirm-ticket"));
+        if (!result.ok()) {
+            return reply(friendlyConfirmFailure(result.code()));
+        }
+        return reply("已确认。你的行动已经交给 GM，接下来等结果即可。");
+    }
+
+    private static String friendlyConfirmFailure(io.mosire.iibot.taskflow.ErrorCode code) {
+        if (code == io.mosire.iibot.taskflow.ErrorCode.REVISION_CONFLICT) {
+            return "局面刚刚有更新。让秘书重新发你一份最新的行动，再确认一次。";
+        }
+        if (code == io.mosire.iibot.taskflow.ErrorCode.DRAFT_EXPIRED) {
+            return "这份行动已经过期。让秘书重新发你一份即可。";
+        }
+        if (code == io.mosire.iibot.taskflow.ErrorCode.DECISION_ALREADY_CONFIRMED) {
+            return "你本回合已经确认过行动了，不需要再确认。";
+        }
+        return "刚才没能确认成功。让秘书重新发你一份行动，再试一次。";
+    }
+
+    private static String friendlyConfirmFailure(String ignored) {
+        return "刚才没能确认成功。让秘书重新发你一份行动，再试一次。";
     }
 
     private List<InteractionReply> handleTurnCommand(InboundMessage message,
@@ -436,7 +513,7 @@ public final class InteractionTaskflowService {
             return "玩家命令：\n"
                     + "普通文本：与私人秘书对话\n"
                     + "/提议设定 <文本>：提交 PUBLIC 世界观设定提案，等待推演审核\n"
-                    + "/确认 <draftId>：确认自己的草稿（仅限本私聊）\n"
+                    + "/确认 <确认码>：确认秘书最后发给你的行动\n"
                     + "/状态：查看任务流状态\n"
                     + "/帮助：查看帮助";
         }

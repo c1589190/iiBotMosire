@@ -38,6 +38,7 @@ public final class NapCatConfig {
     private final URI httpBaseUri;
     private final String accessToken;
     private final String accountId;
+    private final String privateTempGroupId;
     private final Duration connectTimeout;
     private final Duration requestTimeout;
     private final int maxTextLength;
@@ -57,6 +58,7 @@ public final class NapCatConfig {
         this.httpBaseUri = builder.httpBaseUri;
         this.accessToken = builder.accessToken;
         this.accountId = builder.accountId;
+        this.privateTempGroupId = builder.privateTempGroupId;
         this.connectTimeout = builder.connectTimeout;
         this.requestTimeout = builder.requestTimeout;
         this.maxTextLength = builder.maxTextLength;
@@ -93,6 +95,11 @@ public final class NapCatConfig {
     /** 可选账号标识；未配置时由入站事件中的 self_id 提供。 */
     public Optional<String> accountId() {
         return Optional.ofNullable(accountId);
+    }
+
+    /** 私聊失败/非好友场景可用的群临时会话来源群；空表示普通私聊。 */
+    public Optional<String> privateTempGroupId() {
+        return Optional.ofNullable(privateTempGroupId);
     }
 
     public Duration connectTimeout() {
@@ -155,6 +162,8 @@ public final class NapCatConfig {
                 + ", httpBaseUri=" + safeUri(httpBaseUri)
                 + ", accessToken=" + (accessToken == null ? "<absent>" : "***")
                 + ", accountId=" + (accountId == null ? "<absent>" : accountId)
+                + ", privateTempGroupId="
+                + (privateTempGroupId == null ? "<absent>" : privateTempGroupId)
                 + ", connectTimeout=" + connectTimeout
                 + ", requestTimeout=" + requestTimeout
                 + ", maxTextLength=" + maxTextLength
@@ -185,6 +194,7 @@ public final class NapCatConfig {
         private final URI httpBaseUri;
         private String accessToken;
         private String accountId;
+        private String privateTempGroupId;
         private Duration connectTimeout = Duration.ofSeconds(5);
         private Duration requestTimeout = Duration.ofSeconds(10);
         private int maxTextLength = 2_000;
@@ -211,6 +221,11 @@ public final class NapCatConfig {
 
         public Builder accountId(String accountId) {
             this.accountId = blankToNull(accountId);
+            return this;
+        }
+
+        public Builder privateTempGroupId(String privateTempGroupId) {
+            this.privateTempGroupId = blankToNull(privateTempGroupId);
             return this;
         }
 

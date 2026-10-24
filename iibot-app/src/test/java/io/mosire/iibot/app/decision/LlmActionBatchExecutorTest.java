@@ -35,14 +35,18 @@ class LlmActionBatchExecutorTest {
     @Test
     void sendsOneBoundedNoToolPromptWithWorldVersionAndAllBatchActions() {
         TaskflowEngine engine = engineWithFact();
-        FakeLlmClient llm = FakeLlmClient.with(LlmResponse.text("多行动推演结果：两条都完成。"));
+        FakeLlmClient llm = FakeLlmClient.with(LlmResponse.text(json(
+                "多行动推演结果：两条都完成。",
+                Map.of("player-1", "你完成了行动甲和行动乙。"), true, "")));
         LlmActionBatchExecutor executor = new LlmActionBatchExecutor(engine, llm, CLOCK);
         ActionBatch batch = batch("行动甲", "行动乙");
 
         ActionBatch result = executor.execute(batch);
 
         assertThat(result.status()).isEqualTo(ActionBatchStatus.COMMITTED);
-        assertThat(result.result()).isEqualTo("多行动推演结果：两条都完成。");
+        assertThat(AdjudicationOutput.parse(result.result()).publicSummary())
+                .isEqualTo("多行动推演结果：两条都完成。");
+        assertThat(result.result()).doesNotContain("用户要中央推演者", "先分析行动");
         assertThat(result.turnId()).isNull();
         assertThat(llm.requests()).hasSize(1);
         String prompt = text(llm.requests().get(0).messages());
@@ -81,7 +85,8 @@ class LlmActionBatchExecutorTest {
         String currentTurnId = engine.turnView().orElseThrow().turnId();
 
         ActionBatch committed = new LlmActionBatchExecutor(engine,
-                FakeLlmClient.with(LlmResponse.text("当前回合推演完成。")), CLOCK)
+                FakeLlmClient.with(LlmResponse.text(json("当前回合推演完成。",
+                        Map.of("player-1", "你的行动已完成。"), true, ""))), CLOCK)
                 .execute(batch("回合内成功行动"));
         assertThat(committed.status()).isEqualTo(ActionBatchStatus.COMMITTED);
         assertThat(committed.turnId()).isEqualTo(currentTurnId);
@@ -100,7 +105,8 @@ class LlmActionBatchExecutorTest {
         assertThat(engine.turnView().orElseThrow().state()).isEqualTo(TurnState.PUBLISHED);
 
         ActionBatch committed = new LlmActionBatchExecutor(engine,
-                FakeLlmClient.with(LlmResponse.text("终态回合外推演结果。")), CLOCK)
+                FakeLlmClient.with(LlmResponse.text(json("终态回合外推演结果。",
+                        Map.of("player-1", "终态后你的行动已完成。"), true, ""))), CLOCK)
                 .execute(batch("终态后的行动"));
         assertThat(committed.status()).isEqualTo(ActionBatchStatus.COMMITTED);
         assertThat(committed.turnId()).isNull();
@@ -111,6 +117,51 @@ class LlmActionBatchExecutorTest {
         assertThat(rejected.status()).isEqualTo(ActionBatchStatus.REJECTED);
         assertThat(rejected.result()).isEqualTo(LlmActionBatchExecutor.REJECT_EMPTY_RESULT);
         assertThat(rejected.turnId()).isNull();
+    }
+
+    @Test
+    void structuredNoOpBecomesNoOpAndNeverCommitted() {
+        TaskflowEngine engine = engineWithFact();
+        ActionBatch result = new LlmActionBatchExecutor(engine,
+                FakeLlmClient.with(LlmResponse.text(json("", Map.of(), false,
+                        "行动被权限边界挡住，世界没有变化。"))), CLOCK)
+                .execute(batch("不合规行动"));
+
+        assertThat(result.status()).isEqualTo(ActionBatchStatus.NO_OP);
+        AdjudicationOutput output = AdjudicationOutput.parse(result.result());
+        assertThat(output.isNoOp()).isTrue();
+        assertThat(output.noOpReason()).contains("世界没有变化");
+    }
+
+    @Test
+    void markdownCodeFenceOrChainOfThoughtOutputIsRejected() {
+        TaskflowEngine engine = engineWithFact();
+        ActionBatch fenced = new LlmActionBatchExecutor(engine,
+                FakeLlmClient.with(LlmResponse.text("""
+                        ```json
+                        {"publicSummary":"公开","privateOutcomes":{},"worldChanged":true,"noOpReason":""}
+                        ```
+                        """)), CLOCK).execute(batch("markdown 输出"));
+        assertThat(fenced.status()).isEqualTo(ActionBatchStatus.REJECTED);
+        assertThat(fenced.result()).isEqualTo(LlmActionBatchExecutor.REJECT_OUTPUT_INVALID);
+
+        ActionBatch reasoning = new LlmActionBatchExecutor(engine,
+                FakeLlmClient.with(LlmResponse.text("先分析行动，再决定……最终结果应该可行。")),
+                CLOCK).execute(batch("推理链输出"));
+        assertThat(reasoning.status()).isEqualTo(ActionBatchStatus.REJECTED);
+        assertThat(reasoning.result()).isEqualTo(LlmActionBatchExecutor.REJECT_OUTPUT_INVALID);
+    }
+
+    @Test
+    void structuredOutputCannotNamePlayerOutsideBatch() {
+        TaskflowEngine engine = engineWithFact();
+        ActionBatch result = new LlmActionBatchExecutor(engine,
+                FakeLlmClient.with(LlmResponse.text(json("公开结果",
+                        Map.of("player-2", "越权私密结果"), true, ""))), CLOCK)
+                .execute(batch("越权输出"));
+
+        assertThat(result.status()).isEqualTo(ActionBatchStatus.REJECTED);
+        assertThat(result.result()).isEqualTo(LlmActionBatchExecutor.REJECT_OUTPUT_INVALID);
     }
 
     @Test
@@ -166,6 +217,19 @@ class LlmActionBatchExecutorTest {
         assertThat(engine.publishTurn(director, engine.turnView().orElseThrow().revision(),
                 "publish-terminal-turn").ok()).isTrue();
         return engine;
+    }
+
+    private static String json(String publicSummary, Map<String, String> privateOutcomes,
+                               boolean worldChanged, String noOpReason) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(Map.of(
+                    "publicSummary", publicSummary,
+                    "privateOutcomes", privateOutcomes,
+                    "worldChanged", worldChanged,
+                    "noOpReason", noOpReason));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException impossible) {
+            throw new AssertionError(impossible);
+        }
     }
 
     private static ActionBatch batch(String... texts) {

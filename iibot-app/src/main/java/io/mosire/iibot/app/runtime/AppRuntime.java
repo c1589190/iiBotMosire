@@ -51,6 +51,7 @@ public final class AppRuntime implements AutoCloseable {
     private final WorldDocs worldDocs;
     private final ControlPlane controlPlane;
     private final ControlBootstrapService controlBootstrapService;
+    private final AutoCloseable conversationCacheStore;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -62,6 +63,20 @@ public final class AppRuntime implements AutoCloseable {
                TaskflowSnapshotStore snapshotStore,
                WorldDocs worldDocs, ControlPlane controlPlane,
                ControlBootstrapService controlBootstrapService) {
+        this(config, engine, interactionService, adapter, dispatcher, outboxSender, scheduler,
+                eventSink, eventReadPort, eventContentStore, snapshotStore, worldDocs,
+                controlPlane, controlBootstrapService, null);
+    }
+
+    AppRuntime(AppConfig config, TaskflowEngine engine,
+               InteractionTaskflowService interactionService, MessagingAdapter adapter,
+               InboundDispatcher dispatcher, OutboxSender outboxSender,
+               AutoFreezeScheduler scheduler, AgentLibEventSink eventSink,
+               SqliteEventReadPort eventReadPort, EventContentStore eventContentStore,
+               TaskflowSnapshotStore snapshotStore,
+               WorldDocs worldDocs, ControlPlane controlPlane,
+               ControlBootstrapService controlBootstrapService,
+               AutoCloseable conversationCacheStore) {
         this.config = Objects.requireNonNull(config, "config");
         this.engine = Objects.requireNonNull(engine, "engine");
         this.interactionService = Objects.requireNonNull(interactionService, "interactionService");
@@ -77,6 +92,7 @@ public final class AppRuntime implements AutoCloseable {
         this.controlPlane = Objects.requireNonNull(controlPlane, "controlPlane");
         this.controlBootstrapService = Objects.requireNonNull(
                 controlBootstrapService, "controlBootstrapService");
+        this.conversationCacheStore = conversationCacheStore;
     }
 
     /** 启动 adapter 与自动冻结调度器；重复启动为空操作。 */
@@ -167,6 +183,14 @@ public final class AppRuntime implements AutoCloseable {
         closeSafely("scheduler", scheduler::close);
         closeSafely("worldDocs", worldDocs::close);
         closeSafely("controlPlane", controlPlane::close);
+        if (conversationCacheStore != null) {
+            try {
+                conversationCacheStore.close();
+            } catch (Exception failure) {
+                LOG.warn("关闭组件失败 name=conversationCache error={}",
+                        failure.getClass().getSimpleName());
+            }
+        }
         closeSafely("eventReadPort", eventReadPort::close);
         closeSafely("eventSink", eventSink::close);
         closeSafely("eventContentStore", eventContentStore::close);

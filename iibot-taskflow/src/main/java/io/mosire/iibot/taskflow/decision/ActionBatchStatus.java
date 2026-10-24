@@ -4,6 +4,8 @@ package io.mosire.iibot.taskflow.decision;
 public enum ActionBatchStatus {
     PENDING,
     COMMITTED,
+    NO_OP,
+    NEEDS_CLARIFICATION,
     REJECTED,
     CONFLICTED
 }

@@ -52,10 +52,12 @@ class SecretaryAgentTest {
         ToolResult result = session.toolInvocations().get(0).result();
         assertThat(result.success()).isTrue();
         assertThat(result.message())
+                .contains("玩家确认码")
+                .contains("/确认 ")
+                .contains("内部ID（不得原样发给玩家）")
                 .contains(draft.draftId())
                 .contains(draft.previewHash())
-                .contains(draft.turnId())
-                .contains("`/确认 <draftId>`");
+                .contains(draft.turnId());
     }
 
     @Test

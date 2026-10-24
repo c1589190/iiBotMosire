@@ -3,6 +3,7 @@ package io.mosire.iibot.app.runtime;
 import io.mosire.agentlib.decision.DecisionPackages;
 import io.mosire.agentlib.llm.LlmClient;
 import io.mosire.iibot.app.action.EventSourcedActionPoolStore;
+import io.mosire.iibot.app.cache.SqliteSecretaryCacheStore;
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.LlmClientFactory;
 import io.mosire.iibot.app.config.SecretProvider;
@@ -32,6 +33,7 @@ import io.mosire.iibot.app.records.TurnRecordProjector;
 import io.mosire.iibot.app.ticket.EventSourcedTicketStore;
 import io.mosire.iibot.app.world.WorldDocs;
 import io.mosire.iibot.app.world.WorldFactsLoader;
+import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.napcat.NapCatAdapter;
 import io.mosire.iibot.connect.napcat.NapCatConfig;
@@ -139,11 +141,14 @@ public final class AppBootstrap {
         EventContentStore eventContentStore = null;
         AgentLibEventSink eventSink = null;
         SqliteEventReadPort eventReadPort = null;
+        SqliteSecretaryCacheStore cacheStore = null;
         WorldDocs worldDocs = null;
         InboundDispatcher dispatcher = null;
         AppRuntime runtime = null;
         try {
             ensureDirectory(dataDir);
+            cacheStore = SqliteSecretaryCacheStore.open(dataDir.resolve("secretary-cache"));
+            final SqliteSecretaryCacheStore activeCacheStore = cacheStore;
             // 同一 EventContentStore 供 audit sink、领域 journal、迁移器和事件源 Store 复用，
             // 避免同一 events.db 打开多个写连接或重复迁移 schema。
             eventContentStore = new EventContentStore(dbFile, knownSecrets);
@@ -292,7 +297,7 @@ public final class AppBootstrap {
                             new Actor(profile.playerId(), ActorRole.PLAYER), engine,
                             secretaryLlm, briefingService, bootstrapDirector, clock,
                             secretaryWorkspaceStore, postService, sharedSkillStore,
-                            complaintService, actionPoolService, ticketService);
+                            complaintService, actionPoolService, ticketService, activeCacheStore);
 
             Actor externalSupervisor = new Actor(
                     ControlBootstrapService.SUPERVISOR_ACTOR_ID, ActorRole.SUPERVISOR);
@@ -317,13 +322,18 @@ public final class AppBootstrap {
             InteractionTaskflowService interactionService = new InteractionTaskflowService(
                     engine, controlBootstrapService::resolve, secretaryRegistry,
                     adjudicationService, engine::allWorldFacts, config.publicGroupId(), clock,
-                    config.maxTurnMinutes(), bootstrapDirector);
+                    config.maxTurnMinutes(), bootstrapDirector, ticketService);
 
             MessagingAdapter adapter = options.adapter() == null
                     ? new NapCatAdapter(napcatConfig(config.napcat(), napcatToken))
                     : options.adapter();
+            ChatHistoryProvider chatHistoryProvider = options.chatHistoryProvider();
+            if (chatHistoryProvider == null && adapter instanceof ChatHistoryProvider provider) {
+                chatHistoryProvider = provider;
+            }
             OutboxSender outbox = new OutboxSender(adapter,
-                    Duration.ofSeconds(config.outbox().sendTimeoutSeconds()));
+                    Duration.ofSeconds(config.outbox().sendTimeoutSeconds()),
+                    config.napcat().privateTempGroupId().orElse(null));
             TurnResultDistributor resultDistributor = new TurnResultDistributor(
                     engine, outbox, controlBootstrapService::publicGroupId,
                     controlBootstrapService::qqForPlayerOrNull, deliveryLedger);
@@ -353,14 +363,15 @@ public final class AppBootstrap {
                     options, config, engine, eventReadPort, secrets, clock,
                     adjudicationService, gmAideAgent, resultDistributor, postDistributor,
                     complaintDistributor, secretaryWorkspaceStore, secretaryRegistry,
-                    postService, sharedSkillStore, complaintService,
+                    chatHistoryProvider, postService, sharedSkillStore, complaintService,
                     actionPoolService, actionPackageService, actionBatchExecutor,
                     publicationOrchestrator, recordQueryService,
                     controlBootstrapService, gmPrivateDocs, ticketService,
                     ticketActionPromotionService, turnRecordProjector);
             runtime = new AppRuntime(config, engine, interactionService, adapter, dispatcher,
                     outbox, scheduler, eventSink, eventReadPort, eventContentStore,
-                    snapshotStore, worldDocs, controlPlane, controlBootstrapService);
+                    snapshotStore, worldDocs, controlPlane, controlBootstrapService,
+                    activeCacheStore);
             LOG.info("组合根装配完成 dataDir={} recovered={} players={} directors={} "
                             + "worldFacts={} worldVersion={}",
                     dataDir, recovered, engine.status().playerCount(),
@@ -369,6 +380,7 @@ public final class AppBootstrap {
             return runtime;
         } catch (RuntimeException failure) {
             closeQuietly("dispatcher", dispatcher);
+            closeQuietly("secretaryCache", cacheStore);
             closeQuietly("worldDocs", worldDocs);
             closeQuietly("eventReadPort", eventReadPort);
             closeQuietly("eventSink", eventSink);
@@ -517,6 +529,7 @@ public final class AppBootstrap {
                                                     ComplaintDistributor complaintDistributor,
                                                     SecretaryWorkspaceStore secretaryWorkspaceStore,
                                                     SecretarySessionRegistry secretaryRegistry,
+                                                    ChatHistoryProvider chatHistoryProvider,
                                                     PostService postService,
                                                     SharedSkillStore sharedSkillStore,
                                                     ComplaintService complaintService,
@@ -551,7 +564,9 @@ public final class AppBootstrap {
                 .gmAideAgent(gmAideAgent)
                 .secretaryWorkspaceStore(secretaryWorkspaceStore)
                 .secretarySessions(secretaryRegistry)
+                .chatHistoryProvider(chatHistoryProvider)
                 .postService(postService)
+                .postDistributor(postDistributor)
                 .sharedSkillStore(sharedSkillStore)
                 .complaintService(complaintService)
                 .ticketService(ticketService)
@@ -608,6 +623,7 @@ public final class AppBootstrap {
                 .accountId(config.accountId().orElse(null))
                 .requestTimeout(Duration.ofSeconds(config.requestTimeoutSeconds()))
                 .maxTextLength(config.maxTextLength())
+                .privateTempGroupId(config.privateTempGroupId().orElse(null))
                 .suppressSelfMessages(config.suppressSelfMessages());
         if (accessToken != null) {
             builder.accessToken(accessToken);

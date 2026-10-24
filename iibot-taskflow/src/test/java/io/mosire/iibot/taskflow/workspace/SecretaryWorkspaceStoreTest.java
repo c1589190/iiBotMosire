@@ -27,15 +27,19 @@ class SecretaryWorkspaceStoreTest {
             for (String directory : SecretaryWorkspaceStore.ROOT_DIRECTORIES) {
                 assertThat(root.resolve(directory)).isDirectory();
             }
+            assertThat(root.resolve(SecretaryWorkspaceStore.WORKSPACE_AGENTS_FILE))
+                    .isRegularFile();
             assertThat(first.list(playerId, "")).containsExactlyInAnyOrder(
-                    "public", "player", "gm", "notes");
+                    "AGENTS.md", "public", "player", "gm", "notes");
         }
 
         SecretaryWorkspaceStore second = SecretaryWorkspaceStore.open(tempDir,
                 List.of("player-1", "player-2"));
         assertThat(second.rootFor("player-1")).isEqualTo(first.rootFor("player-1"));
         assertThat(second.list("player-1", "")).containsExactlyInAnyOrder(
-                "public", "player", "gm", "notes");
+                "AGENTS.md", "public", "player", "gm", "notes");
+        assertThat(second.read("player-1", "AGENTS.md"))
+                .get().asString().contains("secretary_shared_skill_list");
     }
 
     @Test

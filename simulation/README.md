@@ -44,6 +44,8 @@ simulation/
 - `/home/cna/.config/iibot/{llm,napcat,control}.env` 已有真实 LLM/NapCat/MCP token；
 - 真实 QQ 测试玩家已加入公开群，且允许 Bot 私聊；
 - 当前 `8765` 没有被旧 app 占用。
+- 若目标玩家与 Bot 不是好友，可设置 `napcat.privateTempGroupId` 为双方共同群；
+  NapCat 会通过 `send_private_msg {user_id, group_id}` 走群临时会话。
 
 检查：
 
@@ -161,7 +163,7 @@ simulation/scripts/05c-open-turn.sh
 完成后可查看：
 
 ```bash
-simulation/scripts/06-mcp.sh --list           # 应显示 66 个工具
+simulation/scripts/06-mcp.sh --list           # 应显示 67 个工具
 simulation/scripts/06-mcp.sh tf_status '{}'
 simulation/scripts/06-mcp.sh tf_record_query '{"kind":"opening"}'
 simulation/scripts/06-mcp.sh tf_ticket_board '{}'
@@ -259,6 +261,44 @@ mcp__iibot__tf_post_publish
 ```
 
 第一次先只发一条明确的公共/私密测试推文，确认群和玩家收件正确后再扩大。
+
+## 5.1 玩家体验文档与自动化边界
+
+玩家可见内容必须遵守：
+
+```text
+simulation/player-experience/
+```
+
+- `01-player-visible-style.md`：玩家可见文风；
+- `02-secretary-playbook.md`：秘书行为；
+- `03-confirmation-and-recovery.md`：一次硬确认与断线恢复；
+- `06-editorial-checklist.md`：发布前审稿；
+- `07-automation-boundaries.md`：自动监控只读。
+
+`simulation/scripts/board-autopilot.py` 默认已降级为**只读 watchdog**：
+
+- 不生成日推；
+- 不推进 campaign clock；
+- 不自动回复工单；
+- 不批准/发布自己生成的内容；
+- 只有人工显式加 `--publish-existing` 时，才允许处理已经存在的待审帖。
+
+## 5.2 全新初始化提示词
+
+需要清空 runtime 后重开时，把：
+
+```text
+simulation/dsh/FRESH_INIT_GM_PROMPT.md
+```
+
+整份内容作为 DSH GM Agent 的首条提示词。它要求：
+
+- 保留旧 runtime 备份；
+- 用新 jar 启动；
+- 零玩家初始化 + 加载秘书共享 Skill；
+- 只创建公共开场草稿；
+- 停在“等待真人确认发布”状态，不自动发 QQ。
 
 ## 6. 直接 MCP smoke
 

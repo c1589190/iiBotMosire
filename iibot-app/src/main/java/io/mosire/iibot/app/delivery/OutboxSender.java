@@ -5,6 +5,7 @@ import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.connect.core.SendReceipt;
 import io.mosire.iibot.taskflow.agent.InteractionReply;
+import io.mosire.iibot.taskflow.agent.PlayerFacingTextGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,13 +34,28 @@ public final class OutboxSender {
 
     private final MessagingAdapter adapter;
     private final Duration sendTimeout;
+    private final String privateTempGroupId;
 
     public OutboxSender(MessagingAdapter adapter, Duration sendTimeout) {
+        this(adapter, sendTimeout, null);
+    }
+
+    public OutboxSender(MessagingAdapter adapter, Duration sendTimeout,
+                        String privateTempGroupId) {
         this.adapter = Objects.requireNonNull(adapter, "adapter");
         this.sendTimeout = Objects.requireNonNull(sendTimeout, "sendTimeout");
+        this.privateTempGroupId = privateTempGroupId == null || privateTempGroupId.isBlank()
+                ? null : privateTempGroupId;
         if (sendTimeout.isZero() || sendTimeout.isNegative()) {
             throw new IllegalArgumentException("sendTimeout 必须为正");
         }
+    }
+
+    private OutboundMessage privateOutbound(String userId, String text, String key) {
+        return privateTempGroupId == null
+                ? OutboundMessage.privateMessage(userId, List.of(text), key)
+                : OutboundMessage.privateTemporaryMessage(userId, privateTempGroupId,
+                        List.of(text), key);
     }
 
     /**
@@ -57,14 +73,17 @@ public final class OutboxSender {
                 continue;
             }
             String idempotencyKey = "inbound:" + inbound.dedupeKey() + ":reply:" + index;
+            String playerText = inbound.sessionType() == InboundMessage.SessionType.PRIVATE
+                    ? PlayerFacingTextGuard.normalizeForChat(reply.text())
+                    : PlayerFacingTextGuard.normalizeForPost(reply.text());
             OutboundMessage outbound;
             try {
                 outbound = switch (inbound.sessionType()) {
-                    case PRIVATE -> OutboundMessage.privateMessage(inbound.userId(),
-                            List.of(reply.text()), idempotencyKey);
+                    case PRIVATE -> privateOutbound(inbound.userId(), playerText,
+                            idempotencyKey);
                     case GROUP -> OutboundMessage.groupMessage(
                             inbound.groupId() == null ? inbound.userId() : inbound.groupId(),
-                            List.of(reply.text()), idempotencyKey);
+                            List.of(playerText), idempotencyKey);
                 };
             } catch (RuntimeException invalid) {
                 outcomes.add(new SendOutcome(index, idempotencyKey,
@@ -97,6 +116,7 @@ public final class OutboxSender {
         List<SendOutcome> outcomes = new ArrayList<>(texts.size());
         for (int index = 0; index < texts.size(); index++) {
             String text = texts.get(index);
+            text = text == null ? null : PlayerFacingTextGuard.normalizeForChat(text);
             String idempotencyKey = "private:" + correlationKey + ":reply:" + index;
             if (text == null || text.isBlank()) {
                 outcomes.add(new SendOutcome(index, idempotencyKey,
@@ -104,8 +124,7 @@ public final class OutboxSender {
                         "OUTBOX_BLANK_TEXT", "空白正文被拒绝（未发送）"));
                 continue;
             }
-            OutboundMessage outbound = OutboundMessage.privateMessage(userId, List.of(text),
-                    idempotencyKey);
+            OutboundMessage outbound = privateOutbound(userId, text, idempotencyKey);
             outcomes.add(send(index, idempotencyKey, outbound));
         }
         return List.copyOf(outcomes);
@@ -126,6 +145,7 @@ public final class OutboxSender {
         List<SendOutcome> outcomes = new ArrayList<>(texts.size());
         for (int index = 0; index < texts.size(); index++) {
             String text = texts.get(index);
+            text = text == null ? null : PlayerFacingTextGuard.normalizeForPost(text);
             String idempotencyKey = "public:" + correlationKey + ":reply:" + index;
             if (text == null || text.isBlank()) {
                 outcomes.add(new SendOutcome(index, idempotencyKey,

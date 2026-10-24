@@ -84,6 +84,39 @@ public final class PostDistributor {
         return List.copyOf(outcomes);
     }
 
+    /**
+     * GM 明确要求重试一个 FAILED 的已发布推文：只把送达状态重置为 PENDING 并释放本进程
+     * 的 attempted 标记；实际外发仍由宿主 afterMutation 的 distributeIfReady 执行。
+     */
+    public synchronized PostCommandResult retryFailedDelivery(String postId, long expectedRevision) {
+        if (postId == null || postId.isBlank()) {
+            return PostCommandResult.failure(PostService.INVALID_ARGUMENT,
+                    "postId 不能为空", null, 0);
+        }
+        Post post = postService.post(postId).orElse(null);
+        if (post == null) {
+            return PostCommandResult.failure(PostService.POST_NOT_FOUND,
+                    "推文不存在", postId, 0);
+        }
+        if (post.revision() != expectedRevision) {
+            return PostCommandResult.failure(PostService.REVISION_CONFLICT,
+                    "推文 revision 已变化", postId, post.revision());
+        }
+        if (post.status() != PostStatus.PUBLISHED) {
+            return PostCommandResult.failure(PostService.POST_NOT_PUBLISHED,
+                    "只有已发布推文可以重试送达", postId, post.revision());
+        }
+        if (post.deliveryState() != DeliveryState.FAILED) {
+            return PostCommandResult.failure(PostService.DELIVERY_STATE_CONFLICT,
+                    "只有 FAILED 推文可以重试送达", postId, post.revision());
+        }
+        PostCommandResult result = postService.markDelivered(postId, DeliveryState.PENDING);
+        if (result != null && result.ok()) {
+            attemptedPostIds.remove(postId);
+        }
+        return result;
+    }
+
     private List<SendOutcome> distributeOne(Post post) {
         try {
             if (post.visibility() == PostVisibility.PUBLIC) {

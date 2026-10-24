@@ -32,13 +32,14 @@ class OpeningRecordProjectionTest {
     @Test
     void openingProjectsIntoOpeningsTreeOnlyWithReconciledManifestAndIdempotentRebuild()
             throws Exception {
-        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("opening-projection"))) {
+        try (P6Fixture fixture = P6Fixture.openForOpening(tempDir.resolve("opening-projection"))) {
             PublicationOrchestrator orchestrator =
                     fixture.publicationOrchestrator(FakeLlmClient.with());
             String title = "开场投影标题-46dc";
             String body = "开场投影正文只进公共面-2f18";
             PublicationRecord opening = orchestrator.createOpening(
                     P6Fixture.SUPERVISOR, title, body, "opening-projection-key");
+            fixture.openTurnForProjection();
             TurnRecordProjector projector = fixture.projector(orchestrator);
 
             projector.rebuildAll();
@@ -112,12 +113,13 @@ class OpeningRecordProjectionTest {
 
     @Test
     void openingQueryReturnsIdSummaryWithoutBodyOrPhysicalPathAndTurnsStayUnchanged() {
-        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("opening-query"))) {
+        try (P6Fixture fixture = P6Fixture.openForOpening(tempDir.resolve("opening-query"))) {
             PublicationOrchestrator orchestrator =
                     fixture.publicationOrchestrator(FakeLlmClient.with());
             String body = "开场查询正文-不可泄漏-7bd0";
             PublicationRecord opening = orchestrator.createOpening(
                     P6Fixture.SUPERVISOR, "开场查询标题", body, "opening-query-key");
+            fixture.openTurnForProjection();
             TurnRecordProjector projector = fixture.projector(orchestrator);
             projector.rebuildAll();
             RecordQueryService query = new RecordQueryService(fixture.dataDir, projector);
@@ -166,7 +168,7 @@ class OpeningRecordProjectionTest {
 
     @Test
     void unsafeOpeningPublicationIdFailsProjectionClosedWithoutWritingOutside() {
-        try (P6Fixture fixture = P6Fixture.open(
+        try (P6Fixture fixture = P6Fixture.openForOpening(
                 tempDir.resolve("opening-unsafe-id"))) {
             PublicationOrchestrator orchestrator =
                     fixture.publicationOrchestrator(FakeLlmClient.with());
@@ -195,7 +197,7 @@ class OpeningRecordProjectionTest {
 
     @Test
     void symlinkedOpeningsRootFailsProjectionClosed() throws Exception {
-        try (P6Fixture fixture = P6Fixture.open(
+        try (P6Fixture fixture = P6Fixture.openForOpening(
                 tempDir.resolve("opening-symlink-root"))) {
             PublicationOrchestrator orchestrator =
                     fixture.publicationOrchestrator(FakeLlmClient.with());

@@ -8,6 +8,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.mosire.iibot.connect.core.AccountInfo;
+import io.mosire.iibot.connect.core.ChatHistoryPage;
+import io.mosire.iibot.connect.core.ChatHistoryQuery;
+import io.mosire.iibot.connect.core.InboundMessage.SessionType;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.connect.core.SendReceipt;
 import java.io.IOException;
@@ -50,6 +53,24 @@ class NapCatAdapterHttpTest {
     }
 
     @Test
+    void privateTemporaryMessageUsesDedicatedActionAndGroupId() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(
+                     config(server, Duration.ofSeconds(2), 100))) {
+            SendReceipt receipt = adapter.send(OutboundMessage.privateTemporaryMessage(
+                            "3638514187", "1104560326", List.of("hello"), "idem-temp"))
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(receipt.state()).isEqualTo(SendReceipt.State.SENT);
+            assertThat(server.paths).containsExactly("/send_private_msg");
+            JsonNode payload = server.sendPayloads.getFirst();
+            assertThat(payload.path("user_id").asText()).isEqualTo("3638514187");
+            assertThat(payload.path("group_id").asText()).isEqualTo("1104560326");
+            assertThat(payload.has("message_type")).isFalse();
+        }
+    }
+
+    @Test
     void getLoginInfoUsesHttpActionAndBearerAuth() throws Exception {
         try (MockHttpServer server = new MockHttpServer();
              NapCatAdapter adapter = new NapCatAdapter(config(server, Duration.ofSeconds(2), 100))) {
@@ -73,6 +94,68 @@ class NapCatAdapterHttpTest {
             assertThat(info.displayName()).isEqualTo("mock-napcat");
             assertThat(server.paths).containsExactly("/get_login_info");
             assertThat(server.loginCalls.get()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void readsFriendHistoryAsNeutralTextAndSkipsNonTextParts() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(config(server, Duration.ofSeconds(2), 100))) {
+            server.historyMessages = 1;
+            ChatHistoryPage page = adapter.history(new ChatHistoryQuery(
+                            SessionType.PRIVATE, "20002", null, 2, true))
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(server.historyPaths).containsExactly("/get_friend_msg_history");
+            JsonNode payload = server.historyPayloads.getFirst();
+            assertThat(payload.path("user_id").asText()).isEqualTo("20002");
+            assertThat(payload.path("count").asInt()).isEqualTo(2);
+            assertThat(payload.path("reverse_order").asBoolean()).isTrue();
+            assertThat(payload.path("parse_mult_msg").asBoolean()).isFalse();
+            assertThat(payload.path("disable_get_url").asBoolean()).isTrue();
+
+            assertThat(page.messages()).hasSize(1);
+            assertThat(page.messages().getFirst().messageId()).isEqualTo("101");
+            assertThat(page.messages().getFirst().senderId()).isEqualTo("20002");
+            assertThat(page.messages().getFirst().senderName()).isEqualTo("测试玩家");
+            assertThat(page.messages().getFirst().text()).isEqualTo("历史文本");
+            assertThat(page.exhausted()).isFalse();
+            assertThat(page.nextCursor()).isEqualTo("101");
+        }
+    }
+
+    @Test
+    void readsGroupHistoryWithGroupIdAndReturnsNextCursorForFullPage() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(config(server, Duration.ofSeconds(2), 100))) {
+            server.historyMessages = 2;
+            ChatHistoryPage page = adapter.history(new ChatHistoryQuery(
+                            SessionType.GROUP, "30003", null, 2, true))
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(server.historyPaths).containsExactly("/get_group_msg_history");
+            assertThat(server.historyPayloads.getFirst().path("group_id").asText())
+                    .isEqualTo("30003");
+            assertThat(page.messages()).hasSize(2);
+            assertThat(page.exhausted()).isFalse();
+            assertThat(page.nextCursor()).isEqualTo("101");
+        }
+    }
+
+    @Test
+    void historyRetcode1200IsAnEmptyExhaustedPageAndNotRetried() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(config(server, Duration.ofSeconds(2), 100))) {
+            server.historyRetcode = 1200;
+
+            ChatHistoryPage page = adapter.history(new ChatHistoryQuery(
+                            SessionType.PRIVATE, "20002", "old-cursor", 5, true))
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(page.messages()).isEmpty();
+            assertThat(page.exhausted()).isTrue();
+            assertThat(page.nextCursor()).isNull();
+            assertThat(server.historyCalls.get()).isEqualTo(1);
         }
     }
 
@@ -302,7 +385,12 @@ class NapCatAdapterHttpTest {
         private final List<JsonNode> sendPayloads = new CopyOnWriteArrayList<>();
         private final List<String> texts = new CopyOnWriteArrayList<>();
         private final AtomicInteger loginCalls = new AtomicInteger();
+        private final AtomicInteger historyCalls = new AtomicInteger();
+        private final List<String> historyPaths = new CopyOnWriteArrayList<>();
+        private final List<JsonNode> historyPayloads = new CopyOnWriteArrayList<>();
         private volatile int retcode;
+        private volatile int historyRetcode;
+        private volatile int historyMessages = 2;
         private volatile int loginRetcode;
         private volatile int loginStatus = 200;
         private volatile long sendDelayMillis;
@@ -314,6 +402,8 @@ class NapCatAdapterHttpTest {
             server.createContext("/send_private_msg", this::handleSend);
             server.createContext("/send_group_msg", this::handleSend);
             server.createContext("/get_login_info", this::handleLoginInfo);
+            server.createContext("/get_friend_msg_history", this::handleHistory);
+            server.createContext("/get_group_msg_history", this::handleHistory);
             server.setExecutor(Executors.newCachedThreadPool(runnable -> {
                 Thread thread = new Thread(runnable, "mock-napcat-http");
                 thread.setDaemon(true);
@@ -337,6 +427,22 @@ class NapCatAdapterHttpTest {
             sleepIfRequested();
             respond(exchange, 200, "{\"status\":\"ok\",\"retcode\":" + retcode
                     + ",\"data\":{\"message_id\":" + messageId + "}}");
+        }
+
+        private void handleHistory(HttpExchange exchange) throws IOException {
+            historyPaths.add(exchange.getRequestURI().getPath());
+            authorizationHeaders.add(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] requestBody = exchange.getRequestBody().readAllBytes();
+            historyPayloads.add(MAPPER.readTree(requestBody));
+            historyCalls.incrementAndGet();
+            String messages = historyMessages >= 2
+                    ? "[{\"message_id\":101,\"time\":1700000000,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"text\",\"data\":{\"text\":\"历史文本\"}}]},"
+                    + "{\"message_id\":102,\"time\":1700000001,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"text\",\"data\":{\"text\":\"第二条\"}}]}]"
+                    : "[{\"message_id\":101,\"time\":1700000000,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"text\",\"data\":{\"text\":\"历史文本\"}}]},"
+                    + "{\"message_id\":102,\"time\":1700000001,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"image\",\"data\":{}}]}]";
+            respond(exchange, 200,
+                    "{\"status\":\"ok\",\"retcode\":" + historyRetcode
+                            + ",\"data\":{\"messages\":" + messages + "}}");
         }
 
         private void handleLoginInfo(HttpExchange exchange) throws IOException {

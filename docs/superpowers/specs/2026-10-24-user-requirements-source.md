@@ -177,6 +177,63 @@
   - 不把“全功能”解释为允许绕过玩家确认、伪造决策、关机或读取密钥。
 - **状态**：有效方向；具体工具清单与“非游戏运维操作”边界待确认。
 
+### 5.3 补充裁定（2026-10-24，会话 cache 与 NapCat 历史）
+
+#### D-014 秘书会话 cache、cache 切换与只读 QQ 历史
+
+- **用户原话（逐字）**：
+  > 「1 我认为直接做一个对接Napcat的通用聊天记录查看器最方便
+  > 2 允许单个秘书位置切换不同id的cache即可
+  > 3 允许当前秘书方便阅读同秘书之前的Cache即可
+  > 4 GM自然能用查看秘书上下文的工具
+  > 5 迎刃而解」
+- **设计含义**：
+  - App 侧保存可恢复的秘书 `ContextWindow` cache，不能把内存窗口当作唯一历史；
+  - 同一秘书槽位可在同一玩家的多个 cacheId 之间切换，旧 cache 不删除；
+  - 秘书可读取同一玩家以前的 cache；GM/外部 supervisor 可读取并切换任意已注册玩家的 cache；
+  - NapCat 聊天记录作为只读外部查看器，用于人工恢复/证据查看，不冒充 LLM 上下文；
+  - 不提供跨玩家 cache 借用，不把 NapCat 历史自动注入模型。
+- **当前正本**：[`2026-10-24-secretary-conversation-cache-and-qq-history.md`](2026-10-24-secretary-conversation-cache-and-qq-history.md)。
+- **状态**：有效；实现进行中。
+
+### 5.4 补充裁定（2026-10-24，玩家体验与推演文档系统）
+
+#### D-015 玩家行动与信息获取必须轻松顺滑
+
+- **用户原话（逐字）**：
+  > 「实际推演流程中也有大量真人推演不会犯的错误
+  > 例如推文的风格（大量掺杂程序状态）、反复确认（死磕条项目，打击玩家游玩积极性）、推文重点不明确、秘书Agent Markdown残留等，以及更加多的若干交互问题，这些你没有看到吗？难道这些就不是问题了吗？虽然不能通过程序解决，必须用额外的推演文档系统来解决」
+  >
+  > 「把这些所有问题先都记录下来，然后你出解决方案，要求是让玩家的行动与信息获取变得轻松顺滑」
+- **设计含义**：
+  - 玩家可见文本必须去工程化：不得出现程序状态、ID/路径/Markdown 残留、系统/测试口吻；
+  - 一条消息只讲一个焦点，先给具体事实，再给未知，再给 2–3 个可行动选项；
+  - 信息必须推给玩家，不得要求玩家阅读工作区文件或自行理解版本；
+  - 报名、查询和普通交流不得因缺项或审批状态反复阻塞；
+  - D-012 的正式行动硬确认保留，但必须只在草案终稿处出现一次，不得反复确认或因 ticketId/draftId 混淆形成死胡同；
+  - 必须建立独立的推演文档系统，包含玩家可见文风、秘书行为、确认与恢复、信息卡、推文模板、发布前审稿清单、自动化边界、正反例与验收。
+- **问题与方案正本**：
+  - 事实登记：[`../reports/2026-10-24-first-live-run-player-experience-audit.md`](../reports/2026-10-24-first-live-run-player-experience-audit.md)
+  - 体验规则：[`2026-10-24-player-experience-interaction-document-system.md`](2026-10-24-player-experience-interaction-document-system.md)
+  - 运行时架构：[`2026-10-24-player-experience-runtime-architecture.md`](2026-10-24-player-experience-runtime-architecture.md)
+  - 推演文档包：`simulation/player-experience/`
+- **状态**：需求有效；本轮运行时与文档系统已实现并通过测试，**未部署、未真实 playtest**。证据见 [`../status/2026-10-24-player-experience-runtime-implementation.md`](../status/2026-10-24-player-experience-runtime-implementation.md)。
+
+### 5.5 补充裁定（2026-10-24，秘书 system prompt 与 AGENTS.md）
+
+#### D-016 保持最小 system prompt；详细规则放 AGENTS.md/Skill
+
+- **用户原话（逐字）**：
+  > 「1 在给秘书的skill里补了吗？
+  > 2 不行，这个系统提示词能提升v4.1flash的分析性能，把弯弯绕绕的规则全放AGENTS.md里」
+- **设计含义**：
+  - 秘书 system prompt 必须保持为 `You are a helpful software engineer assistant.`；
+  - 玩家体验、输出文风、确认规则、信息获取、工具回执、隐私等详细规则，全部写入每个秘书工作区的 `AGENTS.md` 与共享 Skill；
+  - 不再向 system prompt 注入长篇规则、facts 或 brief；
+  - 首轮 user reminder 可以要求秘书读取共享 Skill/`AGENTS.md`，并提供经过可见性过滤的玩家事实；
+  - `AGENTS.md` 是秘书规则的运行时正本；共享 Skill 是可复用补充。
+- **状态**：有效；已实现，待真实 playtest 验证 V4.1flash 行为。
+
 ## 六、待补问题
 
 - Q5：LLM provider / 模型路由；

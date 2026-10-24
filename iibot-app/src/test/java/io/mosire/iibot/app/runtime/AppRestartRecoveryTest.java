@@ -55,7 +55,7 @@ class AppRestartRecoveryTest {
         Path eventsFile = config.dataDir().resolve("events.db");
 
         // P5 完整装配默认走 ACTION_DRAFT ticket；本测试保留旧 Turn/确认链路，
-        // 因此用一个非 tool-call 回复，然后直接经引擎准备已确认决策。
+        // 因此用一个非 tool-call 回复，然后直接经引擎准备已确认。
         FakeLlmClient firstLlm = FakeLlmClient.with(
                 LlmResponse.text("行动草稿请通过工单提交给 GM。"));
         FakeMessagingAdapter firstAdapter = new FakeMessagingAdapter();
@@ -88,7 +88,7 @@ class AppRestartRecoveryTest {
             draftId = createdDraft.referenceId().orElseThrow();
             DecisionDraft draft = first.engine().draft(draftId).orElseThrow();
             send(first, firstAdapter, "qq-p1", "/确认 " + draft.draftId(), "m-confirm");
-            assertThat(lastText(firstAdapter)).contains("已确认决策");
+            assertThat(lastText(firstAdapter)).contains("已确认");
 
             send(first, firstAdapter, "qq-p1", "/提议设定 北码头旧灯塔重新点亮", "m-propose");
             assertThat(lastText(firstAdapter)).contains("设定提案已提交");
@@ -183,6 +183,38 @@ class AppRestartRecoveryTest {
             second.close();
         }
         assertThat(secondAdapter.isClosed()).isTrue();
+    }
+
+    @Test
+    void secretaryConversationCacheRestoresAcrossRuntimeRestart() throws Exception {
+        AppConfig config = config("prompt-v1", "Player One", "qq-p1");
+        FakeLlmClient firstLlm = FakeLlmClient.with(LlmResponse.text("第一轮回复"));
+        FakeMessagingAdapter firstAdapter = new FakeMessagingAdapter();
+        AppRuntime first = AppBootstrap.build(config,
+                BootstrapOptions.fake(SECRETS, CLOCK, firstLlm, firstAdapter));
+        try {
+            first.start();
+            send(first, firstAdapter, "qq-p1", "第一轮问题", "m-cache-first");
+            assertThat(lastText(firstAdapter)).isEqualTo("第一轮回复");
+            assertThat(firstLlm.requests()).hasSize(1);
+        } finally {
+            first.close();
+        }
+
+        FakeLlmClient secondLlm = FakeLlmClient.with(LlmResponse.text("第二轮回复"));
+        FakeMessagingAdapter secondAdapter = new FakeMessagingAdapter();
+        AppRuntime second = AppBootstrap.build(config,
+                BootstrapOptions.fake(SECRETS, CLOCK, secondLlm, secondAdapter));
+        try {
+            second.start();
+            send(second, secondAdapter, "qq-p1", "第二轮问题", "m-cache-second");
+            assertThat(lastText(secondAdapter)).isEqualTo("第二轮回复");
+            assertThat(secondLlm.requests()).hasSize(1);
+            assertThat(secondLlm.requests().getFirst().messages().toString())
+                    .contains("第一轮问题", "第一轮回复", "第二轮问题");
+        } finally {
+            second.close();
+        }
     }
 
     @Test

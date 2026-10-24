@@ -21,7 +21,7 @@ import java.util.Set;
  *
  * <p>身份只从 {@link ToolContext#config()} 读取，模型参数 schema 中没有 playerId。创建成功后
  * 回执包含 draftId、previewHash、turnId 与完整预览，并明确提示玩家在私聊发送
- * {@code /确认 <draftId>}。</p>
+ * {@code /确认 <短确认码>}。</p>
  */
 public final class DecisionDraftCreateTool implements AgentTool {
 
@@ -60,7 +60,7 @@ public final class DecisionDraftCreateTool implements AgentTool {
     @Override
     public String description() {
         return "为当前私聊玩家创建一份结构化决策草稿；不会确认决策。成功结果包含 draftId、"
-                + "previewHash 和预览，玩家必须之后在私聊发送 /确认 <draftId>。";
+                + "previewHash 和预览，玩家必须之后在私聊发送 /确认 <短确认码>。";
     }
 
     @Override

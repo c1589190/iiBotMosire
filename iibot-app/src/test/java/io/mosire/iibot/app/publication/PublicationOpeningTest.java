@@ -45,7 +45,7 @@ class PublicationOpeningTest {
 
     @Test
     void openingCreatesPublicPendingDraftWithNullBatchTurnAndEmptyPrivateMaps() throws Exception {
-        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("opening-success"))) {
+        try (P6Fixture fixture = P6Fixture.openForOpening(tempDir.resolve("opening-success"))) {
             PublicationOrchestrator orchestrator =
                     fixture.publicationOrchestrator(FakeLlmClient.with());
             String title = "雾灯港·序章-3c91";
@@ -54,6 +54,7 @@ class PublicationOpeningTest {
 
             PublicationRecord record = orchestrator.createOpening(
                     P6Fixture.SUPERVISOR, title, body, key);
+            fixture.openTurnForProjection();
 
             assertThat(record.kind()).isEqualTo(PublicationKind.OPENING);
             assertThat(record.publicationId()).isEqualTo(
@@ -107,9 +108,25 @@ class PublicationOpeningTest {
     }
 
     @Test
+    void openingIsRejectedOncePlayersOrActiveTurnExist() {
+        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("opening-gated"))) {
+            PublicationOrchestrator orchestrator =
+                    fixture.publicationOrchestrator(FakeLlmClient.with());
+
+            assertThatThrownBy(() -> orchestrator.createOpening(P6Fixture.SUPERVISOR,
+                    "不允许的标题", "不允许的正文", "opening-gated-key"))
+                    .isInstanceOf(PublicationException.class)
+                    .extracting(error -> ((PublicationException) error).code())
+                    .isEqualTo(PublicationException.OPENING_NOT_ALLOWED);
+            assertThat(fixture.postService.postsForGm()).isEmpty();
+            assertThat(fixture.publicationEvents()).isEmpty();
+        }
+    }
+
+    @Test
     void sameOpeningKeyWithDifferentTitleOrBodyReturnsFirstRecordWithoutOverwriting()
             throws Exception {
-        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("opening-idempotent"))) {
+        try (P6Fixture fixture = P6Fixture.openForOpening(tempDir.resolve("opening-idempotent"))) {
             PublicationOrchestrator orchestrator =
                     fixture.publicationOrchestrator(FakeLlmClient.with());
             PublicationRecord first = orchestrator.createOpening(
@@ -134,7 +151,7 @@ class PublicationOpeningTest {
 
     @Test
     void openingRejectsBlankOverlongIllegalKeyAndNonGmWithZeroPost() {
-        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("opening-invalid"))) {
+        try (P6Fixture fixture = P6Fixture.openForOpening(tempDir.resolve("opening-invalid"))) {
             PublicationOrchestrator orchestrator =
                     fixture.publicationOrchestrator(FakeLlmClient.with());
             assertInvalid(orchestrator, P6Fixture.SUPERVISOR, " ", "正文",
@@ -165,7 +182,7 @@ class PublicationOpeningTest {
     @Test
     void openingEventAppendFailureReturnsStableCodeAndRetryReusesDraftWithoutDuplication() {
         AtomicBoolean failAppend = new AtomicBoolean(true);
-        try (P6Fixture fixture = P6Fixture.open(
+        try (P6Fixture fixture = P6Fixture.openForOpening(
                 tempDir.resolve("opening-append-before-commit"),
                 store -> {
                     SqliteDomainEventJournal delegate = new SqliteDomainEventJournal(store);
@@ -212,7 +229,7 @@ class PublicationOpeningTest {
         Path dataDir = tempDir.resolve("opening-append-after-commit");
         AtomicBoolean throwAfterCommit = new AtomicBoolean(true);
         PublicationRecord persisted;
-        try (P6Fixture fixture = P6Fixture.open(dataDir, store -> {
+        try (P6Fixture fixture = P6Fixture.openForOpening(dataDir, store -> {
             SqliteDomainEventJournal delegate = new SqliteDomainEventJournal(store);
             return event -> {
                 long seq = delegate.append(event);

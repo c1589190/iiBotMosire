@@ -1267,10 +1267,34 @@ public final class TaskflowEngine {
                             && fact.visibility() == Visibility.PUBLIC)
                     .sorted(Comparator.comparing(WorldFact::factId))
                     .toList();
-            return new SecretaryKnowledge(playerId, briefs, publicFacts);
+            List<WorldFact> visibleFacts = worldFacts.values().stream()
+                    .filter(fact -> fact.visibility().canSeeAsPlayer(playerId))
+                    .sorted(Comparator.comparing(WorldFact::worldVersion)
+                            .thenComparing(WorldFact::factId))
+                    .toList();
+            PlayerProfile profile = players.get(playerId);
+            String turnSummary = currentTurn == null
+                    ? "当前没有进行中的回合"
+                    : "第" + currentTurn.turnNo + "旬，" + humanTurnState(currentTurn.state)
+                            + "，截止=" + currentTurn.closesAt;
+            return new SecretaryKnowledge(playerId, profile, briefs, publicFacts,
+                    visibleFacts, turnSummary);
         } finally {
             mutex.unlock();
         }
+    }
+
+    private static String humanTurnState(TurnState state) {
+        return switch (state) {
+            case OPEN -> "行动窗口开放";
+            case LOCKED -> "行动已截止，正在汇总";
+            case ADJUDICATING -> "推演进行中";
+            case COMMITTED -> "结果已裁定，待发布";
+            case PUBLISHED -> "本旬已结算";
+            case FAILED_RETRYABLE -> "推演暂时失败，等待重试";
+            case PAUSED -> "推演暂停";
+            case CANCELLED -> "本旬取消";
+        };
     }
 
     /** 只返回 PUBLIC 或显式对该玩家可见的最新世界事实。 */
@@ -1353,6 +1377,34 @@ public final class TaskflowEngine {
         mutex.lock();
         try {
             return currentTurn == null ? Optional.empty() : Optional.ofNullable(currentTurn.snapshot);
+        } finally {
+            mutex.unlock();
+        }
+    }
+
+    /**
+     * 按玩家短确认码查找当前回合中可确认的草稿。
+     *
+     * <p>同一玩家同回合只允许一个有效 Decision，但仍可能存在多个 draft；短码按 draftId
+     * 稳定派生，命中多份时返回空，避免误确认。</p>
+     */
+    public Optional<DecisionDraft> findDraftByConfirmationCode(String playerId,
+                                                               String confirmationCode) {
+        if (playerId == null || playerId.isBlank()
+                || confirmationCode == null || confirmationCode.isBlank()) {
+            return Optional.empty();
+        }
+        mutex.lock();
+        try {
+            if (currentTurn == null) {
+                return Optional.empty();
+            }
+            List<DecisionDraft> matches = currentTurn.drafts.values().stream()
+                    .filter(draft -> draft.playerId().equals(playerId))
+                    .filter(draft -> ConfirmationCodes.matches(confirmationCode,
+                            ConfirmationCodes.forDecisionDraft(draft.draftId())))
+                    .toList();
+            return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
         } finally {
             mutex.unlock();
         }

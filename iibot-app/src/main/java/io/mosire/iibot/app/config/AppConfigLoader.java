@@ -45,7 +45,8 @@ public final class AppConfigLoader {
             "scheduler", "control");
     private static final Set<String> NAPCAT_FIELDS = Set.of(
             "eventWebSocketUri", "httpBaseUri", "accessTokenEnv", "accountId",
-            "suppressSelfMessages", "requestTimeoutSeconds", "maxTextLength");
+            "privateTempGroupId", "suppressSelfMessages", "requestTimeoutSeconds",
+            "maxTextLength");
     private static final Set<String> ACCOUNT_FIELDS = Set.of("playerId", "actorId", "qqId", "displayName");
     private static final Set<String> WORLD_FIELDS = Set.of("promptVersion", "factsFile");
     private static final Set<String> LLM_FIELDS = Set.of(
@@ -139,11 +140,12 @@ public final class AppConfigLoader {
         URI http = parseUri(requiredText(node, "httpBaseUri", "napcat"), "napcat.httpBaseUri");
         Optional<String> tokenEnv = optionalText(node, "accessTokenEnv", "napcat");
         Optional<String> accountId = optionalText(node, "accountId", "napcat");
+        Optional<String> privateTempGroupId = optionalText(node, "privateTempGroupId", "napcat");
         boolean suppressSelf = optionalBoolean(node, "suppressSelfMessages", "napcat", true);
         int requestTimeout = optionalInt(node, "requestTimeoutSeconds", "napcat", 10);
         int maxTextLength = optionalInt(node, "maxTextLength", "napcat", 2_000);
-        return new AppConfig.NapCat(ws, http, tokenEnv, accountId, suppressSelf, requestTimeout,
-                maxTextLength);
+        return new AppConfig.NapCat(ws, http, tokenEnv, accountId, privateTempGroupId,
+                suppressSelf, requestTimeout, maxTextLength);
     }
 
     private static List<AppConfig.Account> parseAccounts(JsonNode array, String field,

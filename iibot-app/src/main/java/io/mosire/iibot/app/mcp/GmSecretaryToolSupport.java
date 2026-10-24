@@ -8,6 +8,7 @@ import io.mosire.agentlib.permission.ResourceManifest;
 import io.mosire.agentlib.permission.ResourcePolicy;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolResult;
+import io.mosire.iibot.taskflow.cache.SecretaryCacheStore;
 import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
 
 import java.util.LinkedHashMap;
@@ -23,6 +24,10 @@ final class GmSecretaryToolSupport {
             SecretaryWorkspaceStore.RESOURCE_NAMESPACE, ResourcePolicy.DENY);
     static final ResourceId WORKSPACE_RESOURCE = ResourceId.of(
             SecretaryWorkspaceStore.RESOURCE_NAMESPACE, "workspace");
+    static final ResourceManifest CACHE_RESOURCES = ResourceManifest.of(
+            SecretaryCacheStore.RESOURCE_NAMESPACE, ResourcePolicy.DENY);
+    static final ResourceId CACHE_RESOURCE = ResourceId.of(
+            SecretaryCacheStore.RESOURCE_NAMESPACE, "conversation");
 
     static final int MAX_CHAT_MESSAGE_CHARS = 16 * 1024;
     static final int MAX_IDEMPOTENCY_KEY_CHARS = 256;
@@ -39,6 +44,14 @@ final class GmSecretaryToolSupport {
 
     static void requireWrite(ToolContext context) {
         context.resources().require(Operation.WRITE, WORKSPACE_RESOURCE);
+    }
+
+    static void requireCacheRead(ToolContext context) {
+        context.resources().require(Operation.READ, CACHE_RESOURCE);
+    }
+
+    static void requireCacheWrite(ToolContext context) {
+        context.resources().require(Operation.WRITE, CACHE_RESOURCE);
     }
 
     static ToolResult success(String tool, Map<String, Object> data) {

@@ -49,7 +49,7 @@ class InteractionConfirmationTest {
         List<InteractionReply> otherPlayer = service.handle(privateMessage("qq-p2",
                 "/确认 " + draft.draftId(), "m-other"));
         assertThat(otherPlayer).hasSize(1);
-        assertThat(otherPlayer.get(0).text()).contains("不能确认他人的草稿");
+        assertThat(otherPlayer.get(0).text()).contains("不属于你");
         assertThat(f.turn().decisions()).isEmpty();
 
         List<InteractionReply> unmapped = service.handle(privateMessage("qq-unknown",
@@ -61,7 +61,7 @@ class InteractionConfirmationTest {
         List<InteractionReply> owner = service.handle(privateMessage("qq-p1",
                 "/确认 " + draft.draftId(), "m-owner"));
         assertThat(owner).hasSize(1);
-        assertThat(owner.get(0).text()).contains("已确认决策");
+        assertThat(owner.get(0).text()).contains("已确认");
         assertThat(f.turn().decisions()).hasSize(1);
         assertThat(f.turn().decisions().get(0).playerId()).isEqualTo("player-1");
         assertThat(f.turn().decisions().get(0).confirmedByPlayerId()).isEqualTo("player-1");

@@ -10,7 +10,7 @@ DSH 中工具名会带命名空间前缀：`mcp__iibot__<tool>`，例如
 - MCP：`http://127.0.0.1:8765/mcp/control`
 - Header：`Authorization: Bearer <IIBOT_CONTROL_TOKEN>`
 - 所有工具都经 `ToolCallAuthorizer`；失败时读取稳定 error code，不要猜测成功。
-- 完整装配当前有 **66 个 MCP 工具**；以 `tools/list` 实际结果为准。
+- 完整装配当前有 **67 个 MCP 工具**；以 `tools/list` 实际结果为准。
 - 真实 QQ 出站只能由 `tf_post_publish` 触发；草稿生成前和审核前绝不发送。
 
 ## 零玩家开场与第一轮初始化
@@ -49,6 +49,16 @@ DSH 中工具名会带命名空间前缀：`mcp__iibot__<tool>`，例如
 - 用 `tf_record_turn_list/get/query` 查看 Markdown 回合记录和 hash；
   `tf_record_query {"kind":"opening"}` 查看开场投影摘要。
 - 工单问题用 `tf_ticket_reply/batch_reply/close`，不要绕过消息板。
+
+## 玩家可见内容
+
+发布/私聊前必须遵守 `simulation/player-experience/`：
+
+- 玩家可见文本不得出现 draftId/ticketId/postId/revision/contentHash/turnId、MCP/schema/workspace、文件路径、状态枚举、Markdown 标题/表格/代码块；
+- 一条消息只讲一个焦点；先写已发生事实，再写未知，最后给 2–3 个下一步；
+- 正式行动只允许一次 `/确认 <短确认码>`；报名/查询不确认；已确认后不得再次索要确认；
+- 开场/公告不得使用系统日志口吻；
+- 自动监控只能是只读；不得生成日推、自动推进时间或自动回复工单。
 
 ## 红线
 

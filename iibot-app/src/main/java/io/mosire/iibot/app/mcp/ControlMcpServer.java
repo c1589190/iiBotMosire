@@ -19,6 +19,7 @@ import io.mosire.iibot.app.control.ControlBootstrapService;
 import io.mosire.iibot.app.publication.PublicationOrchestrator;
 import io.mosire.iibot.app.records.RecordQueryService;
 import io.mosire.iibot.app.runtime.ControlPlane;
+import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.action.ActionPoolService;
@@ -126,7 +127,9 @@ public final class ControlMcpServer implements ControlPlane {
     private final GmAideAgent gmAideAgent;
     private final SecretaryWorkspaceStore secretaryWorkspaceStore;
     private final SecretarySessionRegistry secretarySessions;
+    private final ChatHistoryProvider chatHistoryProvider;
     private final PostService postService;
+    private final io.mosire.iibot.app.delivery.PostDistributor postDistributor;
     private final SharedSkillStore sharedSkillStore;
     private final ComplaintService complaintService;
     private final TicketService ticketService;
@@ -163,7 +166,9 @@ public final class ControlMcpServer implements ControlPlane {
         this.gmAideAgent = builder.gmAideAgent;
         this.secretaryWorkspaceStore = builder.secretaryWorkspaceStore;
         this.secretarySessions = builder.secretarySessions;
+        this.chatHistoryProvider = builder.chatHistoryProvider;
         this.postService = builder.postService;
+        this.postDistributor = builder.postDistributor;
         this.sharedSkillStore = builder.sharedSkillStore;
         this.complaintService = builder.complaintService;
         this.ticketService = builder.ticketService;
@@ -245,8 +250,21 @@ public final class ControlMcpServer implements ControlPlane {
                         registry.register(tool);
                     }
                 }
+                if (secretarySessions != null) {
+                    for (var tool : GmSecretaryCacheMcpTools.all(secretarySessions)) {
+                        registry.register(tool);
+                    }
+                }
+                if (chatHistoryProvider != null && controlBootstrapService != null) {
+                    registry.register(new GmChatHistoryTool(chatHistoryProvider,
+                            controlBootstrapService::resolve,
+                            controlBootstrapService::publicGroupId));
+                }
                 if (postService != null) {
-                    for (var tool : GmPostMcpTools.all(postService, supervisor)) {
+                    var postTools = postDistributor == null
+                            ? GmPostMcpTools.all(postService, supervisor)
+                            : GmPostMcpTools.all(postService, postDistributor, supervisor);
+                    for (var tool : postTools) {
                         registry.register(tool);
                     }
                 }
@@ -648,8 +666,15 @@ public final class ControlMcpServer implements ControlPlane {
         if (hasSecretaryTools()) {
             allTools.addAll(GmSecretaryMcpTools.NAMES);
         }
+        if (secretarySessions != null) {
+            allTools.addAll(GmSecretaryCacheMcpTools.NAMES);
+        }
+        if (chatHistoryProvider != null && controlBootstrapService != null) {
+            allTools.add(GmChatHistoryTool.NAME);
+        }
         if (postService != null) {
-            allTools.addAll(GmPostMcpTools.NAMES);
+            allTools.addAll(postDistributor == null
+                    ? GmPostMcpTools.BASE_NAMES : GmPostMcpTools.NAMES);
         }
         if (publicationOrchestrator != null) {
             allTools.addAll(GmPublicationMcpTools.NAMES);
@@ -690,6 +715,14 @@ public final class ControlMcpServer implements ControlPlane {
         if (hasSecretaryTools()) {
             scopes.put(SecretaryWorkspaceStore.RESOURCE_NAMESPACE,
                     ResourceScope.of("workspace"));
+        }
+        if (secretarySessions != null) {
+            scopes.put(io.mosire.iibot.taskflow.cache.SecretaryCacheStore.RESOURCE_NAMESPACE,
+                    ResourceScope.of("conversation"));
+        }
+        if (chatHistoryProvider != null && controlBootstrapService != null) {
+            scopes.put(GmChatHistoryTool.RESOURCE_NAMESPACE,
+                    ResourceScope.of("read"));
         }
         if (postService != null) {
             scopes.put(PostStore.RESOURCE_NAMESPACE,
@@ -788,7 +821,9 @@ public final class ControlMcpServer implements ControlPlane {
         private GmAideAgent gmAideAgent;
         private SecretaryWorkspaceStore secretaryWorkspaceStore;
         private SecretarySessionRegistry secretarySessions;
+        private ChatHistoryProvider chatHistoryProvider;
         private PostService postService;
+        private io.mosire.iibot.app.delivery.PostDistributor postDistributor;
         private SharedSkillStore sharedSkillStore;
         private ComplaintService complaintService;
         private TicketService ticketService;
@@ -871,11 +906,28 @@ public final class ControlMcpServer implements ControlPlane {
         }
 
         /**
+         * 可选注入只读聊天历史 provider；仅在控制初始化服务同时存在时注册
+         * {@code tf_qq_history_read}。未注入时工具面保持原样。
+         */
+        public Builder chatHistoryProvider(ChatHistoryProvider chatHistoryProvider) {
+            // null 表示不提供历史能力；不把它当成构建错误，便于同一组合根在测试中禁用。
+            this.chatHistoryProvider = chatHistoryProvider;
+            return this;
+        }
+
+        /**
          * 可选注入推文服务。注入后额外注册四个 GM 审批/发布工具；未注入时工具面保持
          * 与既有行为完全一致。
          */
         public Builder postService(PostService postService) {
             this.postService = Objects.requireNonNull(postService, "postService");
+            return this;
+        }
+
+        /** 注入后额外注册 FAILED 推文送达重试工具。 */
+        public Builder postDistributor(
+                io.mosire.iibot.app.delivery.PostDistributor postDistributor) {
+            this.postDistributor = Objects.requireNonNull(postDistributor, "postDistributor");
             return this;
         }
 

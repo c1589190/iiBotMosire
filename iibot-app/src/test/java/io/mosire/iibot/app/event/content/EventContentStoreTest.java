@@ -713,6 +713,34 @@ class EventContentStoreTest {
         }
     }
 
+    @Test
+    void taskflowSnapshotPreservesDomainMapKeysAndExactSensitiveFieldsStayRedacted()
+            throws Exception {
+        Path db = tempDir.resolve("snapshot-secret-key.db");
+        String snapshotJson = "{\"worldFacts\":{\"sim-director-secret\":"
+                + "{\"factId\":\"sim-director-secret\",\"content\":\"visible\"}}}";
+        String normalJson = "{\"apiKey\":\"raw-secret\","
+                + "\"sim-director-secret\":{\"factId\":\"sim-director-secret\"}}";
+        try (EventContentStore store = new EventContentStore(db)) {
+            StoredEvent snapshot = store.append(new EventAppendRequest(
+                    NOW, "TASKFLOW_SNAPSHOT", "system:test", "corr-snapshot", null,
+                    EventContentStore.CURRENT_EVENT_VERSION, EventVisibility.GM,
+                    new EventContent(EventContentType.JSON, snapshotJson, null), "{}"));
+            assertThat(snapshot.content().json())
+                    .contains("\"sim-director-secret\":{")
+                    .contains("\"factId\":\"sim-director-secret\"")
+                    .doesNotContain("[REDACTED]");
+
+            StoredEvent normal = store.append(new EventAppendRequest(
+                    NOW, "TEST_EVENT", "system:test", "corr-normal", null,
+                    EventContentStore.CURRENT_EVENT_VERSION, EventVisibility.GM,
+                    new EventContent(EventContentType.JSON, normalJson, null), "{}"));
+            assertThat(normal.content().json())
+                    .contains("\"apiKey\":\"[REDACTED]\"")
+                    .contains("\"sim-director-secret\":{");
+        }
+    }
+
     private static EventAppendRequest jsonRequest(String json, String payloadJson) {
         return new EventAppendRequest(
                 NOW, "POST_DRAFTED", "GM:gm", "corr-1", "turn-1",

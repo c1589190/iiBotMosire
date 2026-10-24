@@ -30,12 +30,12 @@ class TicketActionPromotionServiceTest {
         String ticketId = fixture.submitActionDraft("第一份行动草稿", "promote-submit-1");
 
         TicketActionPromotionService.PromotionResult first = fixture.promotion.promote(
-                GM, ticketId, 1L, "promote-1");
+                GM, ticketId, 2L, "promote-1");
         assertThat(first.ok()).as(first.toString()).isTrue();
         assertThat(first.actionId()).isNotBlank();
         Ticket ticket = fixture.tickets.getForGm(ticketId).orElseThrow();
         assertThat(ticket.status()).isEqualTo(TicketStatus.CLAIMED);
-        assertThat(ticket.revision()).isEqualTo(2);
+        assertThat(ticket.revision()).isEqualTo(3);
         assertThat(ticket.relatedActionId()).isEqualTo(first.actionId());
         PlayerAction action = fixture.actions.getForGm(first.actionId()).orElseThrow();
         assertThat(action.status()).isEqualTo(ActionStatus.QUEUED);
@@ -44,17 +44,35 @@ class TicketActionPromotionServiceTest {
         assertThat(action.source()).isEqualTo("ticket:" + ticketId);
 
         TicketActionPromotionService.PromotionResult repeat = fixture.promotion.promote(
-                GM, ticketId, 2L, "promote-1-repeat");
+                GM, ticketId, 3L, "promote-1-repeat");
         assertThat(repeat.ok()).isTrue();
         assertThat(repeat.actionId()).isEqualTo(first.actionId());
         assertThat(fixture.actions.listForGm()).hasSize(1);
 
         String secondTicket = fixture.submitActionDraft("第二份行动草稿", "promote-submit-2");
         TicketActionPromotionService.PromotionResult second = fixture.promotion.promote(
-                GM, secondTicket, 1L, "promote-2");
+                GM, secondTicket, 2L, "promote-2");
         assertThat(second.ok()).isTrue();
         assertThat(second.actionId()).isNotEqualTo(first.actionId());
         assertThat(fixture.actions.listForPlayer("player-1")).hasSize(2);
+    }
+
+    @Test
+    void unconfirmedActionDraftCannotBePromoted() {
+        Fixture fixture = fixture(new InMemoryTicketStore());
+        TicketCommandResult submitted = fixture.tickets.submit(PLAYER,
+                TicketType.ACTION_DRAFT, "未确认行动", "未确认正文", "unconfirmed-submit");
+        assertThat(submitted.ok()).isTrue();
+
+        TicketActionPromotionService.PromotionResult result = fixture.promotion.promote(
+                GM, submitted.ticketId(), 1L, "unconfirmed-promote");
+
+        assertThat(result.ok()).isFalse();
+        assertThat(result.code()).isEqualTo(
+                TicketActionPromotionService.ACTION_DRAFT_NOT_CONFIRMED);
+        assertThat(fixture.actions.listForGm()).isEmpty();
+        assertThat(fixture.tickets.getForGm(submitted.ticketId()).orElseThrow().relatedActionId())
+                .isNull();
     }
 
     @Test
@@ -72,19 +90,19 @@ class TicketActionPromotionServiceTest {
         assertThat(wrongActor.code()).isEqualTo(TicketActionPromotionService.FORBIDDEN);
 
         TicketActionPromotionService.PromotionResult promoted = fixture.promotion.promote(
-                GM, draft, 1L, "promote-draft");
+                GM, draft, 2L, "promote-draft");
         assertThat(promoted.ok()).isTrue();
         TicketCommandResult different = fixture.tickets.attachAction(
-                GM, draft, 2L, "act-other", "attach-other");
+                GM, draft, 3L, "act-other", "attach-other");
         assertThat(different.ok()).isFalse();
         assertThat(different.code()).isEqualTo(TicketService.CONFLICT);
 
         // 工单已指向不存在的 action：晋升必须返回可重试 partial，而不是伪造成功。
         String dangling = fixture.submitActionDraft("悬空关联草稿", "promote-dangling");
         assertThat(fixture.tickets.attachAction(
-                GM, dangling, 1L, "act-missing", "attach-missing").ok()).isTrue();
+                GM, dangling, 2L, "act-missing", "attach-missing").ok()).isTrue();
         TicketActionPromotionService.PromotionResult partial = fixture.promotion.promote(
-                GM, dangling, 2L, "promote-dangling");
+                GM, dangling, 3L, "promote-dangling");
         assertThat(partial.ok()).isFalse();
         assertThat(partial.code()).isEqualTo(TicketActionPromotionService.PROMOTION_PARTIAL);
         assertThat(partial.actionId()).isEqualTo("act-missing");
@@ -98,7 +116,7 @@ class TicketActionPromotionServiceTest {
 
         flaky.failAttach = true;
         TicketActionPromotionService.PromotionResult partial = fixture.promotion.promote(
-                GM, ticketId, 1L, "promote-partial");
+                GM, ticketId, 2L, "promote-partial");
         assertThat(partial.ok()).isFalse();
         assertThat(partial.code()).isEqualTo(TicketActionPromotionService.PROMOTION_PARTIAL);
         assertThat(partial.actionId()).isNotBlank();
@@ -107,7 +125,7 @@ class TicketActionPromotionServiceTest {
 
         flaky.failAttach = false;
         TicketActionPromotionService.PromotionResult retried = fixture.promotion.promote(
-                GM, ticketId, 1L, "promote-partial-retry");
+                GM, ticketId, 2L, "promote-partial-retry");
         assertThat(retried.ok()).as(retried.toString()).isTrue();
         assertThat(retried.actionId()).isEqualTo(partial.actionId());
         assertThat(fixture.tickets.getForGm(ticketId).orElseThrow().relatedActionId())
@@ -129,6 +147,11 @@ class TicketActionPromotionServiceTest {
             TicketCommandResult result = tickets.submit(PLAYER, TicketType.ACTION_DRAFT,
                     "行动草稿标题", body, key);
             assertThat(result.ok()).isTrue();
+            TicketCommandResult confirmed = tickets.confirmActionDraft(PLAYER, result.ticketId(),
+                    1L, key + "-confirm");
+            assertThat(confirmed.ok()).as(confirmed.toString()).isTrue();
+            assertThat(tickets.getForGm(result.ticketId()).orElseThrow().status())
+                    .isEqualTo(TicketStatus.CONFIRMED);
             return result.ticketId();
         }
     }

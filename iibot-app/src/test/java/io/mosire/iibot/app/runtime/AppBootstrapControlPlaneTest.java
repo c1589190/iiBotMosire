@@ -123,7 +123,7 @@ class AppBootstrapControlPlaneTest {
 
             McpSchema.ListToolsResult list = client.listTools();
             assertThat(list.tools().stream().map(McpSchema.Tool::name))
-                    .hasSize(66)
+                    .hasSize(71)
                     .containsAll(GmPublicationMcpTools.NAMES)
                     .contains(GmPublicationMcpTools.OPENING)
                     .containsAll(GmRecordMcpTools.NAMES)
@@ -263,8 +263,8 @@ class AppBootstrapControlPlaneTest {
 
             PostService postService = postService(controlServer);
             PostCommandResult postDraft = postService.createDraft(
-                    new Actor("player-1", ActorRole.PLAYER), "MCP 推文标题",
-                    "MCP 发布的公共推文正文", PostVisibility.PUBLIC,
+                    new Actor("player-1", ActorRole.PLAYER), "控制面推文标题",
+                    "控制面发布的公共推文正文", PostVisibility.PUBLIC,
                     postService.collectionRevision("player-1"), "bootstrap-post-create");
             assertThat(postDraft.ok()).isTrue();
             McpSchema.CallToolResult postList = client.callTool(
@@ -272,12 +272,12 @@ class AppBootstrapControlPlaneTest {
                             Map.of("status", "PENDING_APPROVAL")));
             assertThat(postList.isError()).as(wireText(postList)).isFalse();
             assertThat(wireText(postList)).contains(postDraft.postId())
-                    .doesNotContain("MCP 发布的公共推文正文");
+                    .doesNotContain("控制面发布的公共推文正文");
             McpSchema.CallToolResult postGet = client.callTool(
                     new McpSchema.CallToolRequest(GmPostGetTool.NAME,
                             Map.of("postId", postDraft.postId())));
             assertThat(postGet.isError()).as(wireText(postGet)).isFalse();
-            assertThat(wireText(postGet)).contains("MCP 发布的公共推文正文");
+            assertThat(wireText(postGet)).contains("控制面发布的公共推文正文");
             McpSchema.CallToolResult postApprove = client.callTool(
                     new McpSchema.CallToolRequest(GmPostDecideTool.NAME, Map.of(
                             "postId", postDraft.postId(),
@@ -293,10 +293,10 @@ class AppBootstrapControlPlaneTest {
             assertThat(postPublish.isError()).as(wireText(postPublish)).isFalse();
             await(() -> adapter.sent().stream().anyMatch(message ->
                             message.targetType() == OutboundMessage.TargetType.GROUP
-                                    && message.textSegments().contains("MCP 发布的公共推文正文")),
+                                    && message.textSegments().contains("控制面发布的公共推文正文")),
                     "MCP 发布推文后应经 PostDistributor 发到公共群");
             assertThat(adapter.sent()).anySatisfy(message -> {
-                if (message.textSegments().contains("MCP 发布的公共推文正文")) {
+                if (message.textSegments().contains("控制面发布的公共推文正文")) {
                     assertThat(message.idempotencyKey())
                             .isEqualTo("public:post:" + postDraft.postId() + ":public:reply:0");
                 }

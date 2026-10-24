@@ -21,7 +21,9 @@ import io.mosire.iibot.app.mcp.GmRecordMcpTools;
 import io.mosire.iibot.app.mcp.ControlRegisterDirectorTool;
 import io.mosire.iibot.app.mcp.ControlRegisterPlayerTool;
 import io.mosire.iibot.app.mcp.ControlSetPublicGroupTool;
+import io.mosire.iibot.app.mcp.GmChatHistoryTool;
 import io.mosire.iibot.app.mcp.GmComplaintMcpTools;
+import io.mosire.iibot.app.mcp.GmSecretaryCacheMcpTools;
 import io.mosire.iibot.app.mcp.GmPrivateDocGetTool;
 import io.mosire.iibot.app.mcp.GmPrivateDocListTool;
 import io.mosire.iibot.app.mcp.GmPrivateDocWriteTool;
@@ -30,6 +32,10 @@ import io.mosire.iibot.app.mcp.GmTicketMcpTools;
 import io.mosire.iibot.app.support.FakeLlmClient;
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
 import io.mosire.iibot.app.support.TestSupport;
+import io.mosire.iibot.connect.core.ChatHistoryMessage;
+import io.mosire.iibot.connect.core.ChatHistoryPage;
+import io.mosire.iibot.connect.core.ChatHistoryProvider;
+import io.mosire.iibot.connect.core.ChatHistoryQuery;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.taskflow.ActorRole;
 import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
@@ -47,6 +53,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -78,7 +85,7 @@ class AppBootstrapP3McpTest {
 
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(66)
+            assertThat(names).hasSize(71)
             .containsAll(GmPublicationMcpTools.NAMES)
                     .contains(GmPublicationMcpTools.OPENING)
             .containsAll(GmRecordMcpTools.NAMES)
@@ -502,6 +509,55 @@ class AppBootstrapP3McpTest {
                         .isEqualTo(replacedBody);
                 assertThat(event.payloadJson()).doesNotContain("Tab-b82d", "覆盖后的世界秘密正文第一行");
             });
+        }
+    }
+
+    @Test
+    void explicitChatHistoryProviderAddsReadOnlyQqHistoryTool() throws Exception {
+        List<ChatHistoryQuery> queries = new java.util.ArrayList<>();
+        ChatHistoryProvider provider = query -> {
+            queries.add(query);
+            return CompletableFuture.completedFuture(new ChatHistoryPage(
+                    List.of(new ChatHistoryMessage("msg-1", "qq-p1", "Player One",
+                            "历史文本", java.time.Instant.parse("2026-10-24T00:00:00Z"))),
+                    null, true));
+        };
+        FakeMessagingAdapter adapter = new FakeMessagingAdapter();
+        AppRuntime runtime = AppBootstrap.build(config(),
+                BootstrapOptions.fake(secrets(), Clock.systemUTC(),
+                        FakeLlmClient.with(), adapter)
+                        .withChatHistoryProvider(provider));
+        McpSyncClient client = null;
+        try {
+            runtime.start();
+            ControlMcpServer server = controlServer(runtime);
+            client = client(server);
+            List<String> names = client.listTools().tools().stream()
+                    .map(McpSchema.Tool::name).toList();
+            assertThat(names).hasSize(72).contains(GmChatHistoryTool.NAME);
+
+            McpSchema.CallToolResult result = client.callTool(
+                    new McpSchema.CallToolRequest(GmChatHistoryTool.NAME, Map.of(
+                            "chatType", "group",
+                            "targetId", "group-public",
+                            "count", 5,
+                            "direction", "older")));
+            assertThat(result.isError()).as(wireText(result)).isFalse();
+            assertThat(wireText(result)).contains("历史文本", "exhausted");
+            assertThat(queries).hasSize(1);
+            assertThat(queries.getFirst().targetId()).isEqualTo("group-public");
+            assertThat(queries.getFirst().reverseOrder()).isTrue();
+
+            McpSchema.CallToolResult denied = client.callTool(
+                    new McpSchema.CallToolRequest(GmChatHistoryTool.NAME, Map.of(
+                            "chatType", "private", "targetId", "qq-not-registered")));
+            assertThat(denied.isError()).isTrue();
+            assertThat(wireText(denied)).contains("TARGET_NOT_ALLOWED");
+        } finally {
+            if (client != null) {
+                client.closeGracefully();
+            }
+            runtime.close();
         }
     }
 

@@ -15,6 +15,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 事件正文/元数据的最后一道脱敏。
@@ -43,6 +44,14 @@ final class EventContentSanitizer {
     }
 
     String sanitizeJson(String json, boolean requireObject) {
+        return sanitizeJson(json, requireObject, true);
+    }
+
+    /**
+     * @param redactSensitiveKeys 完整领域快照必须关闭字段名级替换，保留任意业务 Map key；
+     *                            已知 secret 值仍会替换。
+     */
+    String sanitizeJson(String json, boolean requireObject, boolean redactSensitiveKeys) {
         if (json == null || json.isBlank()) {
             throw new IllegalArgumentException("[EVENT_JSON_EMPTY] JSON 正文不能为空");
         }
@@ -59,7 +68,7 @@ final class EventContentSanitizer {
             throw new IllegalArgumentException("[EVENT_JSON_OBJECT_REQUIRED] 元数据必须是 JSON 对象");
         }
         try {
-            return MAPPER.writeValueAsString(sanitizeNode(parsed));
+            return MAPPER.writeValueAsString(sanitizeNode(parsed, redactSensitiveKeys));
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("[EVENT_JSON_SANITIZE_FAILED] JSON 正文脱敏失败");
         }
@@ -77,23 +86,25 @@ final class EventContentSanitizer {
         return value == null ? null : sanitizeKnownSecrets(value);
     }
 
-    private JsonNode sanitizeNode(JsonNode node) {
+    private JsonNode sanitizeNode(JsonNode node, boolean redactSensitiveKeys) {
         if (node.isObject()) {
             ObjectNode result = MAPPER.createObjectNode();
             node.properties().forEach(entry -> {
-                // 键名本身也经过已知密钥值替换，避免调用方把 secret 伪装成字段名。
-                String key = sanitizeKnownSecrets(entry.getKey());
-                if (sensitiveKey(key)) {
+                // 普通事件保留字段名级脱敏；完整领域快照是无损结构，业务 Map key
+                // （如 worldFacts 的 factId）不能被当作凭据字段改写。
+                String key = redactSensitiveKeys
+                        ? sanitizeKnownSecrets(entry.getKey()) : entry.getKey();
+                if (redactSensitiveKeys && sensitiveKey(key)) {
                     result.put(key, PLACEHOLDER);
                 } else {
-                    result.set(key, sanitizeNode(entry.getValue()));
+                    result.set(key, sanitizeNode(entry.getValue(), redactSensitiveKeys));
                 }
             });
             return result;
         }
         if (node.isArray()) {
             ArrayNode result = MAPPER.createArrayNode();
-            node.forEach(value -> result.add(sanitizeNode(value)));
+            node.forEach(value -> result.add(sanitizeNode(value, redactSensitiveKeys)));
             return result;
         }
         if (node.isTextual()) {
@@ -154,15 +165,20 @@ final class EventContentSanitizer {
         return redacted.toString();
     }
 
+    private static final Set<String> SENSITIVE_FIELD_NAMES = Set.of(
+            "token", "accesstoken", "refreshtoken", "authtoken", "bearertoken",
+            "secret", "secretkey", "clientsecret",
+            "password", "passwd",
+            "authorization", "credential", "credentials", "cookie", "bearer",
+            "apikey", "xapikey", "accesskey", "privatekey");
+
+    /**
+     * 只把“整个字段名就是凭据名”视为敏感；不能对任意业务 Map key 做子串匹配，
+     * 否则 factId 如 sim-director-secret 会破坏完整快照结构。
+     */
     static boolean sensitiveKey(String key) {
-        String lower = key.toLowerCase(Locale.ROOT);
-        return lower.contains("token") || lower.contains("secret")
-                || lower.contains("password") || lower.contains("passwd")
-                || lower.contains("authorization") || lower.contains("credential")
-                || lower.contains("cookie") || lower.contains("bearer")
-                || lower.contains("apikey") || lower.contains("api_key")
-                || lower.contains("api-key") || lower.contains("access_key")
-                || lower.contains("accesskey") || lower.contains("private_key")
-                || lower.contains("privatekey") || lower.contains("client_secret");
+        String normalized = key.toLowerCase(Locale.ROOT)
+                .replace("-", "").replace("_", "").replace(".", "");
+        return SENSITIVE_FIELD_NAMES.contains(normalized);
     }
 }

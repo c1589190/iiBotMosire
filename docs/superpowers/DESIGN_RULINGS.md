@@ -28,6 +28,9 @@
 | `D-011` | 每玩家一个秘书子 Agent；秘书与 GM 交流，GM 提供审查过滤后的信息 | 有效；协议待细化 | 需求原稿 §五 |
 | `D-012` | 自然语言决策 + 秘书工具结构化 + 玩家私聊硬命令确认 | 有效；命令/过期规则待设计 | 需求原稿 §五 |
 | `D-013` | 外部 MCP 全游戏事件流控制 | 有效；认证与非游戏运维权界待 Q9 | 需求原稿 §五 |
+| `D-014` | 秘书会话 cache、切换与只读 QQ 历史 | 有效；源码完成、未部署/未真实验证 | 需求原稿；[专题](specs/2026-10-24-secretary-conversation-cache-and-qq-history.md) |
+| `D-015` | 玩家行动与信息获取必须轻松顺滑；建立推演文档系统 | 需求有效；方案提议、未实现/未 playtest | 需求原稿；[专题](specs/2026-10-24-player-experience-interaction-document-system.md) |
+| `D-016` | 秘书 system prompt 保持最小；详细规则放 AGENTS.md/Skill | 有效；已实现、待真实 playtest | 需求原稿 §5.5；[运行时架构](specs/2026-10-24-player-experience-runtime-architecture.md) |
 
 ## 三、专题设计索引
 
@@ -45,6 +48,10 @@
 | P5 行动工单 / 包批次 | [`specs/2026-10-24-p5-action-ticket-package-integration.md`](specs/2026-10-24-p5-action-ticket-package-integration.md) | ACTION_DRAFT ticket→ActionPool；包/批次命令事件、恢复、投影 reconcile |
 | P6 发布编排 / 回合记录 | [`specs/2026-10-24-p6-publication-and-turn-records.md`](specs/2026-10-24-p6-publication-and-turn-records.md) | COMMITTED batch→GM 审核发布、Public/Private post、records Markdown 投影与查询 |
 | P8-A 零玩家/开场推文 | [`specs/2026-10-24-p8-preplayer-opening-publication.md`](specs/2026-10-24-p8-preplayer-opening-publication.md) | 允许 players=[] 启动；GM 独立 PUBLIC 开场推文；records/openings |
+| 秘书会话 cache / NapCat 历史 | [`specs/2026-10-24-secretary-conversation-cache-and-qq-history.md`](specs/2026-10-24-secretary-conversation-cache-and-qq-history.md) | App cache 水合/切换/读取，玩家与 GM 工具，NapCat 只读历史 |
+| 玩家体验 / 交互 / 推演文档系统 | [`specs/2026-10-24-player-experience-interaction-document-system.md`](specs/2026-10-24-player-experience-interaction-document-system.md) | D-015：玩家可见文风、秘书确认与恢复、信息卡、推文模板、审稿门、自动化边界 |
+| 玩家体验运行时 | [`specs/2026-10-24-player-experience-runtime-architecture.md`](specs/2026-10-24-player-experience-runtime-architecture.md)；[实现快照](status/2026-10-24-player-experience-runtime-implementation.md) | 输出守卫、短确认码、ACTION_DRAFT 确认、结构化裁定、NO_OP、开场门禁；567 tests / full gate PASS，未部署 |
+| 首轮体验问题全量登记 | [`reports/2026-10-24-first-live-run-player-experience-audit.md`](reports/2026-10-24-first-live-run-player-experience-audit.md) | 真实 QQ/DSH/events.db 证据；工程问题 + 玩家体验问题统一编号 |
 | 目标运行与模块边界 | [`specs/2026-10-24-target-runtime-design.md`](specs/2026-10-24-target-runtime-design.md) | 事件流、回合状态机、提示词/可见性、失败语义、验收判据 |
 | 对外 MCP 总控面 | [`specs/2026-10-24-external-mcp-control-plane.md`](specs/2026-10-24-external-mcp-control-plane.md) | 工具面、安全、幂等、回环限制与已知鉴权缺口 |
 | 三库上游契约 | [`../upstream/project-mosire-three-libs-0.2.3.md`](../upstream/project-mosire-three-libs-0.2.3.md) | 坐标、能力、边界、踩坑、未验证清单 |

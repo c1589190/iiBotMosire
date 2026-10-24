@@ -54,7 +54,7 @@ public final class DecisionDraftUpdateTool implements AgentTool {
     @Override
     public String description() {
         return "更新当前私聊玩家自己的未确认决策草稿；不能更新他人的草稿，也不能确认。"
-                + "成功后会返回新的 previewHash 与预览，玩家需重新发送 /确认 <draftId>。";
+                + "成功后会返回新的 previewHash 与预览，玩家需重新发送 /确认 <短确认码>。";
     }
 
     @Override

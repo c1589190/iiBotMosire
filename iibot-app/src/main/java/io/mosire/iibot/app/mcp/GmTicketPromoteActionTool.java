@@ -45,7 +45,9 @@ public final class GmTicketPromoteActionTool implements AgentTool {
                     "ticketId", Map.of("type", "string", "description", "ACTION_DRAFT 工单 ID"),
                     "expectedRevision", Map.of("type", "integer", "minimum", 0,
                             "description", "工单当前 revision"),
-                    "idempotencyKey", Map.of("type", "string", "description", "幂等键")),
+                    "idempotencyKey", Map.of("type", "string", "description", "幂等键"),
+                    "reason", Map.of("type", "string",
+                            "description", "可选的审计原因；不参与晋升判定")),
             "required", List.of("ticketId", "expectedRevision", "idempotencyKey"),
             "additionalProperties", false);
 

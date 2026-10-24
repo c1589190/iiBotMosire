@@ -7,6 +7,10 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.mosire.iibot.connect.core.AccountInfo;
 import io.mosire.iibot.connect.core.AccountInfoProvider;
+import io.mosire.iibot.connect.core.ChatHistoryMessage;
+import io.mosire.iibot.connect.core.ChatHistoryPage;
+import io.mosire.iibot.connect.core.ChatHistoryProvider;
+import io.mosire.iibot.connect.core.ChatHistoryQuery;
 import io.mosire.iibot.connect.core.AdapterEvent;
 import io.mosire.iibot.connect.core.AdapterEventListener;
 import io.mosire.iibot.connect.core.AdapterStatus;
@@ -24,6 +28,7 @@ import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -55,7 +60,7 @@ import org.slf4j.LoggerFactory;
  * <p>线程安全：状态、发送幂等表、去重缓存与限速器均可并发访问；
  * {@link #close()} 幂等，并会完成所有未完成的发送 future。</p>
  */
-public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvider {
+public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvider, ChatHistoryProvider {
 
     private static final Logger LOG = LoggerFactory.getLogger(NapCatAdapter.class);
     private static final Pattern SAFE_EVENT_NAME = Pattern.compile("[A-Za-z0-9_.-]{1,64}");
@@ -194,6 +199,114 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
     @Override
     public CompletionStage<AccountInfo> accountInfo() {
         return getLoginInfo().thenApply(info -> new AccountInfo(info.userId(), info.nickname()));
+    }
+
+    /**
+     * 读取 NapCat 的文本聊天历史。
+     *
+     * <p>使用 NapCat 扩展动作 {@code get_friend_msg_history} / {@code get_group_msg_history}。
+     * 只读、不重试；空历史或服务端 retcode 1200 映射为 {@link ChatHistoryPage#empty()}，
+     * 其它错误保持异常完成。历史页中的图片、合并转发等非文本段跳过。</p>
+     */
+    @Override
+    public CompletionStage<ChatHistoryPage> history(ChatHistoryQuery query) {
+        Objects.requireNonNull(query, "query");
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        String action;
+        if (query.sessionType() == InboundMessage.SessionType.PRIVATE) {
+            action = "get_friend_msg_history";
+            payload.put("user_id", query.targetId());
+        } else {
+            action = "get_group_msg_history";
+            payload.put("group_id", query.targetId());
+        }
+        if (query.cursor() != null) {
+            payload.put("message_seq", query.cursor());
+        }
+        payload.put("count", query.count());
+        payload.put("reverse_order", query.reverseOrder());
+        payload.put("parse_mult_msg", false);
+        payload.put("disable_get_url", true);
+
+        return postAction(action, payload).handle((root, error) -> {
+            if (error != null) {
+                Throwable cause = unwrap(error);
+                if (cause instanceof OneBotActionException actionException
+                        && "ONEBOT_RETCODE_1200".equals(actionException.errorCode)) {
+                    return ChatHistoryPage.empty();
+                }
+                throw new CompletionException(cause);
+            }
+            JsonNode messagesNode = root.path("data").path("messages");
+            if (!messagesNode.isArray()) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "INVALID_HISTORY_RESPONSE",
+                        "历史响应缺少 messages 数组"));
+            }
+            List<ChatHistoryMessage> messages = new ArrayList<>();
+            List<String> rawMessageIds = new ArrayList<>();
+            for (JsonNode messageNode : messagesNode) {
+                String rawMessageId = scalarText(messageNode.get("message_id"));
+                if (rawMessageId != null) {
+                    rawMessageIds.add(rawMessageId);
+                }
+                ChatHistoryMessage message = parseHistoryMessage(messageNode);
+                if (message != null) {
+                    messages.add(message);
+                }
+            }
+            boolean exhausted = messagesNode.size() < query.count();
+            String nextCursor = null;
+            if (!exhausted && !rawMessageIds.isEmpty()) {
+                nextCursor = query.reverseOrder()
+                        ? rawMessageIds.getFirst()
+                        : rawMessageIds.getLast();
+            }
+            return new ChatHistoryPage(messages, nextCursor, exhausted);
+        });
+    }
+
+    private static ChatHistoryMessage parseHistoryMessage(JsonNode node) {
+        if (node == null || !node.isObject()) {
+            return null;
+        }
+        String messageId = scalarText(node.get("message_id"));
+        JsonNode sender = node.path("sender");
+        String senderId = scalarText(sender.get("user_id"));
+        if (senderId == null) {
+            senderId = scalarText(node.get("user_id"));
+        }
+        if (messageId == null || senderId == null) {
+            return null;
+        }
+        String senderName = scalarText(sender.get("card"));
+        if (senderName == null) {
+            senderName = scalarText(sender.get("nickname"));
+        }
+        if (senderName == null) {
+            senderName = senderId;
+        }
+        String text = OneBot11Codec.extractText(node.get("message"));
+        if (text.isBlank()) {
+            return null;
+        }
+        Instant sentAt = null;
+        JsonNode timeNode = node.get("time");
+        if (timeNode != null && timeNode.isIntegralNumber()) {
+            long epochSeconds = timeNode.asLong();
+            if (epochSeconds > 0) {
+                try {
+                    sentAt = Instant.ofEpochSecond(epochSeconds);
+                } catch (RuntimeException ignored) {
+                    sentAt = null;
+                }
+            }
+        }
+        return new ChatHistoryMessage(messageId, senderId, senderName, text, sentAt);
     }
 
     @Override
@@ -342,15 +455,20 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
 
     private PreparedSendAction prepareSendAction(OutboundMessage message, String text) {
         boolean privateTarget = message.targetType() == OutboundMessage.TargetType.PRIVATE;
+        boolean temporaryPrivate = privateTarget && message.temporaryGroupId() != null;
         String action;
         ObjectNode payload = objectMapper.createObjectNode();
-        if (config.sendActionMode() == NapCatConfig.SendActionMode.DEDICATED) {
+        if (config.sendActionMode() == NapCatConfig.SendActionMode.DEDICATED
+                || temporaryPrivate) {
             action = privateTarget ? "send_private_msg" : "send_group_msg";
             payload.put(privateTarget ? "user_id" : "group_id", message.targetId());
         } else {
             action = "send_msg";
             payload.put("message_type", privateTarget ? "private" : "group");
             payload.put(privateTarget ? "user_id" : "group_id", message.targetId());
+        }
+        if (temporaryPrivate) {
+            payload.put("group_id", message.temporaryGroupId());
         }
         ObjectNode segment = objectMapper.createObjectNode();
         segment.put("type", "text");

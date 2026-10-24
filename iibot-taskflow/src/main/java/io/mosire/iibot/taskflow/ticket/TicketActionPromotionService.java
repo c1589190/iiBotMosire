@@ -26,6 +26,7 @@ public final class TicketActionPromotionService {
     public static final String REVISION_CONFLICT = "REVISION_CONFLICT";
     public static final String PROMOTION_PARTIAL = "PROMOTION_PARTIAL";
     public static final String ACTION_UNAVAILABLE = "ACTION_UNAVAILABLE";
+    public static final String ACTION_DRAFT_NOT_CONFIRMED = "ACTION_DRAFT_NOT_CONFIRMED";
 
     private final TicketService ticketService;
     private final ActionPoolService actionPoolService;
@@ -70,9 +71,8 @@ public final class TicketActionPromotionService {
             return PromotionResult.failure(PROMOTION_PARTIAL, ticketId,
                     ticket.relatedActionId(), ticket.status().name(), ticket.revision());
         }
-        if (ticket.status() != TicketStatus.OPEN
-                && ticket.status() != TicketStatus.CLAIMED) {
-            return PromotionResult.failure(INVALID_STATUS, ticketId, null,
+        if (ticket.status() != TicketStatus.CONFIRMED) {
+            return PromotionResult.failure(ACTION_DRAFT_NOT_CONFIRMED, ticketId, null,
                     ticket.status().name(), ticket.revision());
         }
         if (ticket.revision() != expectedRevision) {

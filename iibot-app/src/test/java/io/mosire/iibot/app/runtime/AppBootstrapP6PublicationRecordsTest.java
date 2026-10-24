@@ -76,7 +76,8 @@ class AppBootstrapP6PublicationRecordsTest {
         String publicBody = "组合根公共发布正文-31da";
         String privateBody = "组合根私密发布正文-8cb7";
         FakeLlmClient llm = FakeLlmClient.with(
-                LlmResponse.text("组合根批次推演结果"),
+                LlmResponse.text(batchJson("组合根批次推演结果",
+                        Map.of("player-1", "组合根私密行动结果"))),
                 LlmResponse.text(publicationJson(publicBody,
                         Map.of("player-1", privateBody))));
         FakeMessagingAdapter adapter = new FakeMessagingAdapter();
@@ -122,7 +123,7 @@ class AppBootstrapP6PublicationRecordsTest {
             client = client(server);
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(66)
+            assertThat(names).hasSize(71)
                     .containsAll(GmPublicationMcpTools.NAMES)
                     .contains(GmPublicationMcpTools.OPENING)
                     .containsAll(GmRecordMcpTools.NAMES)
@@ -297,6 +298,19 @@ class AppBootstrapP6PublicationRecordsTest {
                 .map(McpSchema.TextContent::text)
                 .findFirst()
                 .orElse("");
+    }
+
+    private static String batchJson(String publicSummary,
+                                    Map<String, String> privateOutcomes) {
+        try {
+            return new ObjectMapper().writeValueAsString(Map.of(
+                    "publicSummary", publicSummary,
+                    "privateOutcomes", privateOutcomes,
+                    "worldChanged", true,
+                    "noOpReason", ""));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException impossible) {
+            throw new AssertionError(impossible);
+        }
     }
 
     private static String publicationJson(String publicNarrative,

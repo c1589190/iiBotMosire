@@ -100,6 +100,7 @@ public final class DomainEventTypes {
     public static final String TICKET_PREFIX = "TICKET_";
     public static final String TICKET_CREATED = "TICKET_CREATED";
     public static final String TICKET_CLAIMED = "TICKET_CLAIMED";
+    public static final String TICKET_CONFIRMED = "TICKET_CONFIRMED";
     public static final String TICKET_REPLIED = "TICKET_REPLIED";
     public static final String TICKET_BATCH_REPLIED = "TICKET_BATCH_REPLIED";
     public static final String TICKET_ACTION_LINKED = "TICKET_ACTION_LINKED";

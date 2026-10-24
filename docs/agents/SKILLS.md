@@ -1,7 +1,7 @@
 # 工程 Skill 目录与维护规则
 
 > **本文件属于项目维护。** 工程 Skill 面向维护本仓库的编码 Agent，不是产品内运行时 Skill。
-> **当前 active Skill = 0**。没有经过真实任务验证的判断流程不进入 `.agents/skills/`。
+> **当前 active Skill = 1**。没有经过真实任务验证的判断流程不进入 `.agents/skills/`。
 
 ## 一、什么该进 Skill
 
@@ -38,7 +38,7 @@ proposed -> drafted -> pilot -> active -> deprecated -> retired
 
 | name | 状态 | 触发场景 | 路径 | owner | 最近复核 | 下次复核 | 退役条件 |
 |---|---|---|---|---|---|---|---|
-| （当前无） | — | — | — | — | — | — | — |
+| `iibot-live-simulation-gm` | active | 真实 NapCat/QQ/MCP/LLM 多人推演、发布与故障排查 | `.agents/skills/iibot-live-simulation-gm/SKILL.md` | repo-maintainers | 2026-10-24 | 2026-11-24 | 宿主具备会话状态/重置、事件订阅、canonical 角色、直接玩家通知与自动回合编排 |
 
 ## 四、候选与归档登记
 

@@ -229,6 +229,84 @@ public final class TicketService {
                 summary(updated, next, idempotencyKey), now));
     }
 
+    /**
+     * 玩家硬确认自己的 ACTION_DRAFT 工单。
+     *
+     * <p>只允许工单作者本人确认 ACTION_DRAFT；OPEN/CLAIMED 均可确认。确认后状态变为
+     * CONFIRMED，GM 才能把它晋升为 ActionPool action。确认码只由 InteractionTaskflowService
+     * 解析，本方法接收真实 ticketId。</p>
+     */
+    public synchronized TicketCommandResult confirmActionDraft(Actor player, String ticketId,
+                                                                 long expectedRevision,
+                                                                 String idempotencyKey) {
+        TicketCommandResult keyFailure = validateIdempotencyKey(idempotencyKey);
+        if (keyFailure != null) {
+            return keyFailure;
+        }
+        if (player == null || player.role() != ActorRole.PLAYER) {
+            return failure(FORBIDDEN, "只有工单作者本人可以确认行动草案", ticketId, 0);
+        }
+        if (ticketId == null || ticketId.isBlank()) {
+            return failure(INVALID_ARGUMENT, "ticketId 不能为空", null, 0);
+        }
+        if (expectedRevision < 0) {
+            return failure(INVALID_ARGUMENT, "expectedRevision 不能为负", ticketId, 0);
+        }
+        String fingerprint = confirmFingerprint(player, ticketId, expectedRevision);
+        TicketCommandResult duplicate = duplicateOrConflict(idempotencyKey, fingerprint);
+        if (duplicate != null) {
+            return duplicate;
+        }
+        Ticket ticket = findRequired(ticketId);
+        if (ticket == null) {
+            return failure(TICKET_NOT_FOUND, "工单不存在", ticketId, 0);
+        }
+        if (!ticket.playerId().equals(player.actorId())) {
+            return failure(FORBIDDEN, "不能确认他人的行动草案", ticketId, 0);
+        }
+        if (ticket.type() != TicketType.ACTION_DRAFT) {
+            return failure(INVALID_STATUS, "只有 ACTION_DRAFT 工单可以确认",
+                    ticketId, ticket.revision());
+        }
+        if (ticket.revision() != expectedRevision) {
+            return failure(REVISION_CONFLICT, "工单版本已变化，请刷新后重试",
+                    ticketId, ticket.revision());
+        }
+        if (ticket.status() != TicketStatus.OPEN && ticket.status() != TicketStatus.CLAIMED) {
+            return failure(INVALID_STATUS, "当前工单状态不可确认",
+                    ticketId, ticket.revision());
+        }
+        Instant now = clock.instant();
+        Ticket updated = new Ticket(ticket.ticketId(), ticket.type(), ticket.playerId(),
+                ticket.authorActorId(), ticket.title(), ticket.body(), TicketStatus.CONFIRMED,
+                ticket.revision() + 1, ticket.createdAt(), now, ticket.claimedBy(),
+                ticket.replies(), null, null, ticket.relatedActionId());
+        TicketCommandResult result = TicketCommandResult.success(ticketId, updated.revision());
+        TicketSnapshot next = state.withTickets(List.of(updated), idempotencyKey,
+                fingerprint, result);
+        return commit(next, result, event(DomainEventTypes.TICKET_CONFIRMED, player, ticketId,
+                next, summary(updated, next, idempotencyKey), now));
+    }
+
+    /** 按短确认码查找玩家自己的 ACTION_DRAFT；同名多义时返回空。 */
+    public synchronized java.util.Optional<Ticket> findActionDraftByConfirmationCode(
+            String playerId, String confirmationCode) {
+        if (playerId == null || playerId.isBlank()
+                || confirmationCode == null || confirmationCode.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        List<Ticket> matches = state.tickets().stream()
+                .filter(ticket -> ticket.type() == TicketType.ACTION_DRAFT)
+                .filter(ticket -> playerId.equals(ticket.playerId()))
+                .filter(ticket -> io.mosire.iibot.taskflow.ConfirmationCodes.matches(
+                        confirmationCode,
+                        io.mosire.iibot.taskflow.ConfirmationCodes
+                                .forActionTicket(ticket.ticketId())))
+                .toList();
+        return matches.size() == 1 ? java.util.Optional.of(matches.get(0))
+                : java.util.Optional.empty();
+    }
+
     public synchronized TicketCommandResult reply(Actor gm, String ticketId,
                                                     long expectedRevision, String replyBody,
                                                     String idempotencyKey) {
@@ -463,9 +541,8 @@ public final class TicketService {
             }
             return failure(CONFLICT, "工单已关联其他行动", ticketId, ticket.revision());
         }
-        if (ticket.status() != TicketStatus.OPEN
-                && ticket.status() != TicketStatus.CLAIMED) {
-            return failure(INVALID_STATUS, "只有 OPEN/CLAIMED 工单可以关联行动",
+        if (ticket.status() != TicketStatus.CONFIRMED) {
+            return failure(INVALID_STATUS, "只有 CONFIRMED 工单可以关联行动",
                     ticketId, ticket.revision());
         }
         if (ticket.revision() != expectedRevision) {
@@ -597,6 +674,13 @@ public final class TicketService {
     private static String createGmNoteFingerprint(Actor actor, String title, String body) {
         return requestFingerprint("CREATE_GM_NOTE", actor, "", 0L,
                 List.of(shaOrEmpty(title), shaOrEmpty(body)));
+    }
+
+    private static String confirmFingerprint(Actor actor, String ticketId,
+                                              long expectedRevision) {
+        return shaOrEmpty(String.join("\u001f", "CONFIRM_ACTION_DRAFT_V1",
+                actor.actorId(), actor.role().name(), ticketId,
+                Long.toString(expectedRevision)));
     }
 
     private static String claimFingerprint(Actor actor, String ticketId,
