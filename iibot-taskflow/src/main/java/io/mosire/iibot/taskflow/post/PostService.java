@@ -2,11 +2,16 @@ package io.mosire.iibot.taskflow.post;
 
 import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.ActorRole;
+import io.mosire.iibot.taskflow.Hashes;
+import io.mosire.iibot.taskflow.event.DomainEvent;
+import io.mosire.iibot.taskflow.event.DomainEventTypes;
+import io.mosire.iibot.taskflow.event.EventVisibility;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,6 +53,8 @@ public final class PostService {
 
     private static final Comparator<Post> POST_ORDER =
             Comparator.comparing(Post::createdAt).thenComparing(Post::postId);
+
+    private static final String DELIVERY_ACTOR = "system:post-delivery";
 
     private final PostStore store;
     private final Clock clock;
@@ -126,7 +133,18 @@ public final class PostService {
                 .withAuditEntry(new PostAuditEntry(PostAuditAction.CREATE, postId,
                         secretaryPlayer.actorId(), null, PostStatus.PENDING_APPROVAL,
                         post.revision(), "visibility=" + visibility, now));
-        return commit(next, result);
+        DomainEvent event = new DomainEvent(now, DomainEventTypes.POST_DRAFTED,
+                secretaryPlayer.role(), secretaryPlayer.actorId(), postId, null,
+                eventVisibility(post), next, Map.of(
+                "postId", post.postId(),
+                "authorPlayerId", post.authorPlayerId(),
+                "status", post.status().name(),
+                "revision", post.revision(),
+                "visibility", post.visibility().name(),
+                "idempotencyKeyHash", Hashes.sha256(idempotencyKey),
+                "collectionRevision", currentCollectionRevision + 1,
+                "postCount", next.size()));
+        return commit(next, result, event);
     }
 
     /** PENDING_APPROVAL → APPROVED；DIRECTOR/GM/SUPERVISOR 才可执行。 */
@@ -199,7 +217,18 @@ public final class PostService {
                 .withAuditEntry(new PostAuditEntry(PostAuditAction.PUBLISH, postId, gm.actorId(),
                         PostStatus.APPROVED, PostStatus.PUBLISHED, updated.revision(),
                         "published", now));
-        return commit(next, result);
+        DomainEvent event = new DomainEvent(now, DomainEventTypes.POST_PUBLISHED,
+                gm.role(), gm.actorId(), postId, null, eventVisibility(updated), next, Map.of(
+                "postId", updated.postId(),
+                "authorPlayerId", updated.authorPlayerId(),
+                "status", updated.status().name(),
+                "revision", updated.revision(),
+                "visibility", updated.visibility().name(),
+                "idempotencyKeyHash", Hashes.sha256(idempotencyKey),
+                "collectionRevision", collectionRevision,
+                "deliveryState", updated.deliveryState().name(),
+                "postCount", next.size()));
+        return commit(next, result, event);
     }
 
     /**
@@ -242,7 +271,17 @@ public final class PostService {
                         post.publishedBy() == null ? post.authorPlayerId() : post.publishedBy(),
                         post.status(), post.status(), updated.revision(),
                         "delivery=" + deliveryState, now));
-        return commit(next, result);
+        DomainEvent event = new DomainEvent(now, DomainEventTypes.POST_DELIVERY_CHANGED,
+                ActorRole.SUPERVISOR, DELIVERY_ACTOR, postId, null,
+                eventVisibility(updated), next, Map.of(
+                "postId", updated.postId(),
+                "authorPlayerId", updated.authorPlayerId(),
+                "status", updated.status().name(),
+                "revision", updated.revision(),
+                "visibility", updated.visibility().name(),
+                "deliveryState", updated.deliveryState().name(),
+                "postCount", next.size()));
+        return commit(next, result, event);
     }
 
     /** 玩家可见：已发布公共推文 + 自己的已发布私人推文。 */
@@ -366,12 +405,26 @@ public final class PostService {
                 .withAuditEntry(new PostAuditEntry(action, postId, gm.actorId(),
                         PostStatus.PENDING_APPROVAL, targetStatus, updated.revision(),
                         auditSummary, now));
-        return commit(next, result);
+        String eventType = action == PostAuditAction.APPROVE
+                ? DomainEventTypes.POST_APPROVED
+                : DomainEventTypes.POST_REJECTED;
+        DomainEvent event = new DomainEvent(now, eventType, gm.role(), gm.actorId(),
+                postId, null, eventVisibility(updated), next, Map.of(
+                "postId", updated.postId(),
+                "authorPlayerId", updated.authorPlayerId(),
+                "status", updated.status().name(),
+                "revision", updated.revision(),
+                "visibility", updated.visibility().name(),
+                "idempotencyKeyHash", Hashes.sha256(idempotencyKey),
+                "collectionRevision", collectionRevision,
+                "postCount", next.size()));
+        return commit(next, result, event);
     }
 
-    private PostCommandResult commit(PostSnapshot next, PostCommandResult success) {
+    private PostCommandResult commit(PostSnapshot next, PostCommandResult success,
+                                      DomainEvent event) {
         try {
-            store.save(next);
+            store.save(next, event);
             state = next;
             return success;
         } catch (RuntimeException failure) {
@@ -379,6 +432,19 @@ public final class PostService {
             return failure(STORE_UNAVAILABLE, "推文存储暂不可用，操作未生效",
                     success.postId(), success.revision());
         }
+    }
+
+    /**
+     * 写侧固定可见性：未发布内容只进入 GM 面；已发布公共推文为 PUBLIC，
+     * 已发布私人推文为 PLAYER（查询层再按作者过滤）。
+     */
+    private static EventVisibility eventVisibility(Post post) {
+        if (post.status() != PostStatus.PUBLISHED) {
+            return EventVisibility.GM;
+        }
+        return post.visibility() == PostVisibility.PUBLIC
+                ? EventVisibility.PUBLIC
+                : EventVisibility.PLAYER;
     }
 
     private static boolean secretariatCanSee(String playerId, Post post) {

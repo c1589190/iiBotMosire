@@ -39,6 +39,7 @@
 | 共享 Skill / 投诉闭环 | [`specs/2026-10-24-shared-skills-and-complaints.md`](specs/2026-10-24-shared-skills-and-complaints.md) | 全局公共 Skill 区、投诉状态机、GM 审核回应与验收判据 |
 | v3 裁定包/行动池/回合记录 | [`specs/2026-10-24-decision-packages-action-pool-and-turn-records.md`](specs/2026-10-24-decision-packages-action-pool-and-turn-records.md) | AgentLib DecisionPackages、自然语言行动池、多批次与回合记录 |
 | 理想 GM 控制工作流 / events.db | [`specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md`](specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md) | DSH/Hermes 控制初始化、GM 私有文档、统一工单、events.db 单一事实源 |
+| P2 领域事件接入 | [`specs/2026-10-24-p2-domain-event-integration.md`](specs/2026-10-24-p2-domain-event-integration.md) | Post/Complaint/ActionPool 事件源、Taskflow 快照、旧 JSON 两阶段迁移；DecisionPackage/Batch 推迟 P5 |
 | 目标运行与模块边界 | [`specs/2026-10-24-target-runtime-design.md`](specs/2026-10-24-target-runtime-design.md) | 事件流、回合状态机、提示词/可见性、失败语义、验收判据 |
 | 对外 MCP 总控面 | [`specs/2026-10-24-external-mcp-control-plane.md`](specs/2026-10-24-external-mcp-control-plane.md) | 工具面、安全、幂等、回环限制与已知鉴权缺口 |
 | 三库上游契约 | [`../upstream/project-mosire-three-libs-0.2.3.md`](../upstream/project-mosire-three-libs-0.2.3.md) | 坐标、能力、边界、踩坑、未验证清单 |

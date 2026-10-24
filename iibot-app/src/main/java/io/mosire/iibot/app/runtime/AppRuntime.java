@@ -6,6 +6,7 @@ import io.mosire.iibot.app.dispatch.InboundDispatcher;
 import io.mosire.iibot.app.event.AgentLibEventSink;
 import io.mosire.iibot.app.event.SqliteEventReadPort;
 import io.mosire.iibot.app.event.TaskflowSnapshotStore;
+import io.mosire.iibot.app.event.content.EventContentStore;
 import io.mosire.iibot.app.world.WorldDocs;
 import io.mosire.iibot.connect.core.InboundMessage;
 import io.mosire.iibot.connect.core.MessagingAdapter;
@@ -25,8 +26,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 已装配、可启动、可关闭的应用运行时。
  *
  * <p>启动顺序：adapter.start(dispatcher) → 自动冻结调度器。关闭顺序固定为 adapter、
- * dispatcher、scheduler、world docs、control plane、event read port、event sink；event sink
- * 内部关闭 SQLite 事件库。所有 close 幂等，单个组件异常不会阻断后续关闭。</p>
+ * dispatcher、scheduler、world docs、control plane、event read port、event sink、
+ * 共享 EventContentStore。所有 close 幂等，单个组件异常不会阻断后续关闭。</p>
  *
  * <p><b>恢复定位</b>：领域状态由 {@link TaskflowSnapshotStore} 的完整快照恢复，事件库仍只做
  * 审计读取，不从事件逐条重放。快照与事件库最大 seq 的一致性由启动装配阶段严格校验。</p>
@@ -44,6 +45,7 @@ public final class AppRuntime implements AutoCloseable {
     private final AutoFreezeScheduler scheduler;
     private final AgentLibEventSink eventSink;
     private final SqliteEventReadPort eventReadPort;
+    private final EventContentStore eventContentStore;
     private final TaskflowSnapshotStore snapshotStore;
     private final WorldDocs worldDocs;
     private final ControlPlane controlPlane;
@@ -54,7 +56,8 @@ public final class AppRuntime implements AutoCloseable {
                InteractionTaskflowService interactionService, MessagingAdapter adapter,
                InboundDispatcher dispatcher, OutboxSender outboxSender,
                AutoFreezeScheduler scheduler, AgentLibEventSink eventSink,
-               SqliteEventReadPort eventReadPort, TaskflowSnapshotStore snapshotStore,
+               SqliteEventReadPort eventReadPort, EventContentStore eventContentStore,
+               TaskflowSnapshotStore snapshotStore,
                WorldDocs worldDocs, ControlPlane controlPlane) {
         this.config = Objects.requireNonNull(config, "config");
         this.engine = Objects.requireNonNull(engine, "engine");
@@ -65,6 +68,7 @@ public final class AppRuntime implements AutoCloseable {
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.eventSink = Objects.requireNonNull(eventSink, "eventSink");
         this.eventReadPort = Objects.requireNonNull(eventReadPort, "eventReadPort");
+        this.eventContentStore = Objects.requireNonNull(eventContentStore, "eventContentStore");
         this.snapshotStore = Objects.requireNonNull(snapshotStore, "snapshotStore");
         this.worldDocs = Objects.requireNonNull(worldDocs, "worldDocs");
         this.controlPlane = Objects.requireNonNull(controlPlane, "controlPlane");
@@ -154,7 +158,8 @@ public final class AppRuntime implements AutoCloseable {
         closeSafely("worldDocs", worldDocs::close);
         closeSafely("controlPlane", controlPlane::close);
         closeSafely("eventReadPort", eventReadPort::close);
-        closeSafely("eventSink/eventStore", eventSink::close);
+        closeSafely("eventSink", eventSink::close);
+        closeSafely("eventContentStore", eventContentStore::close);
         LOG.info("应用运行时已关闭");
     }
 

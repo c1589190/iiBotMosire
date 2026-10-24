@@ -91,6 +91,30 @@ public final class EventContentStore implements EventAppendPort, AutoCloseable {
             LIMIT ?
             """;
 
+    private static final String SELECT_LATEST_BY_TYPE = """
+            SELECT e.seq, e.ts, e.type, e.agent, e.payload, e.correlation_id,
+                   e.turn_id, e.event_version, e.visibility, e.content_hash,
+                   e.payload_json, e.content_missing,
+                   c.content_type, c.content_json, c.content_text
+            FROM events e
+            LEFT JOIN event_contents c ON c.seq = e.seq
+            WHERE e.type = ?
+            ORDER BY e.seq DESC
+            LIMIT 1
+            """;
+
+    private static final String SELECT_LATEST_BY_TYPE_PREFIX = """
+            SELECT e.seq, e.ts, e.type, e.agent, e.payload, e.correlation_id,
+                   e.turn_id, e.event_version, e.visibility, e.content_hash,
+                   e.payload_json, e.content_missing,
+                   c.content_type, c.content_json, c.content_text
+            FROM events e
+            LEFT JOIN event_contents c ON c.seq = e.seq
+            WHERE substr(e.type, 1, ?) = ?
+            ORDER BY e.seq DESC
+            LIMIT 1
+            """;
+
     private final Path dbFile;
     private final Connection connection;
     private final EventContentSanitizer sanitizer;
@@ -133,6 +157,11 @@ public final class EventContentStore implements EventAppendPort, AutoCloseable {
     @Override
     public StoredEvent append(EventAppendRequest request) {
         Objects.requireNonNull(request, "request");
+        if (request.eventVersion() != CURRENT_EVENT_VERSION) {
+            throw new IllegalArgumentException("[EVENT_VERSION_UNSUPPORTED] 新完整事件只允许"
+                    + "当前版本 expected=" + CURRENT_EVENT_VERSION
+                    + " actual=" + request.eventVersion());
+        }
         ensureOpen();
 
         // 脱敏本身需要线性内存（覆盖掩码）；先对原始输入做上限检查，避免超大正文在
@@ -262,6 +291,60 @@ public final class EventContentStore implements EventAppendPort, AutoCloseable {
         }
     }
 
+    /**
+     * 读取指定事件类型的最后一条完整事件（按存储 seq 降序）。
+     *
+     * @param eventType 精确事件类型；不能为空白
+     * @return 没有匹配事件时为空；内容缺失/hash 不一致时 fail-closed
+     */
+    public Optional<StoredEvent> latestByType(String eventType) {
+        if (eventType == null || eventType.isBlank()) {
+            throw new IllegalArgumentException("eventType 不能为空白");
+        }
+        synchronized (lock) {
+            ensureOpen();
+            try (PreparedStatement statement = connection.prepareStatement(
+                    SELECT_LATEST_BY_TYPE)) {
+                statement.setString(1, eventType);
+                try (ResultSet rs = statement.executeQuery()) {
+                    return rs.next() ? Optional.of(readRow(rs)) : Optional.empty();
+                }
+            } catch (SQLException e) {
+                throw new IllegalStateException(
+                        "[EVENT_DB_READ] 读取最新完整事件失败 type=" + eventType, e);
+            }
+        }
+    }
+
+    /**
+     * 读取指定前缀下最后一条完整事件（按存储 seq 降序）。
+     *
+     * <p>前缀按字面量匹配，不支持 SQL LIKE 通配符；用于按 {@code POST_} /
+     * {@code COMPLAINT_} 等稳定命名空间恢复领域最新快照。</p>
+     *
+     * @param prefix 非空事件类型前缀
+     * @return 没有匹配事件时为空；内容缺失/hash 不一致时 fail-closed
+     */
+    public Optional<StoredEvent> latestByTypePrefix(String prefix) {
+        if (prefix == null || prefix.isBlank()) {
+            throw new IllegalArgumentException("eventTypePrefix 不能为空白");
+        }
+        synchronized (lock) {
+            ensureOpen();
+            try (PreparedStatement statement = connection.prepareStatement(
+                    SELECT_LATEST_BY_TYPE_PREFIX)) {
+                statement.setInt(1, prefix.length());
+                statement.setString(2, prefix);
+                try (ResultSet rs = statement.executeQuery()) {
+                    return rs.next() ? Optional.of(readRow(rs)) : Optional.empty();
+                }
+            } catch (SQLException e) {
+                throw new IllegalStateException(
+                        "[EVENT_DB_READ] 读取最新前缀事件失败 prefix=" + prefix, e);
+            }
+        }
+    }
+
     public int schemaVersion() {
         synchronized (lock) {
             ensureOpen();
@@ -295,6 +378,11 @@ public final class EventContentStore implements EventAppendPort, AutoCloseable {
         String correlationId = rs.getString("correlation_id");
         String turnId = rs.getString("turn_id");
         long eventVersion = rs.getLong("event_version");
+        if (eventVersion < 0 || eventVersion > CURRENT_EVENT_VERSION) {
+            throw new IllegalStateException("[EVENT_VERSION_UNSUPPORTED] seq=" + seq
+                    + " eventVersion=" + eventVersion
+                    + " supported=0.." + CURRENT_EVENT_VERSION);
+        }
         EventVisibility visibility;
         try {
             visibility = EventVisibility.valueOf(rs.getString("visibility"));
@@ -318,6 +406,11 @@ public final class EventContentStore implements EventAppendPort, AutoCloseable {
                     eventVersion, visibility, contentHash, true, payloadJson, null);
         }
 
+        if (eventVersion != CURRENT_EVENT_VERSION) {
+            throw new IllegalStateException("[EVENT_VERSION_UNSUPPORTED] 完整事件版本不匹配 seq="
+                    + seq + " eventVersion=" + eventVersion
+                    + " expected=" + CURRENT_EVENT_VERSION);
+        }
         if (contentType == null) {
             throw new IllegalStateException("[EVENT_CONTENT_MISSING] 完整事件缺少正文 seq=" + seq);
         }

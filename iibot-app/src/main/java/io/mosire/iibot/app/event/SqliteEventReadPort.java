@@ -41,7 +41,7 @@ public final class SqliteEventReadPort implements EventReadPort, AutoCloseable {
     private static final String SELECT_AFTER =
             "SELECT seq, payload FROM events WHERE seq > ? AND type = ? ORDER BY seq ASC LIMIT ?";
     private static final String SELECT_LAST_STORED_SEQ =
-            "SELECT COALESCE(MAX(seq), 0) AS last_seq FROM events";
+            "SELECT COALESCE(MAX(seq), 0) AS last_seq FROM events WHERE type = ?";
 
     private final Path dbFile;
     private final Connection connection;
@@ -83,18 +83,24 @@ public final class SqliteEventReadPort implements EventReadPort, AutoCloseable {
     }
 
     /**
-     * 返回事件表当前最大底层 seq；空库为 0。该查询只读，不消费任何游标。
+     * 返回兼容 {@code taskflow.event} 审计流当前最大 seq；空库为 0。
+     *
+     * <p>P2 起 events.db 同时存放 POST_/COMPLAINT_ 等领域事件，Taskflow 快照恢复锚点只允许
+     * 看旧 {@code taskflow.event} 类型，不能被其他领域事件推进。该查询只读，不消费游标。</p>
      */
     public synchronized long lastStoredSeq() {
         if (closed.get()) {
             throw new IllegalStateException("事件读取端口已关闭");
         }
-        try (Statement statement = connection.createStatement();
-             ResultSet rs = statement.executeQuery(SELECT_LAST_STORED_SEQ)) {
-            if (!rs.next()) {
-                return 0L;
+        try (PreparedStatement statement = connection.prepareStatement(
+                SELECT_LAST_STORED_SEQ)) {
+            statement.setString(1, AgentLibEventSink.STORE_EVENT_TYPE);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    return 0L;
+                }
+                return rs.getLong("last_seq");
             }
-            return rs.getLong("last_seq");
         } catch (SQLException e) {
             throw new IllegalStateException("读取事件最大 seq 失败", e);
         }

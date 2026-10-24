@@ -2,6 +2,10 @@ package io.mosire.iibot.taskflow.action;
 
 import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.ActorRole;
+import io.mosire.iibot.taskflow.Hashes;
+import io.mosire.iibot.taskflow.event.DomainEvent;
+import io.mosire.iibot.taskflow.event.DomainEventTypes;
+import io.mosire.iibot.taskflow.event.EventVisibility;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -28,6 +32,8 @@ import java.util.UUID;
 public final class ActionPoolService {
 
     public static final int MAX_TEXT_BYTES = 16 * 1024;
+
+    private static final String PACKAGE_ACTOR = "system:action-package";
 
     private final ActionPoolStore store;
     private final Clock clock;
@@ -82,7 +88,9 @@ public final class ActionPoolService {
         Map<String, Map<String, String>> idempotent = copyIdempotentResults(snapshot);
         idempotent.put(player.actorId(), withResult(idempotent.get(player.actorId()),
                 idempotencyKey, action.actionId()));
-        save(new ActionPoolSnapshot(actions, idempotent));
+        ActionPoolSnapshot next = new ActionPoolSnapshot(actions, idempotent);
+        save(next, actionEvent(now, DomainEventTypes.ACTION_SUBMITTED,
+                player.role(), player.actorId(), action, next, idempotencyKey));
         return action;
     }
 
@@ -135,9 +143,11 @@ public final class ActionPoolService {
             throw new ActionPoolException(ActionPoolException.INVALID_STATUS,
                     "只有 QUEUED 行动可以撤回；当前状态=" + current.status());
         }
-        PlayerAction withdrawn = current.withStatus(ActionStatus.WITHDRAWN, null,
-                clock.instant());
-        save(replaceAction(withdrawn));
+        Instant now = clock.instant();
+        PlayerAction withdrawn = current.withStatus(ActionStatus.WITHDRAWN, null, now);
+        ActionPoolSnapshot next = replaceAction(withdrawn);
+        save(next, actionEvent(now, DomainEventTypes.ACTION_WITHDRAWN,
+                player.role(), player.actorId(), withdrawn, next, idempotencyKey));
         return withdrawn;
     }
 
@@ -150,9 +160,11 @@ public final class ActionPoolService {
             throw new ActionPoolException(ActionPoolException.INVALID_STATUS,
                     "只有 QUEUED 行动可以选中；当前状态=" + current.status());
         }
-        PlayerAction selected = current.withStatus(ActionStatus.SELECTED, packageId,
-                clock.instant());
-        save(replaceAction(selected));
+        Instant now = clock.instant();
+        PlayerAction selected = current.withStatus(ActionStatus.SELECTED, packageId, now);
+        ActionPoolSnapshot next = replaceAction(selected);
+        save(next, actionEvent(now, DomainEventTypes.ACTION_SELECTED,
+                ActorRole.SUPERVISOR, PACKAGE_ACTOR, selected, next, null));
         return selected;
     }
 
@@ -164,8 +176,11 @@ public final class ActionPoolService {
             throw new ActionPoolException(ActionPoolException.INVALID_STATUS,
                     "只有 SELECTED 行动可以释放；当前状态=" + current.status());
         }
-        PlayerAction released = current.withStatus(ActionStatus.QUEUED, null, clock.instant());
-        save(replaceAction(released));
+        Instant now = clock.instant();
+        PlayerAction released = current.withStatus(ActionStatus.QUEUED, null, now);
+        ActionPoolSnapshot next = replaceAction(released);
+        save(next, actionEvent(now, DomainEventTypes.ACTION_RELEASED,
+                ActorRole.SUPERVISOR, PACKAGE_ACTOR, released, next, null));
         return released;
     }
 
@@ -177,9 +192,12 @@ public final class ActionPoolService {
             throw new ActionPoolException(ActionPoolException.INVALID_STATUS,
                     "只有 SELECTED 行动可以提交；当前状态=" + current.status());
         }
+        Instant now = clock.instant();
         PlayerAction committed = current.withStatus(ActionStatus.COMMITTED,
-                current.packageId(), clock.instant());
-        save(replaceAction(committed));
+                current.packageId(), now);
+        ActionPoolSnapshot next = replaceAction(committed);
+        save(next, actionEvent(now, DomainEventTypes.ACTION_COMMITTED,
+                ActorRole.SUPERVISOR, PACKAGE_ACTOR, committed, next, null));
         return committed;
     }
 
@@ -188,14 +206,32 @@ public final class ActionPoolService {
         return snapshot;
     }
 
-    private void save(ActionPoolSnapshot next) {
+    private void save(ActionPoolSnapshot next, DomainEvent event) {
         try {
-            store.save(next);
+            store.save(next, event);
         } catch (RuntimeException failure) {
             throw new ActionPoolException(ActionPoolException.STORE_UNAVAILABLE,
                     "行动池保存失败，内存状态未替换", failure);
         }
         snapshot = next;
+    }
+
+    private static DomainEvent actionEvent(Instant now, String eventType, ActorRole actorRole,
+                                           String actorId, PlayerAction action,
+                                           ActionPoolSnapshot next, String idempotencyKey) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("actionId", action.actionId());
+        summary.put("playerId", action.playerId());
+        summary.put("status", action.status().name());
+        if (action.packageId() != null) {
+            summary.put("packageId", action.packageId());
+        }
+        summary.put("actionCount", next.actions().size());
+        if (idempotencyKey != null) {
+            summary.put("idempotencyKeyHash", Hashes.sha256(idempotencyKey));
+        }
+        return new DomainEvent(now, eventType, actorRole, actorId,
+                action.actionId(), null, EventVisibility.SECRETARY, next, summary);
     }
 
     private PlayerAction findAction(String actionId) {

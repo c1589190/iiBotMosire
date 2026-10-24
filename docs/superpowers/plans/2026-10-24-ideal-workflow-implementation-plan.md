@@ -1,6 +1,6 @@
 # 理想 GM 控制工作流实施计划（2026-10-24）
 
-> **状态**：计划有效；P0（v3 行动池/裁定包）与 P1（events.db 完整内容基础）已完成实现、测试、阶段评审与 full gate，提交待本轮收口。
+> **状态**：计划有效；P0（v3 行动池/裁定包）与 P1（events.db 完整内容基础）已提交；P2（现有领域事件接入与 JSON 迁移）已完成实现、测试、阶段评审与 full gate，提交待本轮收口；DecisionPackage/Batch 事件推迟 P5。
 > **性质**：计划不是设计；事件 schema、数据所有权、工具语义以
 > [`../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md`](../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md) 为准。
 > **当前事实**：以 [`../../agents/STATUS.md`](../../agents/STATUS.md) 为准。本文件里的测试数/工期是预测，不是实测。
@@ -73,7 +73,7 @@ P8 真实 MCP/LLM/多玩家/发布回归与发布
 
 ### P1 events.db 完整内容基础
 
-**状态**：已完成实现/测试/阶段评审/full gate（398 tests）；待提交。
+**状态**：已完成实现/测试/阶段评审/full gate（398 tests）；提交 `a52626f`。
 
 **目标**：建立完整事件内容 schema、追加端口、内容 hash、schema 版本和迁移框架。
 
@@ -107,26 +107,29 @@ P8 真实 MCP/LLM/多玩家/发布回归与发布
 
 ### P2 领域事件全量接入 + JSON 迁移
 
-**目标**：让回合、行动、包、批次、推文、投诉、工单、GM 文档全部写入 events.db。
+**状态**：已完成实现/测试/最终阶段评审/full gate（413 tests）；DecisionPackage/Batch 事件推迟到 P5；Ticket/GM 文档在 P3/P4；提交待本轮收口。
+
+**目标**：让回合、行动、推文、投诉以及完整 Taskflow 快照写入 events.db；旧 JSON 安全迁移。
 
 **责任区**
 
-- `iibot-taskflow`：ActionPoolService、ActionPackageService、PostService、ComplaintService 的事件端口；
+- `iibot-taskflow`：ActionPoolService、PostService、ComplaintService 的事件端口；
 - `iibot-app`：AppBootstrap、afterMutation、旧 JSON 迁移器。
 
 **产出**
 
-- 事件类型补齐：ACTION_*、PACKAGE_*、BATCH_*、POST_*、COMPLAINT_*、TICKET_*、CONTROL_*、GM_DOC_*；
+- 事件类型补齐：ACTION_*、POST_*、COMPLAINT_*、TASKFLOW_SNAPSHOT；PACKAGE_*/BATCH_* 作为 P5 预留，TICKET_*/CONTROL_*/GM_DOC_* 作为后续阶段预留；
 - 正文写入 `event_contents`，`payload_json` 只放索引/状态/摘要；
 - 旧 `posts.json`、`complaints.json`、`taskflow-state.json` 转为迁移输入/可选缓存；
-- 迁移工具：`legacy -> events.db`，标记 `event_version=0/migrated=true`；
+- 迁移工具：`legacy -> events.db`；迁移快照事件使用当前 `event_version`，并以 exact `migrated` + `reconciled` 两阶段标记登记完成；
 - 对账报告：记录数、hash、seq、状态。
 
 **验收**
 
 - 新建/审批/发布一条推文可只从 events.db 重建；
 - 新建/回应一条投诉可只从 events.db 重建；
-- 行动/包/批次可只从 events.db 查询和重建；
+- TODO(P5): 行动包/批次从 events.db 查询和重建（P2 不宣称）；
+- TASKFLOW_SNAPSHOT 可读回当前完整 Taskflow 快照（P7 前仍以 taskflow-state.json 为恢复缓存）；
 - 旧 JSON 删除/降级前，迁移对账 0 差异；
 - 迁移失败不删除旧文件。
 
@@ -213,7 +216,7 @@ P8 真实 MCP/LLM/多玩家/发布回归与发布
 **验收**
 
 - 同一玩家一个包内可有多条行动；
-- 包 commit 产生 ActionBatch；同回合/跨回合可多批次；
+- 包 commit 产生 ActionBatch；同回合/跨回合可多批次；DecisionPackage/Batch 完整事件与恢复适配在本阶段补齐；
 - GM 不处理全部工单也能开下一回合；
 - 未批准行动不执行；
 - 旧数据仍可读取。
@@ -337,7 +340,7 @@ tools/gate.sh full
 |---|---|
 | events.db 变超大/正文膨胀 | event_contents 分表、内容上限、归档/压缩策略 |
 | 旧 JSON 迁移不一致 | 只读保留、hash 对账、迁移报告 |
-| AgentLib DecisionPackages 重启难恢复 | P1/P2 先做包快照事件；P7 做重建 |
+| AgentLib DecisionPackages 重启难恢复 | P5 做包持久化/批次事务事件；P7 做重建 |
 | 工单/行动/包三套状态冲突 | Ticket→Action→Package 单向所有权 |
 | 私密内容泄露 | visibility 在事件写入和查询双侧校验 |
 | 外部控制方远程接入 | SSH 隧道或 TLS 代理；不做公网裸 MCP |

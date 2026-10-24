@@ -30,7 +30,7 @@ import java.util.Optional;
  */
 public final class TaskflowSnapshotStore {
 
-    static final String FILE_NAME = "taskflow-state.json";
+    public static final String FILE_NAME = "taskflow-state.json";
 
     private static final ObjectMapper MAPPER = createMapper();
 

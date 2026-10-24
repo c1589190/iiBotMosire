@@ -1,5 +1,7 @@
 package io.mosire.iibot.taskflow.complaint;
 
+import io.mosire.iibot.taskflow.event.DomainEvent;
+
 /**
  * 投诉快照持久化端口。
  *
@@ -17,4 +19,15 @@ public interface ComplaintStore {
 
     /** 原子替换完整快照。 */
     void save(ComplaintSnapshot snapshot);
+
+    /**
+     * 原子追加带完整领域事件的快照变更。
+     *
+     * <p>默认实现保持旧内存/JSON Store 兼容，只委托 {@link #save(ComplaintSnapshot)}。
+     * 事件源实现必须覆盖此方法，把 {@code event.content} 与快照一致性校验后仅通过
+     * {@link io.mosire.iibot.taskflow.event.DomainEventJournal} 持久化，禁止另写 JSON。</p>
+     */
+    default void save(ComplaintSnapshot snapshot, DomainEvent event) {
+        save(snapshot);
+    }
 }

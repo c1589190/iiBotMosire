@@ -42,6 +42,7 @@ public final class AgentLibEventSink implements EventSink, AutoCloseable {
 
     private final EventContentStore contentStore;
     private final Path dbFile;
+    private final boolean ownsContentStore;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     /** 打开数据目录下的 events.db；不注入已知密钥值。 */
@@ -58,6 +59,24 @@ public final class AgentLibEventSink implements EventSink, AutoCloseable {
     public AgentLibEventSink(Path dbFile, Collection<String> secrets) {
         this.dbFile = Objects.requireNonNull(dbFile, "dbFile").toAbsolutePath().normalize();
         this.contentStore = new EventContentStore(this.dbFile, secrets);
+        this.ownsContentStore = true;
+    }
+
+    /**
+     * 使用组合根共享的 {@link EventContentStore}，避免同一 events.db 打开多个写连接。
+     *
+     * <p>共享构造入口不拥有底层 store：调用方（AppBootstrap/AppRuntime）负责最终关闭，
+     * 从而可让 journal、迁移器和事件源 Store 复用同一连接与同一 schema。</p>
+     */
+    public AgentLibEventSink(EventContentStore contentStore) {
+        this.contentStore = Objects.requireNonNull(contentStore, "contentStore");
+        this.dbFile = contentStore.dbFile();
+        this.ownsContentStore = false;
+    }
+
+    /** 组合根共享的完整事件 store；只读访问器，关闭责任仍在调用方。 */
+    public EventContentStore contentStore() {
+        return contentStore;
     }
 
     @Override
@@ -130,6 +149,8 @@ public final class AgentLibEventSink implements EventSink, AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        contentStore.close();
+        if (ownsContentStore) {
+            contentStore.close();
+        }
     }
 }

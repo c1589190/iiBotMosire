@@ -2,10 +2,11 @@ package io.mosire.iibot.app.runtime;
 
 import io.mosire.agentlib.decision.DecisionPackages;
 import io.mosire.agentlib.llm.LlmClient;
+import io.mosire.iibot.app.action.EventSourcedActionPoolStore;
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.LlmClientFactory;
 import io.mosire.iibot.app.config.SecretProvider;
-import io.mosire.iibot.app.complaint.JsonComplaintStore;
+import io.mosire.iibot.app.complaint.EventSourcedComplaintStore;
 import io.mosire.iibot.app.delivery.ComplaintDistributor;
 import io.mosire.iibot.app.delivery.JsonDeliveryLedger;
 import io.mosire.iibot.app.delivery.OutboxSender;
@@ -14,11 +15,15 @@ import io.mosire.iibot.app.delivery.TurnResultDistributor;
 import io.mosire.iibot.app.dispatch.AckPolicy;
 import io.mosire.iibot.app.dispatch.InboundDispatcher;
 import io.mosire.iibot.app.event.AgentLibEventSink;
+import io.mosire.iibot.app.event.SqliteDomainEventJournal;
 import io.mosire.iibot.app.event.SqliteEventReadPort;
+import io.mosire.iibot.app.event.TaskflowSnapshotEventRecorder;
 import io.mosire.iibot.app.event.TaskflowSnapshotStore;
+import io.mosire.iibot.app.event.content.EventContentStore;
+import io.mosire.iibot.app.event.migration.LegacyEventMigrator;
 import io.mosire.iibot.app.decision.LlmActionBatchExecutor;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
-import io.mosire.iibot.app.publication.JsonPostStore;
+import io.mosire.iibot.app.publication.EventSourcedPostStore;
 import io.mosire.iibot.app.world.WorldDocs;
 import io.mosire.iibot.app.world.WorldFactsLoader;
 import io.mosire.iibot.connect.core.MessagingAdapter;
@@ -33,7 +38,6 @@ import io.mosire.iibot.taskflow.TurnView;
 import io.mosire.iibot.taskflow.WorldDelta;
 import io.mosire.iibot.taskflow.WorldFact;
 import io.mosire.iibot.taskflow.action.ActionPoolService;
-import io.mosire.iibot.taskflow.action.InMemoryActionPoolStore;
 import io.mosire.iibot.taskflow.agent.AdjudicationService;
 import io.mosire.iibot.taskflow.agent.GmAideAgent;
 import io.mosire.iibot.taskflow.agent.InteractionTaskflowService;
@@ -121,6 +125,7 @@ public final class AppBootstrap {
 
         Path dataDir = config.dataDir();
         Path dbFile = dataDir.resolve("events.db");
+        EventContentStore eventContentStore = null;
         AgentLibEventSink eventSink = null;
         SqliteEventReadPort eventReadPort = null;
         WorldDocs worldDocs = null;
@@ -128,13 +133,25 @@ public final class AppBootstrap {
         AppRuntime runtime = null;
         try {
             ensureDirectory(dataDir);
-            eventSink = new AgentLibEventSink(dbFile, knownSecrets);
-            // 读写两个 SQLite 连接都先建立；即使不启用 MCP，也为控制面保留只读端口。
+            // 同一 EventContentStore 供 audit sink、领域 journal、迁移器和事件源 Store 复用，
+            // 避免同一 events.db 打开多个写连接或重复迁移 schema。
+            eventContentStore = new EventContentStore(dbFile, knownSecrets);
+            eventSink = new AgentLibEventSink(eventContentStore);
+            // 只读审计连接独立；即使不启用 MCP，也为控制面保留。
             eventReadPort = new SqliteEventReadPort(dbFile);
             TaskflowSnapshotStore snapshotStore = new TaskflowSnapshotStore(dataDir);
+            SqliteDomainEventJournal domainEventJournal =
+                    new SqliteDomainEventJournal(eventContentStore);
+            TaskflowSnapshotEventRecorder snapshotEventRecorder =
+                    new TaskflowSnapshotEventRecorder(eventContentStore, domainEventJournal, clock);
+
+            // 迁移必须先于 engine 构造/恢复与任何 fresh bootstrap 写入；失败时旧 JSON 保留，
+            // 且本轮不会留下新的身份/世界初始化状态。
+            new LegacyEventMigrator(dataDir, eventContentStore, domainEventJournal, clock)
+                    .migrate();
+
             // 投递声明独立于领域快照持久化；损坏/未知 schema 会在启动装配时 fail-closed。
             JsonDeliveryLedger deliveryLedger = new JsonDeliveryLedger(dataDir);
-            PostService postService = new PostService(new JsonPostStore(dataDir), clock);
 
             Optional<TaskflowStateSnapshot> snapshot = snapshotStore.load();
             long lastStoredSeq = eventReadPort.lastStoredSeq();
@@ -162,7 +179,8 @@ public final class AppBootstrap {
                 }
                 requireConfiguredIdentities(engine, config);
                 engine.setStateCommitListener((eng, result) ->
-                        snapshotStore.save(eng.exportState()));
+                        persistTaskflowSnapshotBestEffort(snapshotStore, snapshotEventRecorder,
+                                eng.exportState()));
                 bootstrapDirector = new Actor(config.directors().get(0).actorId(),
                         ActorRole.DIRECTOR);
                 recovered = true;
@@ -187,25 +205,40 @@ public final class AppBootstrap {
                 // 若 bootstrap 中途失败，事件库非空但快照缺失，下次启动会 fail-closed，
                 // 不会把半初始化的身份/世界静默当成可恢复状态。
                 engine.setStateCommitListener((eng, result) ->
-                        snapshotStore.save(eng.exportState()));
-                snapshotStore.save(engine.exportState());
+                        persistTaskflowSnapshotBestEffort(snapshotStore, snapshotEventRecorder,
+                                eng.exportState()));
+                TaskflowStateSnapshot initialState = engine.exportState();
+                // fresh bootstrap 是启动期路径：两份初始快照任一失败都必须 fail-closed。
+                snapshotStore.save(initialState);
+                long initialSnapshotEventSeq = snapshotEventRecorder.record(initialState);
+                // 写持久基线完成标记，避免下次启动把普通 TASKFLOW_SNAPSHOT + JSON 当 ambiguous。
+                snapshotEventRecorder.recordBaselineReconciled(initialState,
+                        "fresh-bootstrap", initialSnapshotEventSeq);
                 recovered = false;
                 LOG.info("Taskflow fresh bootstrap 完成 recovery=false worldVersion={} "
                                 + "eventSeq={} path={}",
-                        engine.status().worldVersion(), engine.exportState().lastEventSeq(),
+                        engine.status().worldVersion(), initialState.lastEventSeq(),
                         snapshotStore.path());
             }
+
+            // 启动期修复上次运行期 event 写失败留下的缺失/stale 快照事件；失败 fail-closed。
+            snapshotEventRecorder.ensureRecorded(engine.exportState());
+            PostService postService = new PostService(new EventSourcedPostStore(
+                    eventContentStore, domainEventJournal, clock), clock);
+            ComplaintService complaintService = new ComplaintService(
+                    new EventSourcedComplaintStore(eventContentStore, domainEventJournal, clock),
+                    clock);
 
             // 所有后续消费者都读取引擎动态事实，而不是启动时的静态列表。
             SecretaryWorkspaceStore secretaryWorkspaceStore = SecretaryWorkspaceStore.open(
                     config.dataDir(),
                     config.players().stream().map(AppConfig.Account::actorId).toList());
             SharedSkillStore sharedSkillStore = SharedSkillStore.open(dataDir);
-            ComplaintService complaintService = new ComplaintService(
-                    new JsonComplaintStore(dataDir), clock);
-            // v3-A 行动池与裁定包先使用进程内存储；JSON 持久化属于后续切片。
+            // 行动池与裁定包：行动池从 events.db 重建；包 live 状态仍由 AgentLib 进程内
+            // 持有，但每次成功写操作记录完整只读投影事件。
             ActionPoolService actionPoolService = new ActionPoolService(
-                    new InMemoryActionPoolStore(), clock);
+                    new EventSourcedActionPoolStore(eventContentStore, domainEventJournal, clock),
+                    clock);
             ActionPackageService actionPackageService = new ActionPackageService(
                     actionPoolService, new DecisionPackages(), clock);
             ActionBatchExecutor actionBatchExecutor = new LlmActionBatchExecutor(
@@ -262,8 +295,8 @@ public final class AppBootstrap {
                     postService, sharedSkillStore, complaintService,
                     actionPoolService, actionPackageService, actionBatchExecutor);
             runtime = new AppRuntime(config, engine, interactionService, adapter, dispatcher,
-                    outbox, scheduler, eventSink, eventReadPort, snapshotStore, worldDocs,
-                    controlPlane);
+                    outbox, scheduler, eventSink, eventReadPort, eventContentStore,
+                    snapshotStore, worldDocs, controlPlane);
             LOG.info("组合根装配完成 dataDir={} recovered={} players={} directors={} "
                             + "worldFacts={} worldVersion={}",
                     dataDir, recovered, engine.status().playerCount(),
@@ -275,7 +308,32 @@ public final class AppBootstrap {
             closeQuietly("worldDocs", worldDocs);
             closeQuietly("eventReadPort", eventReadPort);
             closeQuietly("eventSink", eventSink);
+            closeQuietly("eventContentStore", eventContentStore);
             throw failure;
+        }
+    }
+
+    /**
+     * 运行期状态提交后的 best-effort 双写：先 JSON 快照，再 events.db 快照事件。
+     *
+     * <p>此时引擎状态与 taskflow.event 已提交，listener 不能把持久化异常回抛给调用方
+     * 造成假失败。两路独立尝试，任一失败至少保留另一份；ERROR 日志只记录异常类型。</p>
+     */
+    private static void persistTaskflowSnapshotBestEffort(
+            TaskflowSnapshotStore snapshotStore,
+            TaskflowSnapshotEventRecorder snapshotEventRecorder,
+            TaskflowStateSnapshot snapshot) {
+        try {
+            snapshotStore.save(snapshot);
+        } catch (RuntimeException failure) {
+            LOG.error("Taskflow 快照 JSON 保存失败 type={}",
+                    failure.getClass().getSimpleName());
+        }
+        try {
+            snapshotEventRecorder.record(snapshot);
+        } catch (RuntimeException failure) {
+            LOG.error("Taskflow 快照事件写入失败 type={}",
+                    failure.getClass().getSimpleName());
         }
     }
 

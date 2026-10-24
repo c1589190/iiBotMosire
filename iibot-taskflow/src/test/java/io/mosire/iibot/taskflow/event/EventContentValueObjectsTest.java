@@ -57,12 +57,11 @@ class EventContentValueObjectsTest {
         assertThat(valid.correlationId()).isEqualTo("corr");
         assertThat(valid.turnId()).isEqualTo("turn");
 
-        assertThatThrownBy(() -> request(0))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("eventVersion 必须为正");
+        // 值对象允许 0，由 EventContentStore.append 统一以 [EVENT_VERSION_UNSUPPORTED] 拒绝。
+        assertThat(request(0).eventVersion()).isZero();
         assertThatThrownBy(() -> request(-1))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("eventVersion 必须为正");
+                .hasMessageContaining("eventVersion 不能为负");
         assertThatThrownBy(() -> new EventAppendRequest(
                 null, "TYPE", "agent", "corr", "turn", 1, EventVisibility.GM,
                 new EventContent(EventContentType.TEXT, null, "body"), "{}"))

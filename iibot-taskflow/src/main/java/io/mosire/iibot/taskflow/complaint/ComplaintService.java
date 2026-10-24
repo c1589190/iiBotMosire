@@ -3,12 +3,16 @@ package io.mosire.iibot.taskflow.complaint;
 import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.ActorRole;
 import io.mosire.iibot.taskflow.Hashes;
+import io.mosire.iibot.taskflow.event.DomainEvent;
+import io.mosire.iibot.taskflow.event.DomainEventTypes;
+import io.mosire.iibot.taskflow.event.EventVisibility;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -104,7 +108,16 @@ public final class ComplaintService {
                 .withAuditEntry(new ComplaintAuditEntry(ComplaintAuditAction.SUBMIT,
                         complaintId, player.actorId(), player.actorId(), complaint.revision(),
                         Hashes.sha256(body), now));
-        return commit(next, result);
+        DomainEvent event = new DomainEvent(now, DomainEventTypes.COMPLAINT_SUBMITTED,
+                player.role(), player.actorId(), complaintId, null,
+                EventVisibility.SECRETARY, next, Map.of(
+                "complaintId", complaint.complaintId(),
+                "playerId", complaint.playerId(),
+                "status", complaint.status().name(),
+                "revision", complaint.revision(),
+                "idempotencyKeyHash", Hashes.sha256(idempotencyKey),
+                "complaintCount", next.size()));
+        return commit(next, result, event);
     }
 
     /** 只返回指定秘书所属玩家的投诉；空白 playerId 返回空列表。 */
@@ -198,7 +211,17 @@ public final class ComplaintService {
                 .withAuditEntry(new ComplaintAuditEntry(ComplaintAuditAction.RESPOND,
                         complaintId, complaint.playerId(), gm.actorId(), updated.revision(),
                         Hashes.sha256(responseBody), now));
-        return commit(next, result);
+        DomainEvent event = new DomainEvent(now, DomainEventTypes.COMPLAINT_RESPONDED,
+                gm.role(), gm.actorId(), complaintId, null,
+                EventVisibility.SECRETARY, next, Map.of(
+                "complaintId", updated.complaintId(),
+                "playerId", updated.playerId(),
+                "status", updated.status().name(),
+                "revision", updated.revision(),
+                "idempotencyKeyHash", Hashes.sha256(idempotencyKey),
+                "deliveryState", updated.deliveryState().name(),
+                "complaintCount", next.size()));
+        return commit(next, result, event);
     }
 
     /**
@@ -244,7 +267,16 @@ public final class ComplaintService {
                         complaintId, complaint.playerId(), DELIVERY_ACTOR,
                         updated.revision(), Hashes.sha256("delivery:" + deliveryState.name()),
                         now));
-        return commit(next, result);
+        DomainEvent event = new DomainEvent(now, DomainEventTypes.COMPLAINT_DELIVERY_CHANGED,
+                ActorRole.SUPERVISOR, DELIVERY_ACTOR, complaintId, null,
+                EventVisibility.SECRETARY, next, Map.of(
+                "complaintId", updated.complaintId(),
+                "playerId", updated.playerId(),
+                "status", updated.status().name(),
+                "revision", updated.revision(),
+                "deliveryState", updated.deliveryState().name(),
+                "complaintCount", next.size()));
+        return commit(next, result, event);
     }
 
     /** 只读审计摘要；不包含投诉标题、正文或回应正文。 */
@@ -258,9 +290,10 @@ public final class ComplaintService {
     }
 
     private ComplaintCommandResult commit(ComplaintSnapshot next,
-                                           ComplaintCommandResult success) {
+                                           ComplaintCommandResult success,
+                                           DomainEvent event) {
         try {
-            store.save(next);
+            store.save(next, event);
             state = next;
             return success;
         } catch (RuntimeException failure) {

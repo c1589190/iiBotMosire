@@ -30,8 +30,8 @@ public record EventAppendRequest(
         }
         correlationId = correlationId == null ? "" : correlationId;
         turnId = turnId == null || turnId.isBlank() ? null : turnId;
-        if (eventVersion <= 0) {
-            throw new IllegalArgumentException("eventVersion 必须为正");
+        if (eventVersion < 0) {
+            throw new IllegalArgumentException("eventVersion 不能为负");
         }
         Objects.requireNonNull(visibility, "visibility");
         Objects.requireNonNull(content, "content");

@@ -175,7 +175,9 @@ class EventContentStoreTest {
             assertThat(legacy.idempotencyKey()).isEqualTo("legacy-key");
             assertThat(legacy.turnId()).isEqualTo("turn-legacy");
             assertThat(legacy.payload()).containsEntry("note", "legacy");
-            assertThat(port.lastStoredSeq()).isEqualTo(appendedSeq);
+            // P2 起 lastStoredSeq 只统计兼容的 taskflow.event 锚点；新追加的 POST_ 领域
+            // 事件 seq 更大，但不得推进 taskflow 恢复锚点。
+            assertThat(port.lastStoredSeq()).isEqualTo(1L);
         }
     }
 
@@ -619,6 +621,66 @@ class EventContentStoreTest {
     }
 
     @Test
+    void appendRejectsUnsupportedEventVersionsBeforeWritingAnyRows() throws Exception {
+        Path db = tempDir.resolve("append-event-version.db");
+        try (EventContentStore store = new EventContentStore(db)) {
+            assertThatThrownBy(() -> store.append(requestWithVersion(999)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("[EVENT_VERSION_UNSUPPORTED]");
+            assertThat(store.readAfter(0, 10)).isEmpty();
+
+            assertThatThrownBy(() -> store.append(requestWithVersion(0)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("[EVENT_VERSION_UNSUPPORTED]");
+            assertThat(store.readAfter(0, 10)).isEmpty();
+        }
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery(
+                     "SELECT (SELECT COUNT(*) FROM events) AS headers, "
+                             + "(SELECT COUNT(*) FROM event_contents) AS contents")) {
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getInt("headers")).isZero();
+            assertThat(rs.getInt("contents")).isZero();
+        }
+    }
+
+    @Test
+    void unsupportedEventVersionsFailClosedOnRead() throws Exception {
+        Path db = tempDir.resolve("event-version.db");
+        long seq;
+        try (EventContentStore store = new EventContentStore(db)) {
+            seq = store.append(request(EventContentType.TEXT, null, "body", "{}")).seq();
+        }
+
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             PreparedStatement future = connection.prepareStatement(
+                     "UPDATE events SET event_version = 999 WHERE seq = ?")) {
+            future.setLong(1, seq);
+            future.executeUpdate();
+        }
+        try (EventContentStore store = new EventContentStore(db)) {
+            assertThatThrownBy(() -> store.read(seq))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("[EVENT_VERSION_UNSUPPORTED]");
+        }
+
+        // 完整事件（有正文）不允许 event_version=0；0 只属于 content_missing 旧事件。
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
+             PreparedStatement zero = connection.prepareStatement(
+                     "UPDATE events SET event_version = 0 WHERE seq = ?")) {
+            zero.setLong(1, seq);
+            zero.executeUpdate();
+        }
+        try (EventContentStore store = new EventContentStore(db)) {
+            assertThatThrownBy(() -> store.read(seq))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("[EVENT_VERSION_UNSUPPORTED]")
+                    .hasMessageContaining("完整事件版本不匹配");
+        }
+    }
+
+    @Test
     void unsupportedSchemaVersionFailsClosed() throws Exception {
         Path db = tempDir.resolve("future-schema.db");
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + db);
@@ -664,6 +726,13 @@ class EventContentStoreTest {
                 NOW, "EVT-abcdef", "GM:abcdef", "corr-abcdef", "turn-abcdef",
                 EventContentStore.CURRENT_EVENT_VERSION, EventVisibility.GM,
                 new EventContent(type, json, text), "{\"note\":\"abcdef\"}");
+    }
+
+    private static EventAppendRequest requestWithVersion(long eventVersion) {
+        return new EventAppendRequest(
+                NOW, "POST_DRAFTED", "GM:gm", "corr-1", "turn-1", eventVersion,
+                EventVisibility.GM,
+                new EventContent(EventContentType.TEXT, null, "body"), "{}");
     }
 
     private static EventAppendRequest request(EventContentType type, String json,
