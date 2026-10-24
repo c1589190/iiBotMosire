@@ -6,6 +6,7 @@ import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.mosire.agentlib.decision.CommitReceipt;
 import io.mosire.agentlib.decision.DecisionPackages;
 import io.mosire.agentlib.llm.LlmResponse;
 import io.mosire.agentlib.permission.AccessToken;
@@ -28,7 +29,9 @@ import io.mosire.iibot.taskflow.ActorRole;
 import io.mosire.iibot.taskflow.PlayerProfile;
 import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.TurnState;
+import io.mosire.iibot.taskflow.action.ActionPoolException;
 import io.mosire.iibot.taskflow.action.ActionPoolService;
+import io.mosire.iibot.taskflow.action.ActionPoolSnapshot;
 import io.mosire.iibot.taskflow.action.ActionPoolStore;
 import io.mosire.iibot.taskflow.action.ActionStatus;
 import io.mosire.iibot.taskflow.action.InMemoryActionPoolStore;
@@ -40,7 +43,11 @@ import io.mosire.iibot.taskflow.complaint.ComplaintService;
 import io.mosire.iibot.taskflow.complaint.InMemoryComplaintStore;
 import io.mosire.iibot.taskflow.control.InMemoryEventReadPort;
 import io.mosire.iibot.taskflow.decision.ActionBatchExecutor;
+import io.mosire.iibot.taskflow.decision.ActionPackageException;
 import io.mosire.iibot.taskflow.decision.ActionPackageService;
+import io.mosire.iibot.taskflow.decision.PackageView;
+import io.mosire.iibot.taskflow.event.DomainEvent;
+import io.mosire.iibot.taskflow.event.DomainEventTypes;
 import io.mosire.iibot.taskflow.event.InMemoryEventStore;
 import io.mosire.iibot.taskflow.post.InMemoryPostStore;
 import io.mosire.iibot.taskflow.post.PostService;
@@ -61,8 +68,14 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** 行动池/裁定包/批次的官方 MCP SDK loopback 集成测试；无 QQ、无真实网络。 */
 @Timeout(60)
@@ -190,8 +203,12 @@ class ControlMcpServerDecisionToolsTest {
                         "idempotencyKey", "ignore-selected-a1",
                         "reason", "试图取消已选中行动")));
         assertThat(selectedIgnore.isError()).isTrue();
-        assertThat(wireText(selectedIgnore)).contains("INVALID_STATUS")
+        assertThat(wireText(selectedIgnore))
+                .contains(ActionPoolException.ACTION_IN_CANONICAL_PACKAGE)
                 .doesNotContain("同一玩家行动甲-已批-4a");
+        // canonical 占用优先于投影状态：投影本身仍是 SELECTED，且绝不能被 withdraw。
+        assertThat(actionPool.getForGm(a1.actionId()).orElseThrow().status())
+                .isEqualTo(ActionStatus.SELECTED);
 
         McpSchema.CallToolResult appended = client.callTool(new McpSchema.CallToolRequest(
                 GmDecisionPackageMcpTools.APPEND, Map.of(
@@ -426,6 +443,176 @@ class ControlMcpServerDecisionToolsTest {
         server.start();
     }
 
+    @Test
+    void ignoreUsesCanonicalOwnerEvenWhenProjectionRemainsStaleQueued() {
+        FlakyActionPoolStore flaky = new FlakyActionPoolStore();
+        ActionPoolService pool = new ActionPoolService(flaky, CLOCK);
+        ActionPackageService packages = new ActionPackageService(
+                pool, new DecisionPackages(), CLOCK);
+
+        PlayerAction proposedAction = pool.submit(p1, "stale proposed 正文",
+                "chat", "stale-proposed-a1");
+        flaky.failSaves = true;
+        PackageView proposed = packages.create(supervisor, "stale proposed 包",
+                List.of(proposedAction.actionId()), 3600, "stale-create");
+        assertThat(pool.getForGm(proposedAction.actionId()).orElseThrow().status())
+                .isEqualTo(ActionStatus.QUEUED);
+        assertIgnoreRejected(pool, packages, proposedAction.actionId(),
+                "ignore-stale-proposed", ActionStatus.QUEUED);
+
+        packages.decide(supervisor, proposed.packageId(), Set.of(0), "decide");
+        assertIgnoreRejected(pool, packages, proposedAction.actionId(),
+                "ignore-stale-decided", ActionStatus.QUEUED);
+        CommitReceipt committed = packages.commit(supervisor, proposed.packageId(),
+                batch -> batch.committed("stale commit"));
+        assertThat(committed.status()).isEqualTo(CommitReceipt.Status.COMMITTED);
+        assertIgnoreRejected(pool, packages, proposedAction.actionId(),
+                "ignore-stale-committed-approved", ActionStatus.QUEUED);
+
+        flaky.failSaves = false;
+        PlayerAction approved = pool.submit(p1, "stale approved 正文",
+                "chat", "stale-approved");
+        PlayerAction unapproved = pool.submit(p1, "stale unapproved 正文",
+                "chat", "stale-unapproved");
+        flaky.failSaves = true;
+        PackageView subset = packages.create(supervisor, "stale subset 包",
+                List.of(approved.actionId(), unapproved.actionId()), 3600,
+                "stale-create-2");
+        packages.decide(supervisor, subset.packageId(), Set.of(0), "只批一");
+        packages.commit(supervisor, subset.packageId(),
+                batch -> batch.committed("stale subset"));
+        flaky.failSaves = false;
+        packages.reconcileActionsFromPackages();
+        assertIgnoreRejected(pool, packages, approved.actionId(),
+                "ignore-stale-committed-approved-2", ActionStatus.COMMITTED);
+        ToolResult unapprovedIgnore = ignore(pool, packages, unapproved.actionId(),
+                "ignore-committed-unapproved");
+        assertThat(unapprovedIgnore.success()).as(unapprovedIgnore.code()).isTrue();
+        assertThat(pool.getForGm(unapproved.actionId()).orElseThrow().status())
+                .isEqualTo(ActionStatus.WITHDRAWN);
+
+        PlayerAction terminalAction = pool.submit(p1, "terminal 正文",
+                "chat", "stale-terminal");
+        PackageView terminal = packages.create(supervisor, "terminal 包",
+                List.of(terminalAction.actionId()), 3600, "stale-create-3");
+        packages.decide(supervisor, terminal.packageId(), Set.of(0), "批准");
+        CommitReceipt rejected = packages.commit(supervisor, terminal.packageId(),
+                batch -> {
+                    throw new IllegalStateException("executor boom");
+                });
+        assertThat(rejected.status()).isEqualTo(CommitReceipt.Status.REJECTED);
+        ToolResult terminalIgnore = ignore(pool, packages, terminalAction.actionId(),
+                "ignore-terminal");
+        assertThat(terminalIgnore.success()).as(terminalIgnore.code()).isTrue();
+        assertThat(pool.getForGm(terminalAction.actionId()).orElseThrow().status())
+                .isEqualTo(ActionStatus.WITHDRAWN);
+    }
+
+    @Test
+    void concurrentCreateAndIgnoreCannotCreateCanonicalWithdrawnAction() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 30; round++) {
+                FlakyActionPoolStore flaky = new FlakyActionPoolStore();
+                ActionPoolService pool = new ActionPoolService(flaky, CLOCK);
+                ActionPackageService packages = new ActionPackageService(
+                        pool, new DecisionPackages(), CLOCK);
+                int roundNo = round;
+                PlayerAction action = pool.submit(p1, "race 行动-" + roundNo,
+                        "chat", "race-submit-" + roundNo);
+                String actionId = action.actionId();
+                // create 的 SELECTED 投影写失败 => canonical owner 存在但 ActionPool 仍 stale QUEUED。
+                flaky.failProjectionSaves = true;
+
+                CountDownLatch start = new CountDownLatch(1);
+                Future<String> create = executor.submit(() -> {
+                    start.await();
+                    try {
+                        packages.create(supervisor, "race 包-" + roundNo,
+                                List.of(actionId), 3600, "race-create-" + roundNo);
+                        return "OK";
+                    } catch (ActionPackageException failure) {
+                        return failure.code();
+                    }
+                });
+                Future<ToolResult> ignore = executor.submit(() -> {
+                    start.await();
+                    return ignore(pool, packages, actionId, "race-ignore-" + roundNo);
+                });
+                start.countDown();
+                String createCode = create.get(10, TimeUnit.SECONDS);
+                ToolResult ignoreResult = ignore.get(10, TimeUnit.SECONDS);
+
+                flaky.failProjectionSaves = false;
+                boolean createWon = "OK".equals(createCode);
+                if (createWon) {
+                    assertThat(ignoreResult.success()).isFalse();
+                    assertThat(ignoreResult.code())
+                            .isEqualTo(ActionPoolException.ACTION_IN_CANONICAL_PACKAGE);
+                    assertThat(pool.getForGm(action.actionId()).orElseThrow().status())
+                            .isEqualTo(ActionStatus.QUEUED);
+                    assertThat(packages.list()).hasSize(1);
+                    packages.reconcileActionsFromPackages();
+                    assertThat(pool.getForGm(action.actionId()).orElseThrow().status())
+                            .isEqualTo(ActionStatus.SELECTED);
+                } else {
+                    assertThat(ignoreResult.success()).isTrue();
+                    assertThat(pool.getForGm(action.actionId()).orElseThrow().status())
+                            .isEqualTo(ActionStatus.WITHDRAWN);
+                    assertThat(packages.list()).isEmpty();
+                    assertThat(createCode).isIn(ActionPackageException.CONFLICT,
+                            ActionPackageException.INVALID_STATUS);
+                    packages.reconcileActionsFromPackages();
+                }
+                // canonical package + WITHDRAWN 不可能同时存在；reconcile 不得失败。
+                assertThat(packages.actionReconcilePending()).isFalse();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+
+        // 确定性 ignore-first 路径：action 先 WITHDRAWN，create 必须失败且零 canonical 包。
+        FlakyActionPoolStore sequentialFlaky = new FlakyActionPoolStore();
+        ActionPoolService sequentialPool = new ActionPoolService(sequentialFlaky, CLOCK);
+        ActionPackageService sequentialPackages = new ActionPackageService(
+                sequentialPool, new DecisionPackages(), CLOCK);
+        PlayerAction sequentialAction = sequentialPool.submit(p1, "ignore-first 行动",
+                "chat", "ignore-first-submit");
+        ToolResult ignoreFirst = ignore(sequentialPool, sequentialPackages,
+                sequentialAction.actionId(), "ignore-first");
+        assertThat(ignoreFirst.success()).as(ignoreFirst.code()).isTrue();
+        assertThat(sequentialPool.getForGm(sequentialAction.actionId()).orElseThrow().status())
+                .isEqualTo(ActionStatus.WITHDRAWN);
+        assertThatThrownBy(() -> sequentialPackages.create(supervisor, "ignore-first 包",
+                List.of(sequentialAction.actionId()), 3600, "ignore-first-create"))
+                .isInstanceOfSatisfying(ActionPackageException.class,
+                        failure -> assertThat(failure.code()).isIn(
+                                ActionPackageException.CONFLICT,
+                                ActionPackageException.INVALID_STATUS));
+        assertThat(sequentialPackages.list()).isEmpty();
+    }
+
+    private static void assertIgnoreRejected(ActionPoolService pool,
+                                             ActionPackageService packages,
+                                             String actionId, String key,
+                                             ActionStatus expectedStatus) {
+        ToolResult result = ignore(pool, packages, actionId, key);
+        assertThat(result.success()).isFalse();
+        assertThat(result.code()).isEqualTo(ActionPoolException.ACTION_IN_CANONICAL_PACKAGE);
+        assertThat(pool.getForGm(actionId).orElseThrow().status())
+                .isEqualTo(expectedStatus);
+    }
+
+    private static ToolResult ignore(ActionPoolService pool, ActionPackageService packages,
+                                     String actionId, String key) {
+        return callAsRole(List.of(GmActionPoolMcpTools.ignore(pool, packages)),
+                "supervisor", GmActionPoolMcpTools.IGNORE, Map.of(
+                        "actionId", actionId,
+                        "idempotencyKey", key,
+                        "reason", "canonical owner 测试"),
+                Set.of(GmActionPoolMcpTools.IGNORE));
+    }
+
     private void startServicesOnly() {
         startServicesOnly(FakeLlmClient.with());
     }
@@ -545,5 +732,39 @@ class ControlMcpServerDecisionToolsTest {
         ToolContext context = new ToolContext(AccessToken.DEFAULT, permissions,
                 Map.of(), arguments, AgentIdentity.external());
         return ToolCallAuthorizer.standard().execute(registry, toolName, context);
+    }
+
+    private static final class FlakyActionPoolStore implements ActionPoolStore {
+        private final InMemoryActionPoolStore delegate = new InMemoryActionPoolStore();
+        private boolean failSaves;
+        private boolean failProjectionSaves;
+
+        @Override
+        public ActionPoolSnapshot load() {
+            return delegate.load();
+        }
+
+        @Override
+        public void save(ActionPoolSnapshot snapshot) {
+            if (failSaves) {
+                throw new IllegalStateException("模拟 ActionPool 投影写失败");
+            }
+            delegate.save(snapshot);
+        }
+
+        @Override
+        public void save(ActionPoolSnapshot snapshot, DomainEvent event) {
+            if (failSaves || (failProjectionSaves && event != null
+                    && isProjectionEvent(event.eventType()))) {
+                throw new IllegalStateException("模拟 ActionPool 投影写失败");
+            }
+            delegate.save(snapshot);
+        }
+
+        private static boolean isProjectionEvent(String eventType) {
+            return DomainEventTypes.ACTION_SELECTED.equals(eventType)
+                    || DomainEventTypes.ACTION_RELEASED.equals(eventType)
+                    || DomainEventTypes.ACTION_COMMITTED.equals(eventType);
+        }
     }
 }

@@ -40,6 +40,7 @@ public final class TicketService {
     /** 兼容按完整稳定码命名的调用方。 */
     public static final String TICKET_STORE_UNAVAILABLE = STORE_UNAVAILABLE;
     public static final String IDEMPOTENCY_KEY_CONFLICT = "IDEMPOTENCY_KEY_CONFLICT";
+    public static final String CONFLICT = "CONFLICT";
 
     public static final int MAX_TITLE_CHARS = 200;
     public static final int MAX_BODY_BYTES = 16 * 1024;
@@ -97,7 +98,7 @@ public final class TicketService {
         String ticketId = UUID.randomUUID().toString();
         Ticket ticket = new Ticket(ticketId, type, player.actorId(), player.actorId(),
                 title, body, TicketStatus.OPEN, 1L, now, now,
-                null, List.of(), null, null);
+                null, List.of(), null, null, null);
         TicketCommandResult result = TicketCommandResult.success(ticketId, 1L);
         TicketSnapshot next = state.withTickets(List.of(ticket), idempotencyKey,
                 fingerprint, result);
@@ -128,7 +129,7 @@ public final class TicketService {
         String ticketId = UUID.randomUUID().toString();
         Ticket ticket = new Ticket(ticketId, TicketType.GM_NOTE, null, gm.actorId(),
                 title, body, TicketStatus.OPEN, 1L, now, now,
-                null, List.of(), null, null);
+                null, List.of(), null, null, null);
         TicketCommandResult result = TicketCommandResult.success(ticketId, 1L);
         TicketSnapshot next = state.withTickets(List.of(ticket), idempotencyKey,
                 fingerprint, result);
@@ -220,7 +221,7 @@ public final class TicketService {
         Ticket updated = new Ticket(ticket.ticketId(), ticket.type(), ticket.playerId(),
                 ticket.authorActorId(), ticket.title(), ticket.body(), TicketStatus.CLAIMED,
                 ticket.revision() + 1, ticket.createdAt(), now, gm.actorId(),
-                ticket.replies(), null, null);
+                ticket.replies(), null, null, ticket.relatedActionId());
         TicketCommandResult result = TicketCommandResult.success(ticketId, updated.revision());
         TicketSnapshot next = state.withTickets(List.of(updated), idempotencyKey,
                 fingerprint, result);
@@ -273,7 +274,7 @@ public final class TicketService {
         Ticket updated = new Ticket(ticket.ticketId(), ticket.type(), ticket.playerId(),
                 ticket.authorActorId(), ticket.title(), ticket.body(), TicketStatus.RESOLVED,
                 ticket.revision() + 1, ticket.createdAt(), now, ticket.claimedBy(),
-                replies, null, null);
+                replies, null, null, ticket.relatedActionId());
         TicketCommandResult result = TicketCommandResult.success(ticketId, updated.revision());
         TicketSnapshot next = state.withTickets(List.of(updated), idempotencyKey,
                 fingerprint, result);
@@ -347,7 +348,7 @@ public final class TicketService {
             replacements.add(new Ticket(ticket.ticketId(), ticket.type(), ticket.playerId(),
                     ticket.authorActorId(), ticket.title(), ticket.body(),
                     TicketStatus.RESOLVED, ticket.revision() + 1, ticket.createdAt(), now,
-                    ticket.claimedBy(), replies, null, null));
+                    ticket.claimedBy(), replies, null, null, ticket.relatedActionId()));
         }
         long maxRevision = replacements.stream().mapToLong(Ticket::revision).max().orElse(0);
         TicketCommandResult result = TicketCommandResult.success(null, maxRevision);
@@ -410,12 +411,80 @@ public final class TicketService {
         Ticket updated = new Ticket(ticket.ticketId(), ticket.type(), ticket.playerId(),
                 ticket.authorActorId(), ticket.title(), ticket.body(), TicketStatus.CLOSED,
                 ticket.revision() + 1, ticket.createdAt(), now, ticket.claimedBy(),
-                ticket.replies(), gm.actorId(), reason);
+                ticket.replies(), gm.actorId(), reason, ticket.relatedActionId());
         TicketCommandResult result = TicketCommandResult.success(ticketId, updated.revision());
         TicketSnapshot next = state.withTickets(List.of(updated), idempotencyKey,
                 fingerprint, result);
         return commit(next, result, event(DomainEventTypes.TICKET_CLOSED, gm, ticketId, next,
                 summary(updated, next, idempotencyKey), now));
+    }
+
+    /**
+     * 将 ACTION_DRAFT 工单关联到 ActionPool action。只允许 GM 侧；OPEN/CLAIMED 会转为
+     * CLAIMED。同 action 重复关联幂等返回；不同 action 或终态工单拒绝。
+     */
+    public synchronized TicketCommandResult attachAction(Actor gm, String ticketId,
+                                                          long expectedRevision,
+                                                          String actionId,
+                                                          String idempotencyKey) {
+        TicketCommandResult keyFailure = validateIdempotencyKey(idempotencyKey);
+        if (keyFailure != null) {
+            return keyFailure;
+        }
+        if (!isGmSide(gm)) {
+            return failure(FORBIDDEN, "只有 GM/DIRECTOR/SUPERVISOR 可以关联行动",
+                    ticketId, 0);
+        }
+        if (ticketId == null || ticketId.isBlank()) {
+            return failure(INVALID_ARGUMENT, "ticketId 不能为空", null, 0);
+        }
+        if (actionId == null || actionId.isBlank()) {
+            return failure(INVALID_ARGUMENT, "actionId 不能为空", ticketId, 0);
+        }
+        if (expectedRevision < 0) {
+            return failure(INVALID_ARGUMENT, "expectedRevision 不能为负", ticketId, 0);
+        }
+        String fingerprint = attachActionFingerprint(gm, ticketId, expectedRevision, actionId);
+        TicketCommandResult duplicate = duplicateOrConflict(idempotencyKey, fingerprint);
+        if (duplicate != null) {
+            return duplicate;
+        }
+        Ticket ticket = findRequired(ticketId);
+        if (ticket == null) {
+            return failure(TICKET_NOT_FOUND, "工单不存在", ticketId, 0);
+        }
+        if (ticket.type() != TicketType.ACTION_DRAFT) {
+            return failure(INVALID_STATUS, "只有 ACTION_DRAFT 工单可以关联行动",
+                    ticketId, ticket.revision());
+        }
+        if (ticket.relatedActionId() != null) {
+            if (ticket.relatedActionId().equals(actionId)) {
+                return TicketCommandResult.success(ticketId, ticket.revision());
+            }
+            return failure(CONFLICT, "工单已关联其他行动", ticketId, ticket.revision());
+        }
+        if (ticket.status() != TicketStatus.OPEN
+                && ticket.status() != TicketStatus.CLAIMED) {
+            return failure(INVALID_STATUS, "只有 OPEN/CLAIMED 工单可以关联行动",
+                    ticketId, ticket.revision());
+        }
+        if (ticket.revision() != expectedRevision) {
+            return failure(REVISION_CONFLICT, "工单版本已变化，请刷新后重试",
+                    ticketId, ticket.revision());
+        }
+        Instant now = clock.instant();
+        Ticket updated = new Ticket(ticket.ticketId(), ticket.type(), ticket.playerId(),
+                ticket.authorActorId(), ticket.title(), ticket.body(), TicketStatus.CLAIMED,
+                ticket.revision() + 1, ticket.createdAt(), now, gm.actorId(),
+                ticket.replies(), null, null, actionId);
+        TicketCommandResult result = TicketCommandResult.success(ticketId, updated.revision());
+        TicketSnapshot next = state.withTickets(List.of(updated), idempotencyKey,
+                fingerprint, result);
+        Map<String, Object> summary = summary(updated, next, idempotencyKey);
+        summary.put("actionId", actionId);
+        summary.put("relatedActionId", actionId);
+        return commit(next, result, event(DomainEventTypes.TICKET_ACTION_LINKED, gm,
+                ticketId, next, summary, now));
     }
 
     public synchronized TicketSnapshot snapshot() {
@@ -436,6 +505,7 @@ public final class TicketService {
             item.put("createdAt", ticket.createdAt().toString());
             item.put("updatedAt", ticket.updatedAt().toString());
             item.put("claimedBy", ticket.claimedBy());
+            item.put("relatedActionId", ticket.relatedActionId());
             item.put("replyCount", ticket.replies().size());
             item.put("closedBy", ticket.closedBy());
             result.add(java.util.Collections.unmodifiableMap(item));
@@ -559,6 +629,12 @@ public final class TicketService {
                                            long expectedRevision, String reason) {
         return requestFingerprint("CLOSE", actor, ticketId, expectedRevision,
                 List.of(shaOrEmpty(reason)));
+    }
+
+    private static String attachActionFingerprint(Actor actor, String ticketId,
+                                                   long expectedRevision, String actionId) {
+        return requestFingerprint("ATTACH_ACTION", actor, ticketId, expectedRevision,
+                List.of(actionId));
     }
 
     private static String requestFingerprint(String command, Actor actor, String ticketId,

@@ -107,6 +107,7 @@ final class GmTicketToolSupport {
         item.put("createdAt", ticket.createdAt().toString());
         item.put("updatedAt", ticket.updatedAt().toString());
         item.put("claimedBy", ticket.claimedBy());
+        item.put("relatedActionId", ticket.relatedActionId());
         item.put("replyCount", ticket.replies().size());
         return item;
     }

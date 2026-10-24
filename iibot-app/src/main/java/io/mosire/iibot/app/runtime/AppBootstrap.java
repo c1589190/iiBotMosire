@@ -22,6 +22,7 @@ import io.mosire.iibot.app.event.TaskflowSnapshotEventRecorder;
 import io.mosire.iibot.app.event.TaskflowSnapshotStore;
 import io.mosire.iibot.app.event.content.EventContentStore;
 import io.mosire.iibot.app.event.migration.LegacyEventMigrator;
+import io.mosire.iibot.app.decision.ActionPackageRecoveryService;
 import io.mosire.iibot.app.decision.LlmActionBatchExecutor;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
 import io.mosire.iibot.app.publication.EventSourcedPostStore;
@@ -51,6 +52,7 @@ import io.mosire.iibot.taskflow.complaint.ComplaintService;
 import io.mosire.iibot.taskflow.decision.ActionBatchExecutor;
 import io.mosire.iibot.taskflow.decision.ActionPackageService;
 import io.mosire.iibot.taskflow.skill.SharedSkillStore;
+import io.mosire.iibot.taskflow.ticket.TicketActionPromotionService;
 import io.mosire.iibot.taskflow.ticket.TicketService;
 import io.mosire.iibot.taskflow.event.EventSink;
 import io.mosire.iibot.taskflow.post.PostService;
@@ -252,8 +254,12 @@ public final class AppBootstrap {
             ActionPoolService actionPoolService = new ActionPoolService(
                     new EventSourcedActionPoolStore(eventContentStore, domainEventJournal, clock),
                     clock);
-            ActionPackageService actionPackageService = new ActionPackageService(
-                    actionPoolService, new DecisionPackages(), clock);
+            TicketActionPromotionService ticketActionPromotionService =
+                    new TicketActionPromotionService(ticketService, actionPoolService);
+            ActionPackageRecoveryService packageRecoveryService =
+                    new ActionPackageRecoveryService(eventContentStore, domainEventJournal, clock);
+            ActionPackageService actionPackageService =
+                    packageRecoveryService.recover(actionPoolService);
             ActionBatchExecutor actionBatchExecutor = new LlmActionBatchExecutor(
                     engine, adjudicatorLlm, clock);
             LlmBriefingService briefingService = new LlmBriefingService(secretaryLlm);
@@ -326,7 +332,8 @@ public final class AppBootstrap {
                     complaintDistributor, secretaryWorkspaceStore, secretaryRegistry,
                     postService, sharedSkillStore, complaintService,
                     actionPoolService, actionPackageService, actionBatchExecutor,
-                    controlBootstrapService, gmPrivateDocs, ticketService);
+                    controlBootstrapService, gmPrivateDocs, ticketService,
+                    ticketActionPromotionService);
             runtime = new AppRuntime(config, engine, interactionService, adapter, dispatcher,
                     outbox, scheduler, eventSink, eventReadPort, eventContentStore,
                     snapshotStore, worldDocs, controlPlane, controlBootstrapService);
@@ -494,7 +501,9 @@ public final class AppBootstrap {
                                                     ActionBatchExecutor actionBatchExecutor,
                                                     ControlBootstrapService controlBootstrapService,
                                                     GmPrivateDocs gmPrivateDocs,
-                                                    TicketService ticketService) {
+                                                    TicketService ticketService,
+                                                    TicketActionPromotionService
+                                                            ticketActionPromotionService) {
         if (!(options.controlPlane() instanceof NoopControlPlane)) {
             return options.controlPlane();
         }
@@ -517,6 +526,7 @@ public final class AppBootstrap {
                 .sharedSkillStore(sharedSkillStore)
                 .complaintService(complaintService)
                 .ticketService(ticketService)
+                .ticketActionPromotionService(ticketActionPromotionService)
                 .actionPoolService(actionPoolService)
                 .actionPackageService(actionPackageService)
                 .actionBatchExecutor(actionBatchExecutor)

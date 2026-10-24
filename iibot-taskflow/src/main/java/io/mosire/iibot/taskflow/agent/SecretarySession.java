@@ -456,9 +456,15 @@ public final class SecretarySession {
         this.window = new ContextWindow("secretary:" + playerId);
 
         List<AgentTool> availableTools = new ArrayList<>();
-        availableTools.add(new DecisionDraftCreateTool(engine, clock));
-        availableTools.add(new DecisionDraftUpdateTool(engine));
-        availableTools.add(new RequestBriefTool(this::requestBrief));
+        if (ticketService == null) {
+            // 旧 DecisionDraft 仅在未注入统一 TicketService 的兼容装配中保留，
+            // 并保持原有工具顺序/brief 位置不变。
+            availableTools.add(new DecisionDraftCreateTool(engine, clock));
+            availableTools.add(new DecisionDraftUpdateTool(engine));
+            availableTools.add(new RequestBriefTool(this::requestBrief));
+        } else {
+            availableTools.add(new RequestBriefTool(this::requestBrief));
+        }
         if (workspaceStore != null) {
             availableTools.addAll(SecretaryWorkspaceTools.all(workspaceStore));
         }
@@ -474,16 +480,19 @@ public final class SecretarySession {
         } else if (complaintService != null) {
             availableTools.addAll(SecretaryComplaintTools.all(complaintService));
         }
-        if (actionPoolService != null) {
+        if (ticketService == null && actionPoolService != null) {
             availableTools.addAll(SecretaryActionTools.all(actionPoolService));
         }
         this.tools = List.copyOf(availableTools);
 
         AgentPermissionSet.Builder permissionBuilder = AgentPermissionSet.builder(AccessToken.DEFAULT)
-                .allow(DecisionDraftCreateTool.NAME, DecisionDraftUpdateTool.NAME,
-                        RequestBriefTool.NAME)
+                .allow(RequestBriefTool.NAME)
                 .roles(RoleSet.of(SECRETARY_ROLE));
-        if (ticketService != null || complaintService != null || actionPoolService != null) {
+        if (ticketService == null) {
+            permissionBuilder.allow(DecisionDraftCreateTool.NAME, DecisionDraftUpdateTool.NAME);
+        }
+        if (ticketService != null || complaintService != null
+                || (ticketService == null && actionPoolService != null)) {
             // 工单/投诉工具与行动池 submit 声明 sensitive=true；只对显式装配的会话放行敏感位。
             permissionBuilder.sensitiveAllowed(true);
         }
@@ -521,7 +530,7 @@ public final class SecretarySession {
             resourceScopes.put(ComplaintStore.RESOURCE_NAMESPACE,
                     ResourceScope.of(ComplaintStore.RESOURCE_NAMESPACE));
         }
-        if (actionPoolService != null) {
+        if (ticketService == null && actionPoolService != null) {
             permissionBuilder.allow(SecretaryActionTools.SUBMIT,
                     SecretaryActionTools.LIST,
                     SecretaryActionTools.WITHDRAW);

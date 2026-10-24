@@ -11,6 +11,8 @@ public final class ActionPoolException extends RuntimeException {
     public static final String INVALID_STATUS = "INVALID_STATUS";
     public static final String STORE_UNAVAILABLE = "STORE_UNAVAILABLE";
     public static final String CORRUPT_SNAPSHOT = "CORRUPT_SNAPSHOT";
+    public static final String CONFLICT = "CONFLICT";
+    public static final String ACTION_IN_CANONICAL_PACKAGE = "ACTION_IN_CANONICAL_PACKAGE";
 
     private final String code;
 

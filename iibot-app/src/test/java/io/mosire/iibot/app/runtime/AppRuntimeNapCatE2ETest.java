@@ -14,9 +14,11 @@ import io.mosire.iibot.app.support.MockNapCatServer.HttpAction;
 import io.mosire.iibot.app.support.TestSupport;
 import io.mosire.iibot.connect.core.AdapterStatus.ConnectionState;
 import io.mosire.iibot.connect.napcat.NapCatAdapter;
+import io.mosire.iibot.taskflow.Actor;
+import io.mosire.iibot.taskflow.ActorRole;
 import io.mosire.iibot.taskflow.DecisionDraft;
+import io.mosire.iibot.taskflow.DecisionDraftInput;
 import io.mosire.iibot.taskflow.TurnState;
-import io.mosire.iibot.taskflow.agent.DecisionDraftCreateTool;
 import io.mosire.iibot.taskflow.agent.SubmitAdjudicationTool;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -75,13 +77,7 @@ class AppRuntimeNapCatE2ETest {
                     .isEqualTo(mock.httpBaseUri().getPort());
 
             FakeLlmClient llm = FakeLlmClient.with(
-                    LlmResponse.toolCall("draft-call", DecisionDraftCreateTool.NAME, Map.of(
-                            "intent", "调查失踪船队",
-                            "actions", List.of("询问船工", "搜查仓库"),
-                            "resources", Map.of("people", "3"),
-                            "target", "北码头",
-                            "contingency", "遇到危险立即撤回")),
-                    LlmResponse.text("草稿已生成，请在私聊确认。"),
+                    LlmResponse.text("行动草稿请通过工单提交给 GM。"),
                     LlmResponse.toolCall("submit-call", SubmitAdjudicationTool.NAME, Map.of(
                             "publicNarrative", "船队失踪的线索指向北码头。",
                             "playerOutcomes", Map.of("player-1", "你找到了航海日志。"),
@@ -112,12 +108,17 @@ class AppRuntimeNapCatE2ETest {
                 pushAndAwait(runtime, mock, "qq-p1", "/帮助", 1001L, 1);
                 // 2) 推演 /开回合 30
                 pushAndAwait(runtime, mock, "qq-director", "/开回合 30", 1002L, 1);
-                // 3) 玩家自然语言聊天（Fake LLM: draft toolCall + final text）
+                // 3) 玩家自然语言聊天走 Ticket 默认面；旧 Turn 链路直接经引擎准备草稿。
                 pushAndAwait(runtime, mock, "qq-p1", "帮我起草调查失踪船队的决策", 1003L, 1);
-                assertThat(await(() -> runtime.engine().turnView()
-                                .map(turn -> !turn.drafts().isEmpty()).orElse(false),
-                        Duration.ofSeconds(5))).isTrue();
-                DecisionDraft draft = runtime.engine().turnView().orElseThrow().drafts().get(0);
+                var opened = runtime.engine().turnView().orElseThrow();
+                var createdDraft = runtime.engine().createDecisionDraft(
+                        new Actor("player-1", ActorRole.PLAYER),
+                        new DecisionDraftInput("调查失踪船队", List.of("询问船工", "搜查仓库"),
+                                Map.of("people", "3"), "北码头", "遇到危险立即撤回", opened.closesAt()),
+                        opened.revision(), "napcat-e2e-draft");
+                assertThat(createdDraft.ok()).isTrue();
+                DecisionDraft draft = runtime.engine().draft(
+                        createdDraft.referenceId().orElseThrow()).orElseThrow();
                 assertThat(draft.playerId()).isEqualTo("player-1");
 
                 // 4) 玩家硬确认，draftId 来自真实引擎
@@ -137,7 +138,7 @@ class AppRuntimeNapCatE2ETest {
                 assertThat(runtime.engine().turnView().orElseThrow().state())
                         .isEqualTo(TurnState.PUBLISHED);
                 assertThat(runtime.engine().status().worldVersion()).isEqualTo(2);
-                assertThat(llm.requests()).as("仅聊天与推演各两次 LLM 往返").hasSize(4);
+                assertThat(llm.requests()).as("Ticket 默认聊天一次 + 推演两次 LLM 往返").hasSize(3);
 
                 List<HttpAction> sends = mock.sendActions();
                 assertThat(sends).as("7 条命令回复 + 公开群结果 + 玩家私密结果")
@@ -163,7 +164,7 @@ class AppRuntimeNapCatE2ETest {
                 // 7 条命令回复（私聊回原用户）。
                 assertPrivateSend(sends, "qq-p1", "玩家命令");
                 assertPrivateSend(sends, "qq-director", "回合已开启");
-                assertPrivateSend(sends, "qq-p1", "草稿已生成");
+                assertPrivateSend(sends, "qq-p1", "行动草稿请通过工单提交给 GM");
                 assertPrivateSend(sends, "qq-p1", "已确认决策");
                 assertPrivateSend(sends, "qq-director", "回合已冻结");
                 assertPrivateSend(sends, "qq-director", "推演已提交");

@@ -8,9 +8,12 @@ import io.mosire.iibot.app.support.FakeLlmClient;
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
 import io.mosire.iibot.app.support.TestSupport;
 import io.mosire.iibot.connect.core.OutboundMessage;
+import io.mosire.iibot.taskflow.Actor;
+import io.mosire.iibot.taskflow.ActorRole;
 import io.mosire.iibot.taskflow.DecisionDraft;
+import io.mosire.iibot.taskflow.DecisionDraftInput;
 import io.mosire.iibot.taskflow.TurnState;
-import io.mosire.iibot.taskflow.agent.DecisionDraftCreateTool;
+import io.mosire.iibot.taskflow.TurnView;
 import io.mosire.iibot.taskflow.agent.SubmitAdjudicationTool;
 import io.mosire.iibot.taskflow.event.EventType;
 import io.mosire.iibot.taskflow.event.TaskflowEvent;
@@ -45,13 +48,7 @@ class AppRuntimeFakeFlowTest {
         AppConfig config = TestSupport.loadConfig(configFile);
 
         FakeLlmClient llm = FakeLlmClient.with(
-                LlmResponse.toolCall("draft-call", DecisionDraftCreateTool.NAME, Map.of(
-                        "intent", "调查失踪船队",
-                        "actions", List.of("询问船工", "搜查仓库"),
-                        "resources", Map.of("people", "3"),
-                        "target", "北码头",
-                        "contingency", "遇到危险立即撤回")),
-                LlmResponse.text("草稿已生成，请在私聊确认。"),
+                LlmResponse.text("行动草稿请通过工单提交给 GM。"),
                 LlmResponse.toolCall("submit-call", SubmitAdjudicationTool.NAME, Map.of(
                         "publicNarrative", "船队失踪的线索指向北码头。",
                         "playerOutcomes", Map.of("player-1", "你找到了航海日志。"),
@@ -76,8 +73,16 @@ class AppRuntimeFakeFlowTest {
             assertThat(lastText(adapter)).contains("回合已开启");
 
             send(runtime, adapter, "qq-p1", "帮我起草调查失踪船队的决策", "m-chat");
-            assertThat(lastText(adapter)).contains("草稿已生成");
-            DecisionDraft draft = runtime.engine().turnView().orElseThrow().drafts().get(0);
+            assertThat(lastText(adapter)).contains("工单");
+            TurnView opened = runtime.engine().turnView().orElseThrow();
+            var createdDraft = runtime.engine().createDecisionDraft(
+                    new Actor("player-1", ActorRole.PLAYER),
+                    new DecisionDraftInput("调查失踪船队", List.of("询问船工", "搜查仓库"),
+                            Map.of("people", "3"), "北码头", "遇到危险立即撤回", opened.closesAt()),
+                    opened.revision(), "fake-flow-draft");
+            assertThat(createdDraft.ok()).isTrue();
+            DecisionDraft draft = runtime.engine().draft(
+                    createdDraft.referenceId().orElseThrow()).orElseThrow();
             assertThat(draft.playerId()).isEqualTo("player-1");
 
             send(runtime, adapter, "qq-p1", "/确认 " + draft.draftId(), "m-confirm");

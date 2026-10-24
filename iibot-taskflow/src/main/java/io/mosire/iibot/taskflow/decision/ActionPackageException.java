@@ -10,6 +10,11 @@ public final class ActionPackageException extends RuntimeException {
     public static final String NOT_FOUND = "NOT_FOUND";
     public static final String NOT_PROPOSED = "NOT_PROPOSED";
     public static final String INVALID_STATUS = "INVALID_STATUS";
+    public static final String CONFLICT = "CONFLICT";
+    public static final String EVENT_JOURNAL_UNAVAILABLE = "EVENT_JOURNAL_UNAVAILABLE";
+    public static final String PACKAGE_RECOVERY_INCOMPLETE = "PACKAGE_RECOVERY_INCOMPLETE";
+    public static final String PACKAGE_ACTION_RECONCILE_FAILED =
+            "PACKAGE_ACTION_RECONCILE_FAILED";
 
     private final String code;
 

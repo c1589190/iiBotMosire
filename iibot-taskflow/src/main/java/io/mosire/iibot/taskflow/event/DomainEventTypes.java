@@ -56,6 +56,12 @@ public final class DomainEventTypes {
     public static final String PACKAGE_DECIDED = "PACKAGE_DECIDED";
     public static final String PACKAGE_COMMITTED = "PACKAGE_COMMITTED";
     public static final String PACKAGE_PROJECTION = "PACKAGE_PROJECTION";
+    /** P5-A 兼容常量；P5-B 实际写入 STARTED/APPLIED/FAILED 三阶段事件。 */
+    public static final String PACKAGE_COMMAND = "PACKAGE_COMMAND";
+    public static final String PACKAGE_COMMAND_PREFIX = "PACKAGE_COMMAND_";
+    public static final String PACKAGE_COMMAND_STARTED = "PACKAGE_COMMAND_STARTED";
+    public static final String PACKAGE_COMMAND_APPLIED = "PACKAGE_COMMAND_APPLIED";
+    public static final String PACKAGE_COMMAND_FAILED = "PACKAGE_COMMAND_FAILED";
 
     public static final String BATCH_CREATED = "BATCH_CREATED";
     public static final String BATCH_COMPLETED = "BATCH_COMPLETED";
@@ -92,6 +98,7 @@ public final class DomainEventTypes {
     public static final String TICKET_CLAIMED = "TICKET_CLAIMED";
     public static final String TICKET_REPLIED = "TICKET_REPLIED";
     public static final String TICKET_BATCH_REPLIED = "TICKET_BATCH_REPLIED";
+    public static final String TICKET_ACTION_LINKED = "TICKET_ACTION_LINKED";
     public static final String TICKET_RESOLVED = "TICKET_RESOLVED";
     public static final String TICKET_CLOSED = "TICKET_CLOSED";
     /** 兼容 Store.save(snapshot) 的完整 TicketSnapshot 事件。 */

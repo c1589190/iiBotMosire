@@ -72,7 +72,7 @@ class AppBootstrapSharedSkillComplaintTest {
             client = client(server);
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(60)
+            assertThat(names).hasSize(61)
                     .containsAll(GmSharedSkillMcpTools.NAMES)
                     .containsAll(GmTicketMcpTools.NAMES)
                     .containsAll(ControlBootstrapMcpTools.NAMES)

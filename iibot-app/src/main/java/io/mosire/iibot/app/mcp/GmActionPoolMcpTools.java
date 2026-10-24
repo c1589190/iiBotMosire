@@ -8,6 +8,7 @@ import io.mosire.iibot.taskflow.action.ActionPoolService;
 import io.mosire.iibot.taskflow.action.ActionPoolStore;
 import io.mosire.iibot.taskflow.action.ActionStatus;
 import io.mosire.iibot.taskflow.action.PlayerAction;
+import io.mosire.iibot.taskflow.decision.ActionPackageService;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,11 +28,24 @@ public final class GmActionPoolMcpTools {
     private GmActionPoolMcpTools() {
     }
 
-    /** 三个工具，顺序稳定。 */
+    /** 兼容无 package 服务的旧装配。 */
     public static List<AgentTool> all(ActionPoolService actionPoolService) {
+        return all(actionPoolService, null, null);
+    }
+
+    /** 兼容二元装配；package 服务非空时使用宿主默认 supervisor 身份。 */
+    public static List<AgentTool> all(ActionPoolService actionPoolService,
+                                      ActionPackageService actionPackageService) {
+        return all(actionPoolService, actionPackageService, null);
+    }
+
+    /** package 服务非空时 ignore 与 canonical 包写共享同一 ActionPackageService 监视器。 */
+    public static List<AgentTool> all(ActionPoolService actionPoolService,
+                                      ActionPackageService actionPackageService,
+                                      Actor supervisor) {
         Objects.requireNonNull(actionPoolService, "actionPoolService");
         return List.of(list(actionPoolService), get(actionPoolService),
-                ignore(actionPoolService));
+                ignore(actionPoolService, actionPackageService, supervisor));
     }
 
     public static AgentTool list(ActionPoolService actionPoolService) {
@@ -86,8 +100,23 @@ public final class GmActionPoolMcpTools {
                 });
     }
 
+    /** 兼容无 package 服务的旧装配。 */
     public static AgentTool ignore(ActionPoolService actionPoolService) {
+        return ignore(actionPoolService, null, null);
+    }
+
+    /** 兼容二元装配；package 服务非空时使用宿主默认 supervisor 身份。 */
+    public static AgentTool ignore(ActionPoolService actionPoolService,
+                                   ActionPackageService actionPackageService) {
+        return ignore(actionPoolService, actionPackageService, null);
+    }
+
+    public static AgentTool ignore(ActionPoolService actionPoolService,
+                                   ActionPackageService actionPackageService,
+                                   Actor supervisor) {
         Objects.requireNonNull(actionPoolService, "actionPoolService");
+        Actor effectiveSupervisor = supervisor == null
+                ? new Actor("external-supervisor", ActorRole.SUPERVISOR) : supervisor;
         Map<String, Object> schema = Map.of(
                 "type", "object",
                 "description", "GM 忽略一条 QUEUED 行动（WITHDRAWN）；不能取消 SELECTED/COMMITTED。",
@@ -112,14 +141,22 @@ public final class GmActionPoolMcpTools {
                     String reason = GmDecisionToolSupport.requiredText(
                             context.arguments(), "reason",
                             GmDecisionToolSupport.MAX_NOTE_CHARS);
-                    PlayerAction current = actionPoolService.getForGm(actionId)
-                            .orElseThrow(() -> new ActionPoolException(
-                                    ActionPoolException.NOT_FOUND,
-                                    "行动不存在: " + actionId));
-                    // 行动池的公开撤回口绑定 PLAYER 身份。这里由宿主依据已认证 supervisor
-                    // 的明确 ignore 决策构造目标玩家本体；模型不能选择 playerId。
-                    PlayerAction ignored = actionPoolService.withdraw(
-                            new Actor(current.playerId(), ActorRole.PLAYER), actionId, key);
+                    PlayerAction ignored;
+                    if (actionPackageService != null) {
+                        // 在 ActionPackageService 同一监视器内完成 canonical owner 检查与
+                        // withdraw，防止 ignore 与 create/append/commit 发生 TOCTOU。
+                        ignored = actionPackageService.ignoreAction(
+                                effectiveSupervisor, actionId, key, reason);
+                    } else {
+                        PlayerAction current = actionPoolService.getForGm(actionId)
+                                .orElseThrow(() -> new ActionPoolException(
+                                        ActionPoolException.NOT_FOUND,
+                                        "行动不存在: " + actionId));
+                        // 旧兼容装配：行动池公开撤回口绑定 PLAYER 身份；模型不能选择 playerId。
+                        ignored = actionPoolService.withdraw(
+                                new Actor(current.playerId(), ActorRole.PLAYER),
+                                actionId, key);
+                    }
                     Map<String, Object> data = new LinkedHashMap<>();
                     data.put("actionId", ignored.actionId());
                     data.put("status", ignored.status().name());

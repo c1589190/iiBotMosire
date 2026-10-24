@@ -31,6 +31,7 @@ import io.mosire.iibot.taskflow.complaint.ComplaintStore;
 import io.mosire.iibot.taskflow.skill.SharedSkillStore;
 import io.mosire.iibot.taskflow.post.PostService;
 import io.mosire.iibot.taskflow.post.PostStore;
+import io.mosire.iibot.taskflow.ticket.TicketActionPromotionService;
 import io.mosire.iibot.taskflow.ticket.TicketService;
 import io.mosire.iibot.taskflow.ticket.TicketStore;
 import io.mosire.iibot.taskflow.workspace.GmPrivateDocs;
@@ -53,6 +54,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -126,6 +128,7 @@ public final class ControlMcpServer implements ControlPlane {
     private final SharedSkillStore sharedSkillStore;
     private final ComplaintService complaintService;
     private final TicketService ticketService;
+    private final TicketActionPromotionService ticketActionPromotionService;
     private final ActionPoolService actionPoolService;
     private final ActionPackageService actionPackageService;
     private final ActionBatchExecutor actionBatchExecutor;
@@ -160,6 +163,7 @@ public final class ControlMcpServer implements ControlPlane {
         this.sharedSkillStore = builder.sharedSkillStore;
         this.complaintService = builder.complaintService;
         this.ticketService = builder.ticketService;
+        this.ticketActionPromotionService = builder.ticketActionPromotionService;
         this.actionPoolService = builder.actionPoolService;
         this.actionPackageService = builder.actionPackageService;
         this.actionBatchExecutor = builder.actionBatchExecutor;
@@ -247,7 +251,12 @@ public final class ControlMcpServer implements ControlPlane {
                 }
                 if (ticketService != null) {
                     // 完整 Ticket 装配取代旧 complaint MCP 三工具，避免双重状态主路径。
-                    for (var tool : GmTicketMcpTools.all(ticketService, supervisor)) {
+                    List<io.mosire.agentlib.tool.AgentTool> ticketTools =
+                            ticketActionPromotionService == null
+                                    ? GmTicketMcpTools.all(ticketService, supervisor)
+                                    : GmTicketMcpTools.all(ticketService,
+                                            ticketActionPromotionService, supervisor);
+                    for (var tool : ticketTools) {
                         registry.register(tool);
                     }
                 } else if (complaintService != null) {
@@ -256,7 +265,8 @@ public final class ControlMcpServer implements ControlPlane {
                     }
                 }
                 if (actionPoolService != null) {
-                    for (var tool : GmActionPoolMcpTools.all(actionPoolService)) {
+                    for (var tool : GmActionPoolMcpTools.all(
+                            actionPoolService, actionPackageService, supervisor)) {
                         registry.register(tool);
                     }
                 }
@@ -628,7 +638,10 @@ public final class ControlMcpServer implements ControlPlane {
             allTools.addAll(GmSharedSkillMcpTools.NAMES);
         }
         if (ticketService != null) {
-            allTools.addAll(GmTicketMcpTools.NAMES);
+            allTools.addAll(GmTicketMcpTools.BASE_NAMES);
+            if (ticketActionPromotionService != null) {
+                allTools.add(GmTicketPromoteActionTool.NAME);
+            }
         } else if (complaintService != null) {
             allTools.addAll(GmComplaintMcpTools.NAMES);
         }
@@ -670,7 +683,7 @@ public final class ControlMcpServer implements ControlPlane {
             scopes.put(ComplaintStore.RESOURCE_NAMESPACE,
                     ResourceScope.of(ComplaintStore.RESOURCE_NAMESPACE));
         }
-        if (actionPoolService != null) {
+        if (actionPoolService != null || ticketActionPromotionService != null) {
             scopes.put(ActionPoolStore.RESOURCE_NAMESPACE,
                     ResourceScope.of(ActionPoolStore.RESOURCE_NAMESPACE));
         }
@@ -748,6 +761,7 @@ public final class ControlMcpServer implements ControlPlane {
         private SharedSkillStore sharedSkillStore;
         private ComplaintService complaintService;
         private TicketService ticketService;
+        private TicketActionPromotionService ticketActionPromotionService;
         private ActionPoolService actionPoolService;
         private ActionPackageService actionPackageService;
         private ActionBatchExecutor actionBatchExecutor;
@@ -856,6 +870,17 @@ public final class ControlMcpServer implements ControlPlane {
          */
         public Builder ticketService(TicketService ticketService) {
             this.ticketService = Objects.requireNonNull(ticketService, "ticketService");
+            return this;
+        }
+
+        /**
+         * 可选注入 ACTION_DRAFT 晋升编排。仅在 TicketService 同时注入时注册
+         * tf_ticket_promote_action；完整控制面工具数变为 61。
+         */
+        public Builder ticketActionPromotionService(
+                TicketActionPromotionService ticketActionPromotionService) {
+            this.ticketActionPromotionService = Objects.requireNonNull(
+                    ticketActionPromotionService, "ticketActionPromotionService");
             return this;
         }
 

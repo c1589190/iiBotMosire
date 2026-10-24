@@ -10,9 +10,13 @@ import io.mosire.iibot.app.support.FakeLlmClient;
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
 import io.mosire.iibot.app.support.TestSupport;
 import io.mosire.iibot.taskflow.action.ActionPoolService;
+import io.mosire.iibot.taskflow.agent.DecisionDraftCreateTool;
+import io.mosire.iibot.taskflow.agent.DecisionDraftUpdateTool;
+import io.mosire.iibot.taskflow.agent.RequestBriefTool;
 import io.mosire.iibot.taskflow.agent.SecretaryActionTools;
 import io.mosire.iibot.taskflow.agent.SecretarySession;
 import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
+import io.mosire.iibot.taskflow.agent.SecretaryTicketTools;
 import io.mosire.iibot.taskflow.decision.ActionBatchExecutor;
 import io.mosire.iibot.taskflow.decision.ActionPackageService;
 import org.junit.jupiter.api.Test;
@@ -64,12 +68,23 @@ class AppBootstrapDecisionWiringTest {
             assertThat(sessions.all()).hasSize(2);
             for (SecretarySession session : sessions.all()) {
                 assertThat(session.actionPoolService()).isSameAs(pool);
+                assertThat(session.ticketService()).isNotNull();
                 assertThat(session.tools()).extracting(tool -> tool.name())
-                        .contains(SecretaryActionTools.SUBMIT,
+                        .contains(RequestBriefTool.NAME,
+                                SecretaryTicketTools.SUBMIT,
+                                SecretaryTicketTools.LIST,
+                                SecretaryTicketTools.READ)
+                        .doesNotContain(DecisionDraftCreateTool.NAME,
+                                DecisionDraftUpdateTool.NAME,
+                                SecretaryActionTools.SUBMIT,
                                 SecretaryActionTools.LIST,
-                                SecretaryActionTools.WITHDRAW);
+                                SecretaryActionTools.WITHDRAW,
+                                "secretary_complaint_submit");
+                assertThat(session.permissions().isToolAllowed(RequestBriefTool.NAME)).isTrue();
                 assertThat(session.permissions().isToolAllowed(
-                        SecretaryActionTools.SUBMIT)).isTrue();
+                        SecretaryTicketTools.SUBMIT)).isTrue();
+                assertThat(session.permissions().isToolAllowed(
+                        SecretaryActionTools.SUBMIT)).isFalse();
             }
         } finally {
             runtime.close();

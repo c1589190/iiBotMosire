@@ -11,13 +11,14 @@ import io.mosire.iibot.app.support.FakeLlmClient;
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
 import io.mosire.iibot.app.support.TestSupport;
 import io.mosire.iibot.connect.core.OutboundMessage;
+import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.ActorRole;
 import io.mosire.iibot.taskflow.DecisionDraft;
+import io.mosire.iibot.taskflow.DecisionDraftInput;
 import io.mosire.iibot.taskflow.DraftStatus;
 import io.mosire.iibot.taskflow.SettingProposalStatus;
 import io.mosire.iibot.taskflow.TurnState;
 import io.mosire.iibot.taskflow.TurnView;
-import io.mosire.iibot.taskflow.agent.DecisionDraftCreateTool;
 import io.mosire.iibot.taskflow.event.EventType;
 import io.mosire.iibot.taskflow.event.TaskflowEvent;
 import io.mosire.iibot.taskflow.snapshot.TaskflowStateSnapshot;
@@ -53,14 +54,10 @@ class AppRestartRecoveryTest {
         Path snapshotFile = config.dataDir().resolve("taskflow-state.json");
         Path eventsFile = config.dataDir().resolve("events.db");
 
+        // P5 完整装配默认走 ACTION_DRAFT ticket；本测试保留旧 Turn/确认链路，
+        // 因此用一个非 tool-call 回复，然后直接经引擎准备已确认决策。
         FakeLlmClient firstLlm = FakeLlmClient.with(
-                LlmResponse.toolCall("draft-call", DecisionDraftCreateTool.NAME, Map.of(
-                        "intent", "调查北码头",
-                        "actions", List.of("询问船工", "搜查仓库"),
-                        "resources", Map.of("people", "3"),
-                        "target", "北码头",
-                        "contingency", "遇险撤回")),
-                LlmResponse.text("草稿已生成，请确认。"));
+                LlmResponse.text("行动草稿请通过工单提交给 GM。"));
         FakeMessagingAdapter firstAdapter = new FakeMessagingAdapter();
         AppRuntime first = AppBootstrap.build(config,
                 BootstrapOptions.fake(SECRETS, CLOCK, firstLlm, firstAdapter));
@@ -79,12 +76,18 @@ class AppRestartRecoveryTest {
             send(first, firstAdapter, "qq-director", "/开回合 30", "m-open");
             assertThat(lastText(firstAdapter)).contains("回合已开启");
             send(first, firstAdapter, "qq-p1", "帮我起草调查北码头的决策", "m-chat");
-            assertThat(lastText(firstAdapter)).contains("草稿已生成");
+            assertThat(lastText(firstAdapter)).contains("工单");
 
             TurnView opened = first.engine().turnView().orElseThrow();
-            DecisionDraft draft = opened.drafts().get(0);
-            draftId = draft.draftId();
-            send(first, firstAdapter, "qq-p1", "/确认 " + draftId, "m-confirm");
+            var createdDraft = first.engine().createDecisionDraft(
+                    new Actor("player-1", ActorRole.PLAYER),
+                    new DecisionDraftInput("调查北码头", List.of("询问船工", "搜查仓库"),
+                            Map.of("people", "3"), "北码头", "遇险撤回", opened.closesAt()),
+                    opened.revision(), "restart-recovery-draft");
+            assertThat(createdDraft.ok()).isTrue();
+            draftId = createdDraft.referenceId().orElseThrow();
+            DecisionDraft draft = first.engine().draft(draftId).orElseThrow();
+            send(first, firstAdapter, "qq-p1", "/确认 " + draft.draftId(), "m-confirm");
             assertThat(lastText(firstAdapter)).contains("已确认决策");
 
             send(first, firstAdapter, "qq-p1", "/提议设定 北码头旧灯塔重新点亮", "m-propose");

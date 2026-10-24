@@ -34,6 +34,8 @@ public final class ActionPoolService {
     public static final int MAX_TEXT_BYTES = 16 * 1024;
 
     private static final String PACKAGE_ACTOR = "system:action-package";
+    private static final String TICKET_ACTOR = "system:action-ticket";
+    private static final String TICKET_SOURCE_PREFIX = "ticket:";
 
     private final ActionPoolStore store;
     private final Clock clock;
@@ -92,6 +94,70 @@ public final class ActionPoolService {
         save(next, actionEvent(now, DomainEventTypes.ACTION_SUBMITTED,
                 player.role(), player.actorId(), action, next, idempotencyKey));
         return action;
+    }
+
+    /**
+     * 宿主/GM 晋升专用：从 ACTION_DRAFT ticket 创建 QUEUED action。
+     *
+     * <p>不检查回合状态；source 固定为 {@code ticket:<ticketId>}，同一 ticket 重复调用返回
+     * 同一 action。actor 是明确的宿主 system actor，不是模型可控身份。</p>
+     */
+    public synchronized PlayerAction submitFromTicket(String playerId, String ticketId,
+                                                       String text, String idempotencyKey) {
+        requireText(playerId, "playerId");
+        requireText(ticketId, "ticketId");
+        requireText(text, "text");
+        requireText(idempotencyKey, "idempotencyKey");
+        int bytes = text.getBytes(StandardCharsets.UTF_8).length;
+        if (bytes == 0 || bytes > MAX_TEXT_BYTES) {
+            throw new ActionPoolException(ActionPoolException.INVALID_ARGUMENTS,
+                    "text 必须为 1.." + MAX_TEXT_BYTES + " UTF-8 字节");
+        }
+        String source = TICKET_SOURCE_PREFIX + ticketId;
+        Optional<PlayerAction> linked = findViewById(ticketId);
+        if (linked.isPresent()) {
+            PlayerAction action = linked.get();
+            if (!action.playerId().equals(playerId)) {
+                throw new ActionPoolException(ActionPoolException.CORRUPT_SNAPSHOT,
+                        "同一 ticket 的 action 属于其他玩家");
+            }
+            return action;
+        }
+        Optional<String> previousId = snapshot.idempotentActionId(playerId, idempotencyKey);
+        if (previousId.isPresent()) {
+            PlayerAction previous = findAction(previousId.get());
+            if (source.equals(previous.source())) {
+                return previous;
+            }
+            throw new ActionPoolException(ActionPoolException.CONFLICT,
+                    "idempotencyKey 已被其他来源使用");
+        }
+
+        Instant now = clock.instant();
+        PlayerAction action = new PlayerAction("act-" + UUID.randomUUID(), playerId,
+                text, ActionStatus.QUEUED, null, now, now, source, idempotencyKey);
+        List<PlayerAction> actions = new ArrayList<>(snapshot.actions());
+        actions.add(action);
+        Map<String, Map<String, String>> idempotent = copyIdempotentResults(snapshot);
+        idempotent.put(playerId, withResult(idempotent.get(playerId),
+                idempotencyKey, action.actionId()));
+        ActionPoolSnapshot next = new ActionPoolSnapshot(actions, idempotent);
+        save(next, actionEvent(now, DomainEventTypes.ACTION_SUBMITTED,
+                ActorRole.SUPERVISOR, TICKET_ACTOR, action, next, idempotencyKey));
+        return action;
+    }
+
+    /** 按 ticket source 查找已晋升行动；只读。 */
+    public synchronized Optional<PlayerAction> findByTicketId(String ticketId) {
+        requireText(ticketId, "ticketId");
+        return findViewById(ticketId);
+    }
+
+    private Optional<PlayerAction> findViewById(String ticketId) {
+        String source = TICKET_SOURCE_PREFIX + ticketId;
+        return snapshot.actions().stream()
+                .filter(action -> source.equals(action.source()))
+                .findFirst();
     }
 
     /** 某玩家自己的全部行动（按提交顺序）。 */

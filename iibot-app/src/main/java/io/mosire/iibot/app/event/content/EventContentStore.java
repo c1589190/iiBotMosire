@@ -115,6 +115,30 @@ public final class EventContentStore implements EventAppendPort, AutoCloseable {
             LIMIT 1
             """;
 
+    private static final String SELECT_BY_TYPE_PREFIX = """
+            SELECT e.seq, e.ts, e.type, e.agent, e.payload, e.correlation_id,
+                   e.turn_id, e.event_version, e.visibility, e.content_hash,
+                   e.payload_json, e.content_missing,
+                   c.content_type, c.content_json, c.content_text
+            FROM events e
+            LEFT JOIN event_contents c ON c.seq = e.seq
+            WHERE substr(e.type, 1, ?) = ?
+            ORDER BY e.seq ASC
+            LIMIT ?
+            """;
+
+    private static final String SELECT_BY_TYPE_PREFIX_AFTER = """
+            SELECT e.seq, e.ts, e.type, e.agent, e.payload, e.correlation_id,
+                   e.turn_id, e.event_version, e.visibility, e.content_hash,
+                   e.payload_json, e.content_missing,
+                   c.content_type, c.content_json, c.content_text
+            FROM events e
+            LEFT JOIN event_contents c ON c.seq = e.seq
+            WHERE substr(e.type, 1, ?) = ? AND e.seq > ?
+            ORDER BY e.seq ASC
+            LIMIT ?
+            """;
+
     private final Path dbFile;
     private final Connection connection;
     private final EventContentSanitizer sanitizer;
@@ -341,6 +365,68 @@ public final class EventContentStore implements EventAppendPort, AutoCloseable {
             } catch (SQLException e) {
                 throw new IllegalStateException(
                         "[EVENT_DB_READ] 读取最新前缀事件失败 prefix=" + prefix, e);
+            }
+        }
+    }
+
+    /**
+     * 按事件类型前缀读取有界完整事件（seq 升序）。用于命令日志重放。
+     */
+    public List<StoredEvent> readByTypePrefix(String prefix) {
+        return readByTypePrefix(prefix, 10_000);
+    }
+
+    /**
+     * 非分页兼容读取：最多 limit 条；若实际还有更多则 fail-closed，拒绝静默截断。
+     */
+    public List<StoredEvent> readByTypePrefix(String prefix, int limit) {
+        if (prefix == null || prefix.isBlank()) {
+            throw new IllegalArgumentException("eventTypePrefix 不能为空白");
+        }
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit 必须为正");
+        }
+        List<StoredEvent> events = readByTypePrefix(prefix, 0L, limit + 1);
+        if (events.size() > limit) {
+            throw new IllegalStateException(
+                    "[EVENT_DB_READ] 前缀事件超过 limit，拒绝静默截断 prefix="
+                            + prefix + " limit=" + limit);
+        }
+        return events;
+    }
+
+    /**
+     * 分页读取：seq 升序、exclusive afterSeq，最多 limit 条。
+     */
+    public List<StoredEvent> readByTypePrefix(String prefix, long afterSeq, int limit) {
+        if (prefix == null || prefix.isBlank()) {
+            throw new IllegalArgumentException("eventTypePrefix 不能为空白");
+        }
+        if (afterSeq < 0) {
+            throw new IllegalArgumentException("afterSeq 不能为负");
+        }
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit 必须为正");
+        }
+        synchronized (lock) {
+            ensureOpen();
+            try (PreparedStatement statement = connection.prepareStatement(
+                    SELECT_BY_TYPE_PREFIX_AFTER)) {
+                statement.setInt(1, prefix.length());
+                statement.setString(2, prefix);
+                statement.setLong(3, afterSeq);
+                statement.setInt(4, limit);
+                List<StoredEvent> events = new ArrayList<>();
+                try (ResultSet rs = statement.executeQuery()) {
+                    while (rs.next()) {
+                        events.add(readRow(rs));
+                    }
+                }
+                return List.copyOf(events);
+            } catch (SQLException e) {
+                throw new IllegalStateException(
+                        "[EVENT_DB_READ] 分页读取前缀事件失败 prefix=" + prefix
+                                + " afterSeq=" + afterSeq, e);
             }
         }
     }

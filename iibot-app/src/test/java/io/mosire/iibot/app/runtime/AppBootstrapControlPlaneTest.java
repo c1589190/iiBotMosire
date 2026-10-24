@@ -121,7 +121,7 @@ class AppBootstrapControlPlaneTest {
 
             McpSchema.ListToolsResult list = client.listTools();
             assertThat(list.tools().stream().map(McpSchema.Tool::name))
-                    .hasSize(60)
+                    .hasSize(61)
                     .contains(RunAdjudicationAgentTool.NAME, GmAideChatTool.NAME,
                             GmSecretaryListTool.NAME, GmSecretaryReadTool.NAME,
                             GmSecretaryDispatchTool.NAME, GmSecretaryChatTool.NAME,

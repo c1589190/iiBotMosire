@@ -7,6 +7,7 @@ import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.mosire.agentlib.llm.LlmResponse;
 import io.mosire.agentlib.permission.AccessToken;
 import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolCallAuthorizer;
@@ -18,6 +19,7 @@ import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.control.ControlBootstrapService;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
 import io.mosire.iibot.app.mcp.GmComplaintMcpTools;
+import io.mosire.iibot.app.mcp.GmDecisionPackageMcpTools;
 import io.mosire.iibot.app.mcp.GmTicketBatchReplyTool;
 import io.mosire.iibot.app.mcp.GmTicketBoardTool;
 import io.mosire.iibot.app.mcp.GmTicketClaimTool;
@@ -26,6 +28,7 @@ import io.mosire.iibot.app.mcp.GmTicketGetTool;
 import io.mosire.iibot.app.mcp.GmTicketListTool;
 import io.mosire.iibot.app.mcp.GmTicketMcpTools;
 import io.mosire.iibot.app.mcp.GmTicketNoteCreateTool;
+import io.mosire.iibot.app.mcp.GmTicketPromoteActionTool;
 import io.mosire.iibot.app.mcp.GmTicketReplyTool;
 import io.mosire.iibot.app.support.FakeLlmClient;
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
@@ -35,8 +38,13 @@ import io.mosire.iibot.taskflow.ActorRole;
 import io.mosire.iibot.taskflow.agent.SecretarySession;
 import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
 import io.mosire.iibot.taskflow.agent.SecretaryTicketTools;
+import io.mosire.iibot.taskflow.action.ActionPoolService;
+import io.mosire.iibot.taskflow.action.ActionStatus;
+import io.mosire.iibot.taskflow.action.PlayerAction;
 import io.mosire.iibot.taskflow.agent.SecretaryToolContext;
+import io.mosire.iibot.taskflow.decision.ActionPackageService;
 import io.mosire.iibot.taskflow.ticket.Ticket;
+import io.mosire.iibot.taskflow.ticket.TicketActionPromotionService;
 import io.mosire.iibot.taskflow.ticket.TicketService;
 import io.mosire.iibot.taskflow.ticket.TicketStatus;
 import io.mosire.iibot.taskflow.ticket.TicketType;
@@ -79,11 +87,12 @@ class AppBootstrapTicketMcpTest {
 
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(60)
+            assertThat(names).hasSize(61)
                     .containsAll(GmTicketMcpTools.NAMES)
                     .doesNotContain(GmComplaintMcpTools.NAMES.toArray(String[]::new));
 
-            assertTicketToolMetadata(ticketService(server));
+            assertTicketToolMetadata(ticketService(server),
+                    ticketActionPromotionService(server));
             assertLegacyComplaintToolsUnavailable(client);
 
             SecretarySession session = secretarySessions(server).find("player-1").orElseThrow();
@@ -226,6 +235,115 @@ class AppBootstrapTicketMcpTest {
     }
 
     @Test
+    void promoteActionTicketsThroughPackageFlowProducesTwoIndependentBatches() throws Exception {
+        AppConfig config = config();
+        FakeLlmClient llm = FakeLlmClient.with(
+                LlmResponse.text("P5 批次一推演完成"),
+                LlmResponse.text("P5 批次二推演完成"));
+        AppRuntime runtime = AppBootstrap.build(config,
+                BootstrapOptions.fake(secrets(), Clock.systemUTC(), llm,
+                        new FakeMessagingAdapter()));
+        McpSyncClient client = null;
+        try {
+            runtime.start();
+            ControlMcpServer server = controlServer(runtime);
+            client = client(server);
+            SecretarySession session = secretarySessions(server).find("player-1").orElseThrow();
+
+            String t1 = submitTicket(session, "player-1", TicketType.ACTION_DRAFT,
+                    "行动草稿一", "行动正文一-甲", "p5-ad-submit-1");
+            String t2 = submitTicket(session, "player-1", TicketType.ACTION_DRAFT,
+                    "行动草稿二", "行动正文二-乙", "p5-ad-submit-2");
+            String t3 = submitTicket(session, "player-1", TicketType.ACTION_DRAFT,
+                    "行动草稿三", "行动正文三-丙", "p5-ad-submit-3");
+            String t4 = submitTicket(session, "player-1", TicketType.ACTION_DRAFT,
+                    "行动草稿四", "行动正文四-丁", "p5-ad-submit-4");
+
+            String a1 = promoteAction(client, t1, 1L, "p5-promote-1");
+            assertThat(promoteAction(client, t1, 2L, "p5-promote-1-repeat"))
+                    .isEqualTo(a1);
+            String a2 = promoteAction(client, t2, 1L, "p5-promote-2");
+            String a3 = promoteAction(client, t3, 1L, "p5-promote-3");
+            String a4 = promoteAction(client, t4, 1L, "p5-promote-4");
+            assertThat(ticketService(server).getForGm(t1).orElseThrow().relatedActionId())
+                    .isEqualTo(a1);
+            assertThat(actionPoolService(server).listForGm()).hasSize(4)
+                    .allSatisfy(action -> assertThat(action.status())
+                            .isEqualTo(ActionStatus.QUEUED));
+
+            String pkg1 = data(client.callTool(new McpSchema.CallToolRequest(
+                    GmDecisionPackageMcpTools.CREATE, Map.of(
+                            "title", "P5 第一包",
+                            "actionIds", List.of(a1, a2),
+                            "deadlineSeconds", 3600,
+                            "idempotencyKey", "p5-pkg-create-1"))))
+                    .path("packageId").asText();
+            assertToolOk(client.callTool(new McpSchema.CallToolRequest(
+                    GmDecisionPackageMcpTools.APPEND, Map.of(
+                            "packageId", pkg1, "actionIds", List.of(a3)))), "package append");
+            assertToolOk(client.callTool(new McpSchema.CallToolRequest(
+                    GmDecisionPackageMcpTools.REPLACE_ITEM, Map.of(
+                            "packageId", pkg1, "index", 1, "actionId", a4))),
+                    "package replace");
+            assertToolOk(client.callTool(new McpSchema.CallToolRequest(
+                    GmDecisionPackageMcpTools.REMOVE_ITEM, Map.of(
+                            "packageId", pkg1, "index", 2))), "package remove");
+            assertToolOk(client.callTool(new McpSchema.CallToolRequest(
+                    GmDecisionPackageMcpTools.DECIDE, Map.of(
+                            "packageId", pkg1,
+                            "approvedIndexes", List.of(0, 1),
+                            "note", "P5 第一包全部批准"))), "package decide");
+            McpSchema.CallToolResult commit1 = client.callTool(
+                    new McpSchema.CallToolRequest(GmDecisionPackageMcpTools.COMMIT,
+                            Map.of("packageId", pkg1)));
+            assertToolOk(commit1, "package commit 1");
+            JsonNode commit1Data = data(commit1);
+            assertThat(commit1Data.path("receiptStatus").asText()).isEqualTo("COMMITTED");
+            assertThat(commit1Data.path("actionCount").asInt()).isEqualTo(2);
+            String batch1 = commit1Data.path("batchId").asText();
+
+            String pkg2 = data(client.callTool(new McpSchema.CallToolRequest(
+                    GmDecisionPackageMcpTools.CREATE, Map.of(
+                            "title", "P5 第二包",
+                            "actionIds", List.of(a2, a3),
+                            "deadlineSeconds", 3600,
+                            "idempotencyKey", "p5-pkg-create-2"))))
+                    .path("packageId").asText();
+            assertToolOk(client.callTool(new McpSchema.CallToolRequest(
+                    GmDecisionPackageMcpTools.DECIDE, Map.of(
+                            "packageId", pkg2,
+                            "approvedIndexes", List.of(0),
+                            "note", "P5 第二包只批乙"))), "package 2 decide");
+            McpSchema.CallToolResult commit2 = client.callTool(
+                    new McpSchema.CallToolRequest(GmDecisionPackageMcpTools.COMMIT,
+                            Map.of("packageId", pkg2)));
+            assertToolOk(commit2, "package commit 2");
+            JsonNode commit2Data = data(commit2);
+            assertThat(commit2Data.path("receiptStatus").asText()).isEqualTo("COMMITTED");
+            assertThat(commit2Data.path("actionCount").asInt()).isEqualTo(1);
+            String batch2 = commit2Data.path("batchId").asText();
+            assertThat(batch1).isNotEqualTo(batch2);
+
+            ActionPoolService pool = actionPoolService(server);
+            assertThat(pool.getForGm(a1).orElseThrow().status())
+                    .isEqualTo(ActionStatus.COMMITTED);
+            assertThat(pool.getForGm(a4).orElseThrow().status())
+                    .isEqualTo(ActionStatus.COMMITTED);
+            assertThat(pool.getForGm(a2).orElseThrow().status())
+                    .isEqualTo(ActionStatus.COMMITTED);
+            assertThat(pool.getForGm(a3).orElseThrow().status())
+                    .isEqualTo(ActionStatus.QUEUED);
+            assertThat(actionPackageService(server).batches()).hasSize(2)
+                    .extracting(batch -> batch.batchId()).contains(batch1, batch2);
+        } finally {
+            if (client != null) {
+                client.closeGracefully();
+            }
+            runtime.close();
+        }
+    }
+
+    @Test
     void ticketServiceAndSecretaryTicketToolsSurviveRestart() throws Exception {
         AppConfig config = config();
         String ticketId;
@@ -281,10 +399,12 @@ class AppBootstrapTicketMcpTest {
         }
     }
 
-    private static void assertTicketToolMetadata(TicketService ticketService) {
+    private static void assertTicketToolMetadata(TicketService ticketService,
+                                                 TicketActionPromotionService promotionService) {
         Actor supervisor = new Actor(ControlBootstrapService.SUPERVISOR_ACTOR_ID,
                 ActorRole.SUPERVISOR);
-        List<AgentTool> tools = GmTicketMcpTools.all(ticketService, supervisor);
+        List<AgentTool> tools = GmTicketMcpTools.all(
+                ticketService, promotionService, supervisor);
         assertThat(tools).extracting(AgentTool::name)
                 .containsExactlyElementsOf(GmTicketMcpTools.NAMES);
         assertThat(tools).allSatisfy(tool -> {
@@ -303,6 +423,22 @@ class AppBootstrapTicketMcpTest {
             }
             assertThat(result.isError()).as("hidden complaint tool " + name).isTrue();
         }
+    }
+
+    private static String promoteAction(McpSyncClient client, String ticketId,
+                                        long expectedRevision, String idempotencyKey) {
+        McpSchema.CallToolResult result = client.callTool(
+                new McpSchema.CallToolRequest(GmTicketPromoteActionTool.NAME, Map.of(
+                        "ticketId", ticketId,
+                        "expectedRevision", expectedRevision,
+                        "idempotencyKey", idempotencyKey)));
+        assertToolOk(result, "ticket promote action");
+        JsonNode resultData = data(result);
+        assertThat(resultData.path("status").asText()).isEqualTo("CLAIMED");
+        String actionId = resultData.path("actionId").asText();
+        assertThat(actionId).isNotBlank();
+        assertThat(wireText(result)).doesNotContain("行动正文");
+        return actionId;
     }
 
     private static String submitTicket(SecretarySession session, String playerId,
@@ -405,6 +541,26 @@ class AppBootstrapTicketMcpTest {
         Field field = ControlMcpServer.class.getDeclaredField("ticketService");
         field.setAccessible(true);
         return (TicketService) field.get(server);
+    }
+
+    private static TicketActionPromotionService ticketActionPromotionService(
+            ControlMcpServer server) throws Exception {
+        Field field = ControlMcpServer.class.getDeclaredField("ticketActionPromotionService");
+        field.setAccessible(true);
+        return (TicketActionPromotionService) field.get(server);
+    }
+
+    private static ActionPoolService actionPoolService(ControlMcpServer server) throws Exception {
+        Field field = ControlMcpServer.class.getDeclaredField("actionPoolService");
+        field.setAccessible(true);
+        return (ActionPoolService) field.get(server);
+    }
+
+    private static ActionPackageService actionPackageService(ControlMcpServer server)
+            throws Exception {
+        Field field = ControlMcpServer.class.getDeclaredField("actionPackageService");
+        field.setAccessible(true);
+        return (ActionPackageService) field.get(server);
     }
 
     private static String wireText(McpSchema.CallToolResult result) {

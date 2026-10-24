@@ -24,7 +24,17 @@ public record Ticket(
         String claimedBy,
         List<TicketReply> replies,
         String closedBy,
-        String closeReason) {
+        String closeReason,
+        String relatedActionId) {
+
+    /** 兼容 P4 的 14 参构造器；新工单默认未关联 action。 */
+    public Ticket(String ticketId, TicketType type, String playerId, String authorActorId,
+                  String title, String body, TicketStatus status, long revision,
+                  Instant createdAt, Instant updatedAt, String claimedBy,
+                  List<TicketReply> replies, String closedBy, String closeReason) {
+        this(ticketId, type, playerId, authorActorId, title, body, status, revision,
+                createdAt, updatedAt, claimedBy, replies, closedBy, closeReason, null);
+    }
 
     public Ticket {
         if (ticketId == null || ticketId.isBlank()) {
@@ -59,6 +69,12 @@ public record Ticket(
         if (claimedBy != null && claimedBy.isBlank()) {
             throw new IllegalArgumentException("claimedBy 提供时不能为空白");
         }
+        if (relatedActionId != null && relatedActionId.isBlank()) {
+            throw new IllegalArgumentException("relatedActionId 提供时不能为空白");
+        }
+        if (relatedActionId != null && type != TicketType.ACTION_DRAFT) {
+            throw new IllegalArgumentException("只有 ACTION_DRAFT 可以关联 action");
+        }
         replies = replies == null ? List.of() : List.copyOf(replies);
         for (TicketReply reply : replies) {
             Objects.requireNonNull(reply, "reply");
@@ -83,7 +99,8 @@ public record Ticket(
         return "Ticket{ticketId=" + ticketId + ", type=" + type
                 + ", playerId=" + playerId + ", status=" + status
                 + ", revision=" + revision + ", authorActorId=" + authorActorId
-                + ", claimedBy=" + claimedBy + ", replyCount=" + replies.size()
+                + ", claimedBy=" + claimedBy + ", relatedActionId=" + relatedActionId
+                + ", replyCount=" + replies.size()
                 + ", createdAt=" + createdAt + ", updatedAt=" + updatedAt + '}';
     }
 }
