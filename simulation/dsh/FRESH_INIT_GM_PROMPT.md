@@ -5,6 +5,9 @@
 > **重要**：不要在本 DSH 会话里停止 app 或移动 runtime，否则 MCP 连接会断开；runtime 复位必须由宿主 shell 在启动 DSH 之前完成。
 > 开场/公告的真实出站仍须真人 GM 确认。D-017 的公屏自主入团是受控例外：
 > 来源消息 opt-in、群 allowlist、配额和单 QQ 幂等全部通过时，Agent 可自主发送报名卡。
+>
+> **QQ 后端已迁移 LLBot 8.3.2**（WS 3001 / HTTP 3000）。当前 app 已由宿主停止，
+> 接管启动、LLBot 差异和核验命令见 [`LLBOT_HANDOFF.md`](LLBOT_HANDOFF.md)。
 
 ---
 

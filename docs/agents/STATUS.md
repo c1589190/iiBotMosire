@@ -1,10 +1,10 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-25 01:10（Asia/Shanghai）
+> **更新时间**：2026-10-25 01:13（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
-## 0. 最新更新（2026-10-25 01:10）
+## 0. 最新更新（2026-10-25 01:13）
 
 - **D-017 平台级 QQ 能力与受控自主入团已实现代码与自动化测试**：
   connectlib `QqPlatformCapability`、NapCat 目录/历史/消息定位/临时私聊发送；
@@ -39,10 +39,11 @@
 - **simulation/dist jar**：已替换为 `484bebc2d486353c9cf9367838a9b415b7f0c60d7e486dd90da2c087c913d3cb`；
   旧 jar 备份为 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-010828`；
   替换前 runtime 备份：`simulation/runtime.backup-20261025-010828-pre-llbot-compat`。
-- **当前运行态**：app PID 8852，MCP 8765；LLBot 3000/3001；
-  回环代理 PID 9141（8766）；公屏 watcher PID 8922；工单板 watcher PID 8923；
-  DSH Connector 健康检查 PASS，77 工具；
-  `tf_status` recovery=true，worldVersion=5，turnNo=1，状态 OPEN。
+- **当前运行态**：app、回环代理与两个 watcher 已停止，8765/8766 空闲；
+  LLBot Docker 仍在 3000/3001 运行；
+  交接启动单：`simulation/dsh/LLBOT_HANDOFF.md`；
+  交接前 runtime 备份：`simulation/runtime.backup-20261025-011306-llbot-handoff`。
+- 交接前最后核验：`tf_status` recovery=true，worldVersion=5，turnNo=1，状态 OPEN。
 - 迁移细节：[`../../simulation/dsh/LLBOT_MIGRATION.md`](../../simulation/dsh/LLBOT_MIGRATION.md)。
 - 下一步：用真实玩家消息验证 D-020 的“明确行动直接起草”和“资料缺口主动查询”；
   128 轮预算已通过 `javap` 在部署 jar 中核验。真实外发仍需用户明确目标与授权。

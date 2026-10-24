@@ -6,6 +6,7 @@
 >
 > QQ 后端：LLOneBot 8.3.2 / OneBot v11，WS `127.0.0.1:3001`、HTTP `127.0.0.1:3000`。
 > 迁移细节与已知差异见 [`LLBOT_MIGRATION.md`](LLBOT_MIGRATION.md)。
+> 当前交接启动步骤见 [`LLBOT_HANDOFF.md`](LLBOT_HANDOFF.md)。
 
 ## 0. 两条接入路线
 
