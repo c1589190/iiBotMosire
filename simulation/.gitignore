@@ -1,6 +1,8 @@
 runtime/
 logs/
 config/*.local.json
-init/*.local.json
+init/
 tools/classes/
 dist/
+runtime.backup-*/
+runtime.partial-*/

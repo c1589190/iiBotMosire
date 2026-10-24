@@ -1,0 +1,36 @@
+{
+  "facts": [
+    {
+      "factId": "palatinia-world-date",
+      "visibility": "PUBLIC",
+      "content": "通行历1445年11月（帕拉丁历501年），古比奥—帕拉丁战争结束约半年。帕拉丁帝国官方称古比奥城下的撤军为“善意撤退”，首都举行过庆典；西境新行省进入战后第一个冬天。"
+    },
+    {
+      "factId": "palatinia-empire-baseline",
+      "visibility": "PUBLIC",
+      "content": "帕拉丁帝国是元首制军事—农业帝国，首都图拉真努斯城约40万人口，帝国总人口约435万。元首提奥略·克劳狄乌斯·奥古斯都兼任最高统帅与大祭司长；八大军团与禁卫军是帝国主要武力。"
+    },
+    {
+      "factId": "palatinia-war-aftermath",
+      "visibility": "PUBLIC",
+      "content": "古比奥城未破，帕拉丁围城部队因补给线被袭、攻城器械被焚而后撤。战争没有灭国或割地，但帝国不可战胜的叙事受损；军团缺额未补，军费逼近岁入五成，退伍、欠饷与冬营补给压力上升。"
+    },
+    {
+      "factId": "palatinia-west-province",
+      "visibility": "PUBLIC",
+      "content": "西境新行省以列蒂为首府，连接特尔尼河港、卡普亚通道和古比奥边境。军政府正向文官总督制过渡，税册重编、土地丈量、旧领主清算、驻军冬营和地方城市议会自治要求同时进行。"
+    },
+    {
+      "factId": "palatinia-winter-tensions",
+      "visibility": "PUBLIC",
+      "content": "西境战后第一个冬天，粮价上涨、道路泥泞、难民流动、走私增加；七柱神庙、元老院审计官、军团军需官、地方显贵、城市议会与包税人都在争取粮食、税源和解释权。"
+    },
+    {
+      "factId": "palatinia-director-truth",
+      "visibility": "DIRECTOR_ONLY",
+      "content": "GM内部：古比奥一役帕拉丁两个军团约1.8万人，实际伤亡约1700，约9%；官方宣称损失不到三分之一。真实军费逼近岁入五成，西境新占区第一年财政净支出。第一军团长被调任空壳北方军区。七大主神庙与科学学会、元老院与元首改革派的矛盾正在升级。以上数字需通过账册、战报、口供或职位权限逐步揭示。"
+    }
+  ],
+  "idempotencyKey": "palatinia-personal-world-v1",
+  "reason": "个人本零玩家控制面世界事实装载"
+}
