@@ -1,23 +1,27 @@
 # 当前状态总结
 
-> 更新时间：2026-10-24
+> 更新时间：2026-10-24（22:51 Asia/Shanghai）
 > 当前方向：《七柱之下：败退之后》个人本
 > 本文件只记录“现在是什么状态、哪些文档已成为正本、哪些事情尚未执行”，不替代设定裁定。
 
 ## 一、一句话结论
 
-程序不是本轮问题的来源。真正的问题是战役文档多次改版后没有收口：报名表、开本通知、秘书流程和 README 同时存在旧版与新版本，旧流程还要求六位确认码、QQ 后缀、长报名表和阅读工作区文件；这些内容与当前“五项基础信息、报名即提交、不反复确认、玩家不读文件”的要求冲突。
+当前 Palatinia 个人本已完成全量重新初始化。此前“雾灯港”的根因是旧测试世界事实与 Palatinia 事实同时留在运行态，秘书读到了错误的一组；不是 Palatinia 设定错误，也不是模型单独幻觉。
 
-现已把旧版本移入 `archive/`，并建立一套面向个人本的当前正本文档。
+本轮已停止旧 app、备份旧 runtime、用只含 Palatinia 6 条事实的初始文件重新 bootstrap，重新注册玩家和秘书、写入共享 Skill、重建工作区规则与当前处境，并发送新的特尔尼河港开局。下一步等待玩家第一项行动。
 
 ## 二、已经确认的事实
 
-- 用户已确认程序本身没有需要在本轮处理的问题。
 - 帕拉丁战后的世界设定可以使用；主舞台仍是通行历 1445 年 11 月的西境新行省。
-- 前一版文档的基础世界设定、考据裁定和秘书行为原则仍有价值，不需要推翻重写。
-- 文档整理完成后，已按当前用户指令启动 iibot 服务并建立个人本运行态。
-- 旧 9 人 runtime 已备份为 `simulation/runtime.backup-20261024-214715`；中间初始化快照备份为 `simulation/runtime.partial-20261024-214911`。当前 `simulation/runtime/` 是干净的 1 玩家个人本运行态。
-- 截至本文件更新时，没有产生任何真实 QQ 出站；公共报名表仍是待审草稿，等待真人 GM 明确确认。
+- 玩家已提供角色五项：康斯坦丁、男、20 岁、商人、来西境做生意的；其他背景未指定。
+- 旧 9 人 runtime 备份为 `simulation/runtime.backup-20261024-214715`；中间初始化快照备份为 `simulation/runtime.partial-20261024-214911`。
+- 第二次全量重开前的 runtime 备份为 `simulation/runtime.backup-20261024-224944-pre-reinit`。
+- 原运行态的 `worldFacts=11`，其中 4 条来自旧 `simulation/config/world-facts.sim.json` 的雾灯港测试世界；Palatinia 6 条只是追加，没有替换旧事实。
+- 新 runtime 从零 bootstrap：初始 worldVersion 1 只有 6 条 Palatinia 事实；注册玩家后追加 2 条玩家可见事实，当前 worldVersion 2、共 8 条事实。
+- 共享 Skill `skills/palatinia-secretary.md` 已重新写入；秘书工作区 AGENTS、世界常识、当前处境和个人规则均已重建。
+- 新秘书 cache 只有 `默认对话` 一个，0 条消息且 active；旧 cache 留在备份 runtime 中，不再参与当前会话。
+- 新的私聊开局已发出，私聊历史可见；系统 `deliveryState` 因 NapCat HTTP timeout 为 `UNKNOWN`，但正文已出现在私聊历史中，未自动重试。
+- 内部秘书健康检查和假设玩家“去市场看看”的试答均成功，回答只使用特尔尼河港与当前角色资料，没有雾灯港内容。
 
 ## 三、旧文档的具体问题
 
@@ -75,28 +79,37 @@
 
 > 真实 QQ 号、群号和临时 postId 只在与真人 GM 的聊天报告中出现，不写入仓库文档。
 
-- iibot app 已启动，MCP 控制面可用。
+- iibot app 当前未运行，MCP 控制面未启动；新 jar 已就位，等待下次启动 smoke。
 - 控制面已设置用户指定的公开群；director 1 名。
 - 当前注册玩家 1 名，已绑定独立秘书 Session。
-- `tf_status`：worldVersion=3，playerCount=1，directorCount=1，无活动回合。
+- `tf_status` 暂无在线进程可读；以下运行态快照来自 22:51 的 smoke 时点。
 - `tf_invariant_check`：PASS。
-- 实际 MCP 工具数：72（以 `tools/list` 为准）。
-- `world-facts.palatinia.json` 已装载：6 条事实，worldVersion 从 2 升到 3。
-- 共享 Skill `skills/palatinia-secretary.md` 已写入并读取。
-- 秘书工作区已有 `AGENTS.md`，并额外下发：
-  - `player/world-basics.md`：玩家常识摘要，供秘书转述；
-  - `gm/personal-bootstrap.md`：当前五项报名与开放角色规则覆盖。
-- 已创建一个 PUBLIC、PENDING_APPROVAL 的报名表草稿；尚未批准、尚未发布、没有真实 QQ 出站。
-- 当前没有活动回合，尚未开始正式推演。
+- `simulation/dist` jar 已替换为 sha256 `256944e469859f5bf84cb35a7850d5377a277cbbaef4c024a98c6effeeba8d52`；旧 smoke jar 已备份。
+- 实际 MCP 工具数：77（以 `tools/list` 为准）；`tf_qq_send_private/group` 因任意发送策略默认关闭而不在工具面。
+- 初始事实文件 `simulation/config/world-facts.sim.json` 只含 Palatinia 6 条事实；配置的 `promptVersion` 为 `palatinia-personal-v1`。
+- 当前运行态 8 条事实：
+  - 6 条 Palatinia 世界事实；
+  - 2 条仅玩家可见事实：康斯坦丁报名信息与特尔尼河港开局处境。
+- 共享 Skill `skills/palatinia-secretary.md` 已写入；当前玩家工作区有：
+  - `AGENTS.md`：Palatinia 当前版；
+  - `player/world-basics.md`：玩家可见世界常识；
+  - `player/current-situation.md`：康斯坦丁当前处境、留白边界和可选行动方向；
+  - `gm/personal-bootstrap.md`：报名与开本规则覆盖。
+- 秘书 cache：新 runtime 只有 1 个 `默认对话`，0 条消息，active。
+- 新开局私聊已发送；`tf_post_get` 的 deliveryState 为 `UNKNOWN`，但私聊历史已观察到正文，因此没有自动重试。
+- 内部秘书健康检查通过；假设玩家说“我去市场看看”时，秘书只使用特尔尼河港、粮价/仓租、税吏、军需粮队和商贩等当前资料回答，没有出现旧世界内容。
+- DSH MCP Connector 与只回环 token 注入代理曾于 smoke 时成功接入并调用 77 个工具；当前均已停止，待新 jar 重启后重连。
+- 只读公屏 watcher 与工单板 watcher 当前未运行。
+- 当前没有活动回合；等待玩家对特尔尼河港开局作出第一项行动。
 
 ## 七、剩余步骤
 
-1. 真人 GM 审核报名表草稿，明确确认后执行批准与发布。
-2. 玩家通过私聊提供姓名、性别、年龄、职位、其他介绍。
-3. 秘书整理并提交报名记录；GM 与玩家校准职位和开局地点。
-4. 准备角色卡、玩家可见世界常识与开局卡；保留玩家未明确的秘密、关系、目标和第一项行动。
-5. 全部准备就绪后，才开启第一回合。
+1. 玩家在私聊中说出第一项行动或表明要调查/接触哪位人物。
+2. 秘书整理成干净的行动草案；只有草案终稿且玩家完成宿主确认后，才进入行动池。
+3. GM 建包、裁定、commit，并生成玩家可见结果。
+4. 需要公开传播时，先审核推文，再由 GM 显式发布；`UNKNOWN` 不自动重试。
+5. `tf_post_compose` 守卫静默改写、旧消息回扫、出站 150ms 节奏已在源码修复；新 jar 已替换，待重启后做真实 smoke。
 
 ## 八、当前停止点
 
-报名表草稿已创建，正在等待真人 GM 明确确认发布。任何真实出站仍以 `tf_post_publish` 为唯一触发点。
+全量重新初始化与 smoke 已完成，新 Palatinia 开局已送达；当前 app、MCP Connector、只回环凭据代理和两个只读 watcher 均已停止，修复后的新 jar 已替换。下一步启动新 jar 做最终 smoke，再等待玩家第一项行动。

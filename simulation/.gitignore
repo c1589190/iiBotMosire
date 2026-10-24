@@ -6,3 +6,4 @@ tools/classes/
 dist/
 runtime.backup-*/
 runtime.partial-*/
+config/*.backup-*
