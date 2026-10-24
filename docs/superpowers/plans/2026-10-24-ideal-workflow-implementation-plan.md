@@ -1,6 +1,6 @@
 # 理想 GM 控制工作流实施计划（2026-10-24）
 
-> **状态**：计划有效；P0（v3 行动池/裁定包）与 P1（events.db 完整内容基础）已提交；P2（现有领域事件接入与 JSON 迁移）已完成并提交 `0fbceaa`；P3（控制初始化 + GM 私有文档）已提交 `615595d`；P4（统一工单/消息板）已提交 `5fb5d8c`；P5（ACTION_DRAFT→ActionPool→DecisionPackages、包/批次恢复）已提交 `06d9e1a`；P6（发布编排、回合 Markdown 投影、记录查询）已完成实现/测试/阶段评审/full gate，待提交。
+> **状态**：计划有效；P0（v3 行动池/裁定包）与 P1（events.db 完整内容基础）已提交；P2（现有领域事件接入与 JSON 迁移）已完成并提交 `0fbceaa`；P3（控制初始化 + GM 私有文档）已提交 `615595d`；P4（统一工单/消息板）已提交 `5fb5d8c`；P5（ACTION_DRAFT→ActionPool→DecisionPackages、包/批次恢复）已提交 `06d9e1a`；P6（发布编排、回合 Markdown 投影、记录查询）已完成实现/测试/多轮阶段评审/full gate，提交 `d3a9c91`；P7 用户裁定跳过；下一步 P8 真实模拟。
 > **性质**：计划不是设计；事件 schema、数据所有权、工具语义以
 > [`../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md`](../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md) 为准。
 > **当前事实**：以 [`../../agents/STATUS.md`](../../agents/STATUS.md) 为准。本文件里的测试数/工期是预测，不是实测。
@@ -233,7 +233,7 @@ P8 真实 MCP/LLM/多玩家/发布回归与发布
 
 ### P6 发布编排 + Markdown 回合投影 + 查询工具
 
-**状态**：已完成实现/测试/多轮阶段评审/full gate（504 tests）；待提交。
+**状态**：已完成实现/测试/多轮阶段评审/full gate（504 tests）；提交 `d3a9c91`。
 
 **目标**：GM 选择已 commit 批次出推文，生成标准 Markdown 记录；状态从 events.db 查询。
 
