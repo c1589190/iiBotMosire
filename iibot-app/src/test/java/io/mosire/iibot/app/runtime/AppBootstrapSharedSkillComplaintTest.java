@@ -11,13 +11,13 @@ import io.mosire.agentlib.llm.LlmResponse;
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.mcp.ControlBootstrapMcpTools;
+import io.mosire.iibot.app.mcp.ControlInitializeTool;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
-import io.mosire.iibot.app.mcp.GmComplaintGetTool;
 import io.mosire.iibot.app.mcp.GmPrivateDocsMcpTools;
-import io.mosire.iibot.app.mcp.GmComplaintListTool;
 import io.mosire.iibot.app.mcp.GmComplaintMcpTools;
-import io.mosire.iibot.app.mcp.GmComplaintRespondTool;
 import io.mosire.iibot.app.mcp.GmSharedSkillGetTool;
+import io.mosire.iibot.app.mcp.GmTicketBoardTool;
+import io.mosire.iibot.app.mcp.GmTicketMcpTools;
 import io.mosire.iibot.app.mcp.GmSharedSkillListTool;
 import io.mosire.iibot.app.mcp.GmSharedSkillMcpTools;
 import io.mosire.iibot.app.mcp.GmSharedSkillWriteTool;
@@ -72,11 +72,12 @@ class AppBootstrapSharedSkillComplaintTest {
             client = client(server);
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(55)
+            assertThat(names).hasSize(60)
                     .containsAll(GmSharedSkillMcpTools.NAMES)
-                    .containsAll(GmComplaintMcpTools.NAMES)
+                    .containsAll(GmTicketMcpTools.NAMES)
                     .containsAll(ControlBootstrapMcpTools.NAMES)
                     .containsAll(GmPrivateDocsMcpTools.NAMES)
+                    .doesNotContain(GmComplaintMcpTools.NAMES.toArray(String[]::new))
                     .doesNotContain("tf_qq_send", "qq_send", "tf_confirm_decision", "shutdown")
                     .doesNotContain("tf_register_player", "tf_register_director",
                             "tf_load_world_facts");
@@ -104,10 +105,10 @@ class AppBootstrapSharedSkillComplaintTest {
             assertThat(list.isError()).isFalse();
             assertThat(wireText(list)).contains("answer-guide.md");
 
-            McpSchema.CallToolResult complaints = client.callTool(new McpSchema.CallToolRequest(
-                    GmComplaintListTool.NAME, Map.of()));
-            assertThat(complaints.isError()).as(wireText(complaints)).isFalse();
-            assertThat(wireText(complaints)).contains("\"count\":0");
+            McpSchema.CallToolResult board = client.callTool(new McpSchema.CallToolRequest(
+                    GmTicketBoardTool.NAME, Map.of()));
+            assertThat(board.isError()).as(wireText(board)).isFalse();
+            assertThat(wireText(board)).contains("\"count\":0");
         } finally {
             if (client != null) {
                 client.closeGracefully();
@@ -138,25 +139,16 @@ class AppBootstrapSharedSkillComplaintTest {
             complaintId = submitted.complaintId();
 
             client = client(server);
-            McpSchema.CallToolResult list = client.callTool(new McpSchema.CallToolRequest(
-                    GmComplaintListTool.NAME, Map.of("status", "SUBMITTED")));
-            assertThat(list.isError()).as(wireText(list)).isFalse();
-            assertThat(wireText(list)).contains(complaintId)
-                    .doesNotContain("组合根投诉私密正文-3a7f");
-
-            McpSchema.CallToolResult get = client.callTool(new McpSchema.CallToolRequest(
-                    GmComplaintGetTool.NAME, Map.of("complaintId", complaintId)));
-            assertThat(get.isError()).isFalse();
-            assertThat(wireText(get)).contains("组合根投诉私密正文-3a7f");
-
-            McpSchema.CallToolResult respond = client.callTool(new McpSchema.CallToolRequest(
-                    GmComplaintRespondTool.NAME, Map.of(
-                            "complaintId", complaintId,
-                            "response", responseBody,
-                            "expectedRevision", 1L,
-                            "idempotencyKey", "bootstrap-complaint-respond")));
-            assertThat(respond.isError()).as(wireText(respond)).isFalse();
-            assertThat(wireText(respond)).contains("RESPONDED").doesNotContain(responseBody);
+            // 完整 Ticket 装配隐藏旧 complaint MCP 工具；旧投诉服务仍兼容，由宿主直接调用，
+            // 再用任意成功 MCP POST 触发统一 afterMutation，验证旧 ComplaintDistributor 仍工作。
+            ComplaintCommandResult responded = complaintService.respond(
+                    new Actor("director-1", ActorRole.DIRECTOR), complaintId, 1,
+                    responseBody, "bootstrap-complaint-respond");
+            assertThat(responded.ok()).isTrue();
+            assertThat(responded.revision()).isEqualTo(2);
+            McpSchema.CallToolResult trigger = client.callTool(
+                    new McpSchema.CallToolRequest(ControlInitializeTool.NAME, Map.of()));
+            assertThat(trigger.isError()).as(wireText(trigger)).isFalse();
 
             await(() -> adapter.sent().stream().anyMatch(message ->
                             message.targetType() == OutboundMessage.TargetType.PRIVATE

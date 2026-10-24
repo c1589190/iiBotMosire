@@ -41,6 +41,7 @@
 | 理想 GM 控制工作流 / events.db | [`specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md`](specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md) | DSH/Hermes 控制初始化、GM 私有文档、统一工单、events.db 单一事实源 |
 | P2 领域事件接入 | [`specs/2026-10-24-p2-domain-event-integration.md`](specs/2026-10-24-p2-domain-event-integration.md) | Post/Complaint/ActionPool 事件源、Taskflow 快照、旧 JSON 两阶段迁移；DecisionPackage/Batch 推迟 P5 |
 | P3 控制初始化 / GM 私有文档 | [`specs/2026-10-24-p3-control-initialization-gm-private-docs.md`](specs/2026-10-24-p3-control-initialization-gm-private-docs.md) | 动态玩家/推演/秘书绑定、公开群、世界装载、动态路由、GM 私有文档 |
+| P4 统一工单 / 消息板 | [`specs/2026-10-24-p4-unified-ticket-board.md`](specs/2026-10-24-p4-unified-ticket-board.md) | 统一 Ticket 模型、秘书 submit/list/read、GM board/claim/reply/batch/close/note、events.db 快照 |
 | 目标运行与模块边界 | [`specs/2026-10-24-target-runtime-design.md`](specs/2026-10-24-target-runtime-design.md) | 事件流、回合状态机、提示词/可见性、失败语义、验收判据 |
 | 对外 MCP 总控面 | [`specs/2026-10-24-external-mcp-control-plane.md`](specs/2026-10-24-external-mcp-control-plane.md) | 工具面、安全、幂等、回环限制与已知鉴权缺口 |
 | 三库上游契约 | [`../upstream/project-mosire-three-libs-0.2.3.md`](../upstream/project-mosire-three-libs-0.2.3.md) | 坐标、能力、边界、踩坑、未验证清单 |

@@ -1,6 +1,6 @@
 # 理想 GM 控制工作流实施计划（2026-10-24）
 
-> **状态**：计划有效；P0（v3 行动池/裁定包）与 P1（events.db 完整内容基础）已提交；P2（现有领域事件接入与 JSON 迁移）已完成并提交 `0fbceaa`；P3（控制初始化 + GM 私有文档）已完成实现/测试/阶段评审/full gate，提交 `615595d`；DecisionPackage/Batch 事件推迟 P5。
+> **状态**：计划有效；P0（v3 行动池/裁定包）与 P1（events.db 完整内容基础）已提交；P2（现有领域事件接入与 JSON 迁移）已完成并提交 `0fbceaa`；P3（控制初始化 + GM 私有文档）已提交 `615595d`；P4（统一工单/消息板）已完成实现/测试/阶段评审，待 full gate 与提交；DecisionPackage/Batch 与 Ticket→ActionPool 推迟 P5。
 > **性质**：计划不是设计；事件 schema、数据所有权、工具语义以
 > [`../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md`](../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md) 为准。
 > **当前事实**：以 [`../../agents/STATUS.md`](../../agents/STATUS.md) 为准。本文件里的测试数/工期是预测，不是实测。
@@ -172,6 +172,8 @@ P8 真实 MCP/LLM/多玩家/发布回归与发布
 
 ### P4 统一工单/消息板
 
+**状态**：已完成实现/测试/阶段评审；待 full gate 与提交。
+
 **目标**：把设定质询、行动草稿、投诉、GM 备注统一到 Ticket 模型。
 
 **责任区**
@@ -193,7 +195,7 @@ P8 真实 MCP/LLM/多玩家/发布回归与发布
 - 秘书可在无回合、冻结、OPEN、ADJUDICATING 任意状态提交工单；
 - A 玩家的工单对 B 秘书不可见；
 - GM 可批量回复/claim；重复操作幂等；
-- 行动工单可升级到 ActionPool；设定/投诉工单只回复，不进入包。
+- TODO(P5): 行动工单升级到 ActionPool；P4 只存储/展示 ACTION_DRAFT，设定/投诉/GM_NOTE 只回复，不进入包。
 
 **停止条件**
 

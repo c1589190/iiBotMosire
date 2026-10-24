@@ -87,12 +87,15 @@ public final class DomainEventTypes {
     public static final String SECRETARY_MESSAGE = "SECRETARY_MESSAGE";
     public static final String GM_MESSAGE = "GM_MESSAGE";
 
-    // 以下常量供后续阶段复用；P2 只保留形状，不在本阶段虚构 Ticket/Turn 写入。
+    public static final String TICKET_PREFIX = "TICKET_";
     public static final String TICKET_CREATED = "TICKET_CREATED";
     public static final String TICKET_CLAIMED = "TICKET_CLAIMED";
     public static final String TICKET_REPLIED = "TICKET_REPLIED";
+    public static final String TICKET_BATCH_REPLIED = "TICKET_BATCH_REPLIED";
     public static final String TICKET_RESOLVED = "TICKET_RESOLVED";
     public static final String TICKET_CLOSED = "TICKET_CLOSED";
+    /** 兼容 Store.save(snapshot) 的完整 TicketSnapshot 事件。 */
+    public static final String TICKET_SNAPSHOT = "TICKET_SNAPSHOT";
     public static final String TURN_OPENED = "TURN_OPENED";
     public static final String TURN_LOCKED = "TURN_LOCKED";
     public static final String TURN_ADJUDICATED = "TURN_ADJUDICATED";

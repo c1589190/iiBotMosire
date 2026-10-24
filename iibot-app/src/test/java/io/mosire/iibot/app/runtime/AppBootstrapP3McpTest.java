@@ -19,10 +19,12 @@ import io.mosire.iibot.app.mcp.ControlMcpServer;
 import io.mosire.iibot.app.mcp.ControlRegisterDirectorTool;
 import io.mosire.iibot.app.mcp.ControlRegisterPlayerTool;
 import io.mosire.iibot.app.mcp.ControlSetPublicGroupTool;
+import io.mosire.iibot.app.mcp.GmComplaintMcpTools;
 import io.mosire.iibot.app.mcp.GmPrivateDocGetTool;
 import io.mosire.iibot.app.mcp.GmPrivateDocListTool;
 import io.mosire.iibot.app.mcp.GmPrivateDocWriteTool;
 import io.mosire.iibot.app.mcp.GmPrivateDocsMcpTools;
+import io.mosire.iibot.app.mcp.GmTicketMcpTools;
 import io.mosire.iibot.app.support.FakeLlmClient;
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
 import io.mosire.iibot.app.support.TestSupport;
@@ -74,9 +76,11 @@ class AppBootstrapP3McpTest {
 
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(55)
+            assertThat(names).hasSize(60)
                     .containsAll(ControlBootstrapMcpTools.NAMES)
                     .containsAll(GmPrivateDocsMcpTools.NAMES)
+                    .containsAll(GmTicketMcpTools.NAMES)
+                    .doesNotContain(GmComplaintMcpTools.NAMES.toArray(String[]::new))
                     .doesNotContain("tf_qq_send", "qq_send", "tf_confirm_decision", "shutdown")
                     .doesNotContain("tf_register_player", "tf_register_director",
                             "tf_load_world_facts");

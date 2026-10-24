@@ -25,6 +25,7 @@ import io.mosire.iibot.app.event.migration.LegacyEventMigrator;
 import io.mosire.iibot.app.decision.LlmActionBatchExecutor;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
 import io.mosire.iibot.app.publication.EventSourcedPostStore;
+import io.mosire.iibot.app.ticket.EventSourcedTicketStore;
 import io.mosire.iibot.app.world.WorldDocs;
 import io.mosire.iibot.app.world.WorldFactsLoader;
 import io.mosire.iibot.connect.core.MessagingAdapter;
@@ -50,6 +51,7 @@ import io.mosire.iibot.taskflow.complaint.ComplaintService;
 import io.mosire.iibot.taskflow.decision.ActionBatchExecutor;
 import io.mosire.iibot.taskflow.decision.ActionPackageService;
 import io.mosire.iibot.taskflow.skill.SharedSkillStore;
+import io.mosire.iibot.taskflow.ticket.TicketService;
 import io.mosire.iibot.taskflow.event.EventSink;
 import io.mosire.iibot.taskflow.post.PostService;
 import io.mosire.iibot.taskflow.workspace.GmPrivateDocs;
@@ -232,6 +234,9 @@ public final class AppBootstrap {
             ComplaintService complaintService = new ComplaintService(
                     new EventSourcedComplaintStore(eventContentStore, domainEventJournal, clock),
                     clock);
+            TicketService ticketService = new TicketService(
+                    new EventSourcedTicketStore(eventContentStore, domainEventJournal, clock),
+                    clock);
 
             // 所有后续消费者都读取引擎动态事实，而不是启动时的静态列表。重启恢复的
             // 动态玩家也必须在这里重建 workspace/Session，因此 playerIds 来自 engine。
@@ -258,7 +263,7 @@ public final class AppBootstrap {
                             new Actor(profile.playerId(), ActorRole.PLAYER), engine,
                             secretaryLlm, briefingService, bootstrapDirector, clock,
                             secretaryWorkspaceStore, postService, sharedSkillStore,
-                            complaintService, actionPoolService);
+                            complaintService, actionPoolService, ticketService);
 
             Actor externalSupervisor = new Actor(
                     ControlBootstrapService.SUPERVISOR_ACTOR_ID, ActorRole.SUPERVISOR);
@@ -321,7 +326,7 @@ public final class AppBootstrap {
                     complaintDistributor, secretaryWorkspaceStore, secretaryRegistry,
                     postService, sharedSkillStore, complaintService,
                     actionPoolService, actionPackageService, actionBatchExecutor,
-                    controlBootstrapService, gmPrivateDocs);
+                    controlBootstrapService, gmPrivateDocs, ticketService);
             runtime = new AppRuntime(config, engine, interactionService, adapter, dispatcher,
                     outbox, scheduler, eventSink, eventReadPort, eventContentStore,
                     snapshotStore, worldDocs, controlPlane, controlBootstrapService);
@@ -488,7 +493,8 @@ public final class AppBootstrap {
                                                     ActionPackageService actionPackageService,
                                                     ActionBatchExecutor actionBatchExecutor,
                                                     ControlBootstrapService controlBootstrapService,
-                                                    GmPrivateDocs gmPrivateDocs) {
+                                                    GmPrivateDocs gmPrivateDocs,
+                                                    TicketService ticketService) {
         if (!(options.controlPlane() instanceof NoopControlPlane)) {
             return options.controlPlane();
         }
@@ -510,6 +516,7 @@ public final class AppBootstrap {
                 .postService(postService)
                 .sharedSkillStore(sharedSkillStore)
                 .complaintService(complaintService)
+                .ticketService(ticketService)
                 .actionPoolService(actionPoolService)
                 .actionPackageService(actionPackageService)
                 .actionBatchExecutor(actionBatchExecutor)

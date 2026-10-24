@@ -31,6 +31,8 @@ import io.mosire.iibot.taskflow.complaint.ComplaintStore;
 import io.mosire.iibot.taskflow.skill.SharedSkillStore;
 import io.mosire.iibot.taskflow.post.PostService;
 import io.mosire.iibot.taskflow.post.PostStore;
+import io.mosire.iibot.taskflow.ticket.TicketService;
+import io.mosire.iibot.taskflow.ticket.TicketStore;
 import io.mosire.iibot.taskflow.workspace.GmPrivateDocs;
 import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
 import io.mosire.iibot.taskflow.control.EventReadPort;
@@ -123,6 +125,7 @@ public final class ControlMcpServer implements ControlPlane {
     private final PostService postService;
     private final SharedSkillStore sharedSkillStore;
     private final ComplaintService complaintService;
+    private final TicketService ticketService;
     private final ActionPoolService actionPoolService;
     private final ActionPackageService actionPackageService;
     private final ActionBatchExecutor actionBatchExecutor;
@@ -156,6 +159,7 @@ public final class ControlMcpServer implements ControlPlane {
         this.postService = builder.postService;
         this.sharedSkillStore = builder.sharedSkillStore;
         this.complaintService = builder.complaintService;
+        this.ticketService = builder.ticketService;
         this.actionPoolService = builder.actionPoolService;
         this.actionPackageService = builder.actionPackageService;
         this.actionBatchExecutor = builder.actionBatchExecutor;
@@ -241,7 +245,12 @@ public final class ControlMcpServer implements ControlPlane {
                         registry.register(tool);
                     }
                 }
-                if (complaintService != null) {
+                if (ticketService != null) {
+                    // 完整 Ticket 装配取代旧 complaint MCP 三工具，避免双重状态主路径。
+                    for (var tool : GmTicketMcpTools.all(ticketService, supervisor)) {
+                        registry.register(tool);
+                    }
+                } else if (complaintService != null) {
                     for (var tool : GmComplaintMcpTools.all(complaintService, supervisor)) {
                         registry.register(tool);
                     }
@@ -618,7 +627,9 @@ public final class ControlMcpServer implements ControlPlane {
         if (sharedSkillStore != null) {
             allTools.addAll(GmSharedSkillMcpTools.NAMES);
         }
-        if (complaintService != null) {
+        if (ticketService != null) {
+            allTools.addAll(GmTicketMcpTools.NAMES);
+        } else if (complaintService != null) {
             allTools.addAll(GmComplaintMcpTools.NAMES);
         }
         if (actionPoolService != null) {
@@ -652,7 +663,10 @@ public final class ControlMcpServer implements ControlPlane {
             scopes.put(SharedSkillStore.RESOURCE_NAMESPACE,
                     ResourceScope.of(SharedSkillStore.RESOURCE_NAMESPACE));
         }
-        if (complaintService != null) {
+        if (ticketService != null) {
+            scopes.put(TicketStore.RESOURCE_NAMESPACE,
+                    ResourceScope.of(TicketStore.RESOURCE_NAMESPACE));
+        } else if (complaintService != null) {
             scopes.put(ComplaintStore.RESOURCE_NAMESPACE,
                     ResourceScope.of(ComplaintStore.RESOURCE_NAMESPACE));
         }
@@ -733,6 +747,7 @@ public final class ControlMcpServer implements ControlPlane {
         private PostService postService;
         private SharedSkillStore sharedSkillStore;
         private ComplaintService complaintService;
+        private TicketService ticketService;
         private ActionPoolService actionPoolService;
         private ActionPackageService actionPackageService;
         private ActionBatchExecutor actionBatchExecutor;
@@ -827,11 +842,20 @@ public final class ControlMcpServer implements ControlPlane {
         }
 
         /**
-         * 可选注入投诉服务。注入后额外注册三个 supervisor 投诉工具；未注入时工具面
-         * 保持不变。
+         * 可选注入旧投诉服务。未注入 TicketService 时注册三个 supervisor 投诉工具；
+         * 注入 TicketService 后旧三工具隐藏。
          */
         public Builder complaintService(ComplaintService complaintService) {
             this.complaintService = Objects.requireNonNull(complaintService, "complaintService");
+            return this;
+        }
+
+        /**
+         * 可选注入统一 Ticket 服务。注入后注册 8 个 tf_ticket_* 工具并隐藏旧
+         * tf_complaint_* 三工具；未注入时旧 complaint 装配保持兼容。
+         */
+        public Builder ticketService(TicketService ticketService) {
+            this.ticketService = Objects.requireNonNull(ticketService, "ticketService");
             return this;
         }
 

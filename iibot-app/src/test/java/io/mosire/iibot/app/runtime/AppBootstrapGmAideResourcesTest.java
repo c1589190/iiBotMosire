@@ -12,7 +12,9 @@ import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.mcp.ControlBootstrapMcpTools;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
 import io.mosire.iibot.app.mcp.GmAideChatTool;
+import io.mosire.iibot.app.mcp.GmComplaintMcpTools;
 import io.mosire.iibot.app.mcp.GmPrivateDocsMcpTools;
+import io.mosire.iibot.app.mcp.GmTicketMcpTools;
 import io.mosire.iibot.app.support.FakeLlmClient;
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
 import io.mosire.iibot.app.support.TestSupport;
@@ -105,10 +107,12 @@ class AppBootstrapGmAideResourcesTest {
             client = client(controlServer);
             McpSchema.ListToolsResult list = client.listTools();
             assertThat(list.tools().stream().map(McpSchema.Tool::name))
-                    .hasSize(55)
+                    .hasSize(60)
                     .contains(GmAideChatTool.NAME)
                     .containsAll(ControlBootstrapMcpTools.NAMES)
                     .containsAll(GmPrivateDocsMcpTools.NAMES)
+                    .containsAll(GmTicketMcpTools.NAMES)
+                    .doesNotContain(GmComplaintMcpTools.NAMES.toArray(String[]::new))
                     .doesNotContain("tf_register_player", "tf_register_director",
                             "tf_load_world_facts");
 

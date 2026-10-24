@@ -27,6 +27,8 @@ import io.mosire.iibot.taskflow.complaint.ComplaintStore;
 import io.mosire.iibot.taskflow.post.PostService;
 import io.mosire.iibot.taskflow.post.PostStore;
 import io.mosire.iibot.taskflow.skill.SharedSkillStore;
+import io.mosire.iibot.taskflow.ticket.TicketService;
+import io.mosire.iibot.taskflow.ticket.TicketStore;
 import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
 
 import java.time.Clock;
@@ -70,6 +72,7 @@ public final class SecretarySession {
     private final SharedSkillStore sharedSkillStore;
     private final ComplaintService complaintService;
     private final ActionPoolService actionPoolService;
+    private final TicketService ticketService;
     private final List<ToolInvocation> toolInvocations = new ArrayList<>();
 
     /** 使用 15 分钟草稿/brief 有效期的便捷装配。 */
@@ -319,6 +322,74 @@ public final class SecretarySession {
                 null, null, actionPoolService);
     }
 
+    /** 仅注入统一工单服务；完整 Ticket 装配下旧 complaint 工具不暴露。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock, TicketService ticketService) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                Duration.ofMinutes(15), Duration.ofMinutes(15), null, null, null,
+                null, null, ticketService);
+    }
+
+    /** 工作区、推文、共享 Skill、投诉/行动池兼容服务与统一 Ticket 服务。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock,
+                            SecretaryWorkspaceStore workspaceStore, PostService postService,
+                            SharedSkillStore sharedSkillStore, ComplaintService complaintService,
+                            ActionPoolService actionPoolService, TicketService ticketService) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                Duration.ofMinutes(15), Duration.ofMinutes(15), workspaceStore, postService,
+                sharedSkillStore, complaintService, actionPoolService, ticketService);
+    }
+
+    /** 工作区、推文、共享 Skill、旧投诉与统一 Ticket 服务（无行动池）。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock,
+                            SecretaryWorkspaceStore workspaceStore, PostService postService,
+                            SharedSkillStore sharedSkillStore, ComplaintService complaintService,
+                            TicketService ticketService) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                Duration.ofMinutes(15), Duration.ofMinutes(15), workspaceStore, postService,
+                sharedSkillStore, complaintService, null, ticketService);
+    }
+
+    /** 工作区、推文、共享 Skill、行动池与统一 Ticket 服务（无旧投诉）。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock,
+                            SecretaryWorkspaceStore workspaceStore, PostService postService,
+                            SharedSkillStore sharedSkillStore, ActionPoolService actionPoolService,
+                            TicketService ticketService) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                Duration.ofMinutes(15), Duration.ofMinutes(15), workspaceStore, postService,
+                sharedSkillStore, null, actionPoolService, ticketService);
+    }
+
+    /** 工作区、推文、旧投诉、行动池与统一 Ticket 服务（无共享 Skill）。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock,
+                            SecretaryWorkspaceStore workspaceStore, PostService postService,
+                            ComplaintService complaintService, ActionPoolService actionPoolService,
+                            TicketService ticketService) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                Duration.ofMinutes(15), Duration.ofMinutes(15), workspaceStore, postService,
+                null, complaintService, actionPoolService, ticketService);
+    }
+
+    /** 工作区、推文、共享 Skill 与统一 Ticket 服务（无旧投诉/行动池）。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock,
+                            SecretaryWorkspaceStore workspaceStore, PostService postService,
+                            SharedSkillStore sharedSkillStore, TicketService ticketService) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock,
+                Duration.ofMinutes(15), Duration.ofMinutes(15), workspaceStore, postService,
+                sharedSkillStore, null, null, ticketService);
+    }
+
     /** 全部可选域服务与显式有效期同时注入（旧构造器，无行动池）。 */
     public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
                             LlmClient llm, BriefingService briefingService,
@@ -339,6 +410,19 @@ public final class SecretarySession {
                             PostService postService, SharedSkillStore sharedSkillStore,
                             ComplaintService complaintService,
                             ActionPoolService actionPoolService) {
+        this(playerId, player, engine, llm, briefingService, briefIssuer, clock, draftTtl,
+                briefTtl, workspaceStore, postService, sharedSkillStore, complaintService,
+                actionPoolService, null);
+    }
+
+    /** 全部可选域服务与显式有效期同时注入，并可选接入行动池与统一 Ticket 服务。 */
+    public SecretarySession(String playerId, Actor player, TaskflowEngine engine,
+                            LlmClient llm, BriefingService briefingService,
+                            Actor briefIssuer, Clock clock, Duration draftTtl,
+                            Duration briefTtl, SecretaryWorkspaceStore workspaceStore,
+                            PostService postService, SharedSkillStore sharedSkillStore,
+                            ComplaintService complaintService,
+                            ActionPoolService actionPoolService, TicketService ticketService) {
         if (playerId == null || playerId.isBlank()) {
             throw new IllegalArgumentException("playerId 不能为空");
         }
@@ -368,6 +452,7 @@ public final class SecretarySession {
         this.sharedSkillStore = sharedSkillStore;
         this.complaintService = complaintService;
         this.actionPoolService = actionPoolService;
+        this.ticketService = ticketService;
         this.window = new ContextWindow("secretary:" + playerId);
 
         List<AgentTool> availableTools = new ArrayList<>();
@@ -383,7 +468,10 @@ public final class SecretarySession {
         if (postService != null) {
             availableTools.addAll(SecretaryPostTools.all(postService));
         }
-        if (complaintService != null) {
+        if (ticketService != null) {
+            // 完整 Ticket 装配取代旧 complaint 工具，避免双状态主路径。
+            availableTools.addAll(SecretaryTicketTools.all(ticketService));
+        } else if (complaintService != null) {
             availableTools.addAll(SecretaryComplaintTools.all(complaintService));
         }
         if (actionPoolService != null) {
@@ -395,8 +483,8 @@ public final class SecretarySession {
                 .allow(DecisionDraftCreateTool.NAME, DecisionDraftUpdateTool.NAME,
                         RequestBriefTool.NAME)
                 .roles(RoleSet.of(SECRETARY_ROLE));
-        if (complaintService != null || actionPoolService != null) {
-            // 投诉工具与行动池 submit 声明 sensitive=true；只对显式装配的会话放行敏感位。
+        if (ticketService != null || complaintService != null || actionPoolService != null) {
+            // 工单/投诉工具与行动池 submit 声明 sensitive=true；只对显式装配的会话放行敏感位。
             permissionBuilder.sensitiveAllowed(true);
         }
         Map<String, ResourceScope> resourceScopes = new LinkedHashMap<>();
@@ -420,7 +508,13 @@ public final class SecretarySession {
             resourceScopes.put(PostStore.RESOURCE_NAMESPACE,
                     ResourceScope.of(PostStore.RESOURCE_NAMESPACE));
         }
-        if (complaintService != null) {
+        if (ticketService != null) {
+            permissionBuilder.allow(SecretaryTicketTools.SUBMIT,
+                    SecretaryTicketTools.LIST,
+                    SecretaryTicketTools.READ);
+            resourceScopes.put(TicketStore.RESOURCE_NAMESPACE,
+                    ResourceScope.of(TicketStore.RESOURCE_NAMESPACE));
+        } else if (complaintService != null) {
             permissionBuilder.allow(SecretaryComplaintTools.SUBMIT,
                     SecretaryComplaintTools.LIST,
                     SecretaryComplaintTools.READ);
@@ -474,6 +568,11 @@ public final class SecretarySession {
     /** 注入的行动池服务（无注入时为 null）；供宿主装配观察，不进入模型上下文。 */
     public ActionPoolService actionPoolService() {
         return actionPoolService;
+    }
+
+    /** 注入的统一 Ticket 服务（无注入时为 null）；供宿主装配观察，不进入模型上下文。 */
+    public TicketService ticketService() {
+        return ticketService;
     }
 
     /** 当前会话的权限集快照（只读）。 */
