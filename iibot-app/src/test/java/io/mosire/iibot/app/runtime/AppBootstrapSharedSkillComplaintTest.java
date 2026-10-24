@@ -44,7 +44,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** 组合根共享 Skill 与投诉接线：34 工具、真实 loopback MCP、重启恢复与 afterMutation 隔离。 */
+/** 组合根共享 Skill 与投诉接线：48 工具、真实 loopback MCP、重启恢复与 afterMutation 隔离。 */
 @Timeout(60)
 class AppBootstrapSharedSkillComplaintTest {
 
@@ -56,7 +56,7 @@ class AppBootstrapSharedSkillComplaintTest {
     Path tempDir;
 
     @Test
-    void fullAssemblyExposes34ToolsAndSharedSkillWriteGetThroughRealLoopbackMcp()
+    void fullAssemblyExposes48ToolsAndSharedSkillWriteGetThroughRealLoopbackMcp()
             throws Exception {
         AppConfig config = configWithControl();
         FakeMessagingAdapter adapter = new FakeMessagingAdapter();
@@ -70,7 +70,7 @@ class AppBootstrapSharedSkillComplaintTest {
             client = client(server);
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(34)
+            assertThat(names).hasSize(48)
                     .containsAll(GmSharedSkillMcpTools.NAMES)
                     .containsAll(GmComplaintMcpTools.NAMES)
                     .doesNotContain("tf_qq_send", "qq_send", "tf_confirm_decision", "shutdown");

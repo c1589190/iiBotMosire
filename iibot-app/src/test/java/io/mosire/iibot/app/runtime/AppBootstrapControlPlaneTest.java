@@ -53,7 +53,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** AppBootstrap 控制面接线：34 工具 + 回合/推文经真实分发器出站。 */
+/** AppBootstrap 控制面接线：48 工具 + 回合/推文经真实分发器出站。 */
 @Timeout(60)
 class AppBootstrapControlPlaneTest {
 
@@ -118,7 +118,7 @@ class AppBootstrapControlPlaneTest {
 
             McpSchema.ListToolsResult list = client.listTools();
             assertThat(list.tools().stream().map(McpSchema.Tool::name))
-                    .hasSize(34)
+                    .hasSize(48)
                     .contains(RunAdjudicationAgentTool.NAME, GmAideChatTool.NAME,
                             GmSecretaryListTool.NAME, GmSecretaryReadTool.NAME,
                             GmSecretaryDispatchTool.NAME, GmSecretaryChatTool.NAME,

@@ -6,6 +6,7 @@ import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.mosire.agentlib.decision.DecisionPackages;
 import io.mosire.agentlib.llm.LlmResponse;
 import io.mosire.agentlib.permission.AccessToken;
 import io.mosire.agentlib.permission.AgentIdentity;
@@ -20,16 +21,21 @@ import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolRegistry;
 import io.mosire.agentlib.tool.ToolResult;
 import io.mosire.iibot.app.config.SecretProvider;
+import io.mosire.iibot.app.decision.LlmActionBatchExecutor;
 import io.mosire.iibot.app.support.FakeLlmClient;
 import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.ActorRole;
 import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.agent.AdjudicationService;
 import io.mosire.iibot.taskflow.agent.GmAideAgent;
+import io.mosire.iibot.taskflow.action.ActionPoolService;
+import io.mosire.iibot.taskflow.action.InMemoryActionPoolStore;
 import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
 import io.mosire.iibot.taskflow.complaint.ComplaintService;
 import io.mosire.iibot.taskflow.complaint.InMemoryComplaintStore;
 import io.mosire.iibot.taskflow.control.InMemoryEventReadPort;
+import io.mosire.iibot.taskflow.decision.ActionBatchExecutor;
+import io.mosire.iibot.taskflow.decision.ActionPackageService;
 import io.mosire.iibot.taskflow.event.InMemoryEventStore;
 import io.mosire.iibot.taskflow.post.InMemoryPostStore;
 import io.mosire.iibot.taskflow.post.Post;
@@ -88,16 +94,19 @@ class ControlMcpServerPostToolsTest {
     }
 
     @Test
-    void fullAssemblyLists34ToolsAndPostWorkflowUsesStableCodesAndRevisions() throws Exception {
+    void fullAssemblyLists48ToolsAndPostWorkflowUsesStableCodesAndRevisions() throws Exception {
         startFullAssembly();
         McpSyncClient client = initializedClient();
 
         McpSchema.ListToolsResult list = client.listTools();
         List<String> names = list.tools().stream().map(McpSchema.Tool::name).toList();
-        assertThat(names).hasSize(34)
+        assertThat(names).hasSize(48)
                 .containsAll(GmSharedSkillMcpTools.NAMES)
                 .containsAll(GmComplaintMcpTools.NAMES)
                 .containsAll(GmPostMcpTools.NAMES)
+                .containsAll(GmActionPoolMcpTools.NAMES)
+                .containsAll(GmDecisionPackageMcpTools.NAMES)
+                .containsAll(GmActionBatchMcpTools.NAMES)
                 .doesNotContain("tf_qq_send", "qq_send", "tf_confirm_decision", "shutdown");
 
         List<AgentTool> tools = GmPostMcpTools.all(postService,
@@ -243,6 +252,11 @@ class ControlMcpServerPostToolsTest {
         ComplaintService complaintService = new ComplaintService(
                 new InMemoryComplaintStore(), clock);
         FakeLlmClient llm = FakeLlmClient.with(LlmResponse.text("只读摘要"));
+        ActionPoolService actionPoolService = new ActionPoolService(
+                new InMemoryActionPoolStore(), clock);
+        ActionPackageService actionPackageService = new ActionPackageService(
+                actionPoolService, new DecisionPackages(), clock);
+        ActionBatchExecutor batchExecutor = new LlmActionBatchExecutor(engine, llm, clock);
         server = ControlMcpServer.builder(engine, new InMemoryEventReadPort(eventStore),
                         new Actor("external-supervisor", ActorRole.SUPERVISOR),
                         ControlMcpConfig.enabled("127.0.0.1", 0, PATH, TOKEN_ENV))
@@ -255,6 +269,9 @@ class ControlMcpServerPostToolsTest {
                 .postService(postService)
                 .sharedSkillStore(sharedSkillStore)
                 .complaintService(complaintService)
+                .actionPoolService(actionPoolService)
+                .actionPackageService(actionPackageService)
+                .actionBatchExecutor(batchExecutor)
                 .build();
         server.start();
     }

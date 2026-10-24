@@ -103,7 +103,7 @@ class AppBootstrapGmAideResourcesTest {
             client = client(controlServer);
             McpSchema.ListToolsResult list = client.listTools();
             assertThat(list.tools().stream().map(McpSchema.Tool::name))
-                    .hasSize(34)
+                    .hasSize(48)
                     .contains(GmAideChatTool.NAME);
 
             McpSchema.CallToolResult result = client.callTool(

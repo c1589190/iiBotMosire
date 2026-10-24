@@ -1,5 +1,6 @@
 package io.mosire.iibot.app.runtime;
 
+import io.mosire.agentlib.decision.DecisionPackages;
 import io.mosire.agentlib.llm.LlmClient;
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.LlmClientFactory;
@@ -15,6 +16,7 @@ import io.mosire.iibot.app.dispatch.InboundDispatcher;
 import io.mosire.iibot.app.event.AgentLibEventSink;
 import io.mosire.iibot.app.event.SqliteEventReadPort;
 import io.mosire.iibot.app.event.TaskflowSnapshotStore;
+import io.mosire.iibot.app.decision.LlmActionBatchExecutor;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
 import io.mosire.iibot.app.publication.JsonPostStore;
 import io.mosire.iibot.app.world.WorldDocs;
@@ -30,6 +32,8 @@ import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.TurnView;
 import io.mosire.iibot.taskflow.WorldDelta;
 import io.mosire.iibot.taskflow.WorldFact;
+import io.mosire.iibot.taskflow.action.ActionPoolService;
+import io.mosire.iibot.taskflow.action.InMemoryActionPoolStore;
 import io.mosire.iibot.taskflow.agent.AdjudicationService;
 import io.mosire.iibot.taskflow.agent.GmAideAgent;
 import io.mosire.iibot.taskflow.agent.InteractionTaskflowService;
@@ -38,6 +42,8 @@ import io.mosire.iibot.taskflow.agent.MappedIdentity;
 import io.mosire.iibot.taskflow.agent.SecretarySession;
 import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
 import io.mosire.iibot.taskflow.complaint.ComplaintService;
+import io.mosire.iibot.taskflow.decision.ActionBatchExecutor;
+import io.mosire.iibot.taskflow.decision.ActionPackageService;
 import io.mosire.iibot.taskflow.skill.SharedSkillStore;
 import io.mosire.iibot.taskflow.event.EventSink;
 import io.mosire.iibot.taskflow.post.PostService;
@@ -197,6 +203,13 @@ public final class AppBootstrap {
             SharedSkillStore sharedSkillStore = SharedSkillStore.open(dataDir);
             ComplaintService complaintService = new ComplaintService(
                     new JsonComplaintStore(dataDir), clock);
+            // v3-A 行动池与裁定包先使用进程内存储；JSON 持久化属于后续切片。
+            ActionPoolService actionPoolService = new ActionPoolService(
+                    new InMemoryActionPoolStore(), clock);
+            ActionPackageService actionPackageService = new ActionPackageService(
+                    actionPoolService, new DecisionPackages(), clock);
+            ActionBatchExecutor actionBatchExecutor = new LlmActionBatchExecutor(
+                    engine, adjudicatorLlm, clock);
             LlmBriefingService briefingService = new LlmBriefingService(secretaryLlm);
             SecretarySessionRegistry secretaryRegistry = new SecretarySessionRegistry();
             for (AppConfig.Account player : config.players()) {
@@ -204,7 +217,7 @@ public final class AppBootstrap {
                 secretaryRegistry.register(new SecretarySession(player.actorId(), actor, engine,
                         secretaryLlm, briefingService, bootstrapDirector, clock,
                         secretaryWorkspaceStore, postService, sharedSkillStore,
-                        complaintService));
+                        complaintService, actionPoolService));
             }
             AdjudicationService adjudicationService =
                     new AdjudicationService(engine, adjudicatorLlm);
@@ -246,7 +259,8 @@ public final class AppBootstrap {
                     options, config, engine, eventReadPort, secrets, clock,
                     adjudicationService, gmAideAgent, resultDistributor, postDistributor,
                     complaintDistributor, secretaryWorkspaceStore, secretaryRegistry,
-                    postService, sharedSkillStore, complaintService);
+                    postService, sharedSkillStore, complaintService,
+                    actionPoolService, actionPackageService, actionBatchExecutor);
             runtime = new AppRuntime(config, engine, interactionService, adapter, dispatcher,
                     outbox, scheduler, eventSink, eventReadPort, snapshotStore, worldDocs,
                     controlPlane);
@@ -377,7 +391,10 @@ public final class AppBootstrap {
                                                     SecretarySessionRegistry secretaryRegistry,
                                                     PostService postService,
                                                     SharedSkillStore sharedSkillStore,
-                                                    ComplaintService complaintService) {
+                                                    ComplaintService complaintService,
+                                                    ActionPoolService actionPoolService,
+                                                    ActionPackageService actionPackageService,
+                                                    ActionBatchExecutor actionBatchExecutor) {
         if (!(options.controlPlane() instanceof NoopControlPlane)) {
             return options.controlPlane();
         }
@@ -399,6 +416,9 @@ public final class AppBootstrap {
                 .postService(postService)
                 .sharedSkillStore(sharedSkillStore)
                 .complaintService(complaintService)
+                .actionPoolService(actionPoolService)
+                .actionPackageService(actionPackageService)
+                .actionBatchExecutor(actionBatchExecutor)
                 .afterMutation(() -> {
                     runAfterMutationSafely("turn-result-distributor",
                             resultDistributor::distributeIfReady);

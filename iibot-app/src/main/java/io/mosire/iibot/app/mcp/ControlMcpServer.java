@@ -18,6 +18,10 @@ import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.runtime.ControlPlane;
 import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.TaskflowEngine;
+import io.mosire.iibot.taskflow.action.ActionPoolService;
+import io.mosire.iibot.taskflow.action.ActionPoolStore;
+import io.mosire.iibot.taskflow.decision.ActionBatchExecutor;
+import io.mosire.iibot.taskflow.decision.ActionPackageService;
 import io.mosire.iibot.taskflow.agent.AdjudicationService;
 import io.mosire.iibot.taskflow.agent.GmAideAgent;
 import io.mosire.iibot.taskflow.agent.SecretarySessionRegistry;
@@ -111,6 +115,9 @@ public final class ControlMcpServer implements ControlPlane {
     private final PostService postService;
     private final SharedSkillStore sharedSkillStore;
     private final ComplaintService complaintService;
+    private final ActionPoolService actionPoolService;
+    private final ActionPackageService actionPackageService;
+    private final ActionBatchExecutor actionBatchExecutor;
     private final Runnable afterMutation;
     private final HttpClient upstreamClient;
     private final Object lifecycleLock = new Object();
@@ -139,6 +146,9 @@ public final class ControlMcpServer implements ControlPlane {
         this.postService = builder.postService;
         this.sharedSkillStore = builder.sharedSkillStore;
         this.complaintService = builder.complaintService;
+        this.actionPoolService = builder.actionPoolService;
+        this.actionPackageService = builder.actionPackageService;
+        this.actionBatchExecutor = builder.actionBatchExecutor;
         this.afterMutation = builder.afterMutation;
         this.upstreamClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -215,6 +225,20 @@ public final class ControlMcpServer implements ControlPlane {
                 }
                 if (complaintService != null) {
                     for (var tool : GmComplaintMcpTools.all(complaintService, supervisor)) {
+                        registry.register(tool);
+                    }
+                }
+                if (actionPoolService != null) {
+                    for (var tool : GmActionPoolMcpTools.all(actionPoolService)) {
+                        registry.register(tool);
+                    }
+                }
+                if (actionPackageService != null) {
+                    for (var tool : GmDecisionPackageMcpTools.all(
+                            actionPackageService, actionBatchExecutor, supervisor)) {
+                        registry.register(tool);
+                    }
+                    for (var tool : GmActionBatchMcpTools.all(actionPackageService)) {
                         registry.register(tool);
                     }
                 }
@@ -569,6 +593,13 @@ public final class ControlMcpServer implements ControlPlane {
         if (complaintService != null) {
             allTools.addAll(GmComplaintMcpTools.NAMES);
         }
+        if (actionPoolService != null) {
+            allTools.addAll(GmActionPoolMcpTools.NAMES);
+        }
+        if (actionPackageService != null) {
+            allTools.addAll(GmDecisionPackageMcpTools.NAMES);
+            allTools.addAll(GmActionBatchMcpTools.NAMES);
+        }
 
         Map<String, ResourceScope> scopes = new java.util.LinkedHashMap<>();
         scopes.put(TASKFLOW_NAMESPACE, ResourceScope.unlimited());
@@ -587,6 +618,16 @@ public final class ControlMcpServer implements ControlPlane {
         if (complaintService != null) {
             scopes.put(ComplaintStore.RESOURCE_NAMESPACE,
                     ResourceScope.of(ComplaintStore.RESOURCE_NAMESPACE));
+        }
+        if (actionPoolService != null) {
+            scopes.put(ActionPoolStore.RESOURCE_NAMESPACE,
+                    ResourceScope.of(ActionPoolStore.RESOURCE_NAMESPACE));
+        }
+        if (actionPackageService != null) {
+            scopes.put(GmDecisionToolSupport.DECISION_PACKAGE_NAMESPACE,
+                    ResourceScope.of(GmDecisionToolSupport.DECISION_PACKAGE_NAMESPACE));
+            scopes.put(GmDecisionToolSupport.ACTION_BATCH_NAMESPACE,
+                    ResourceScope.of(GmDecisionToolSupport.ACTION_BATCH_NAMESPACE));
         }
         AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
                 .allow(allTools.toArray(String[]::new))
@@ -651,6 +692,9 @@ public final class ControlMcpServer implements ControlPlane {
         private PostService postService;
         private SharedSkillStore sharedSkillStore;
         private ComplaintService complaintService;
+        private ActionPoolService actionPoolService;
+        private ActionPackageService actionPackageService;
+        private ActionBatchExecutor actionBatchExecutor;
         private Runnable afterMutation;
 
         private Builder(
@@ -745,6 +789,27 @@ public final class ControlMcpServer implements ControlPlane {
          */
         public Builder complaintService(ComplaintService complaintService) {
             this.complaintService = Objects.requireNonNull(complaintService, "complaintService");
+            return this;
+        }
+
+        /** 可选注入行动池；注入后注册三个 supervisor 行动池工具。 */
+        public Builder actionPoolService(ActionPoolService actionPoolService) {
+            this.actionPoolService = Objects.requireNonNull(
+                    actionPoolService, "actionPoolService");
+            return this;
+        }
+
+        /** 可选注入裁定包服务；注入后注册九个包工具与两个批次工具。 */
+        public Builder actionPackageService(ActionPackageService actionPackageService) {
+            this.actionPackageService = Objects.requireNonNull(
+                    actionPackageService, "actionPackageService");
+            return this;
+        }
+
+        /** 可选的包 commit 执行器；未注入时 commit 工具返回稳定不可用错误。 */
+        public Builder actionBatchExecutor(ActionBatchExecutor actionBatchExecutor) {
+            this.actionBatchExecutor = Objects.requireNonNull(
+                    actionBatchExecutor, "actionBatchExecutor");
             return this;
         }
 
