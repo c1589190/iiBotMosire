@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-24 13:20（Asia/Shanghai）
+> **更新时间**：2026-10-24 14:20（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -8,7 +8,8 @@
 
 - **P0 已完成**：v3 行动池 + AgentLib 裁定包 + 48 MCP 工具已通过 full gate，提交为 `0695675`；应用保持停止。
 - **P1 已完成**：`events.db` 完整内容基础（events + event_contents、`EventContentStore`/`EventAppendPort`、schema v1、迁移、hash/可见性/脱敏/事务）已通过 full gate 与阶段评审，提交为 `a52626f`。
-- **下一步 P2**：把回合、行动、包、批次、推文、投诉、工单、GM 文档全部接入 events.db，并迁移旧 JSON；不要先做新工单/发布编排。
+- **P2 已完成**：Post/Complaint/ActionPool 已改 events.db 事件源；Taskflow 完整快照事件已接入；旧 posts/complaints/taskflow-state 已有两阶段迁移与 reconciled 对账；阶段评审 PASS，full gate 413 tests PASS，提交 `0fbceaa`。DecisionPackage/Batch 因 AgentLib 缺 restore/事务边界推迟 P5。
+- **下一步 P3**：控制初始化 + GM 私有文档；仍不做真实外部发送。
 - **理想工作流仍按 P0–P8 计划推进**：`events.db` 是目标 canonical 领域事实源；P1 只完成内容基础，领域事件全量接入与回放尚未完成，Markdown 仍将是投影。
 - **v2 功能切片已落地**：即时 ACK、每玩家秘书工作区、GM 工作区/秘书对话、推文草稿→GM 审核→GM 发布、多模型路由、只读 GM 推演秘书。
 - **v1 真实单人 E2E 已完成**：玩家私聊 → 真实 LLM 秘书草稿 → 玩家 `/确认` → MCP 冻结 → 中央推演 Agent（真实 LLM）→ COMMITTED → MCP 发布 → 公共群公开叙事 + 玩家私聊 outcome 均已真实出站。
@@ -34,17 +35,17 @@
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
 | 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.3`（Pages 固定版） |
 | 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`，约 21 MB |
-| Git/提交 | 本地 HEAD `a52626f`（P1 events.db 内容基础）；远程 HEAD 仍为 `99dc328`；P1 代码已提交，STATUS 收口更新单独提交 |
+| Git/提交 | 本地 HEAD `0fbceaa`（P2）；远程 HEAD 仍为 `99dc328`；P2 已提交，STATUS 收口更新单独提交 |
 | 本机工作树 | 仅本项目文件；`target/` 等构建产物存在 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
-| 最近 full clean（P1） | **398 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 29、connect-agent 21、taskflow 197、app 151），`tools/gate.sh full` PASS；日志 `.work/p1-full.log` |
-| P1 focused / 评审 | focused **398/398 PASS**；独立持久化/事务/脱敏评审最终 **PASS**；重叠 secret 回归通过 |
+| 最近 full clean（P2） | **413 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 29、connect-agent 21、taskflow 197、app 166），`tools/gate.sh full` PASS；日志 `.work/p2-full.log` |
+| P2 focused / 评审 | focused **413/413 PASS**；独立持久化/迁移/失败语义评审最终 **PASS**；48 工具断言通过 |
 | v3 MCP 工具面 | 48 工具；`ControlMcpServerPostToolsTest` / `ControlMcpServerDecisionToolsTest` / `AppBootstrap*` loopback 测试通过 |
-| 当前门禁状态 | P1 已完成；P2 尚未开始；后续按阶段跑 focused/full，未跑项写 `NOT_RUN` |
+| 当前门禁状态 | P2 已完成；P3 尚未开始；后续按阶段跑 focused/full，未跑项写 `NOT_RUN` |
 | Shade | 产出可运行 `iibot-app-0.1.0-SNAPSHOT.jar`（约 21 MB），Main-Class 已核 |
 | 文档/工具链 | `tools/gate.sh pre` PASS（docs + skills + `./mvnw -v`） |
 | 文档 selftest | check-docs 11/11；skills-lint 6/6 |
@@ -113,6 +114,7 @@
 - 投诉闭环已实现：秘书 submit/list/read；GM list/get/respond；`complaints.json` 持久化；ComplaintDistributor 真实私聊回应；SUBMITTED→RESPONDED；未知/其他玩家不可见。
 - v3 行动池/裁定包已实现：秘书可跨回合提交自然语言行动；GM 可建包、追加/替换/删除、逐条/整包裁决；一个包 commit 产生一个推演批次；同一回合可多批次。当前行动池/包/批次仍为进程内存储。
 - P1 `events.db` 完整内容基础已实现：headers + `event_contents` 同事务写入；JSON/Markdown/TEXT 严格二选一；`PRAGMA user_version=1`；旧 AgentLib 审计库幂等迁移为 `event_version=0/content_missing=1`；SHA-256 正文 hash 读取重算 fail-closed；大小上限；敏感键/重叠 secret 覆盖掩码脱敏；主库及 WAL/SHM best-effort 600。
+- P2 现有领域事件接入已实现：Post/Complaint 使用 events.db 事件源 store；ActionPool 使用事件源快照；`TASKFLOW_SNAPSHOT` 保存完整 Taskflow 快照；`payload_json` summary 只含 `idempotencyKeyHash` 等索引；旧 posts/complaints/taskflow-state 使用 exact `migrated` + `reconciled` 两阶段标记，并校验目标事件 seq/type/contentHash；事件版本写侧/读侧均 fail-closed；48 工具与重启恢复回归通过。
 
 ## 6. 未验证 / 风险 / blocker
 
@@ -125,13 +127,14 @@
 7. **逐事件回放未实现，重启恢复依赖完整快照**：`taskflow-state.json` 原子持久化并在启动时恢复，事件库 seq 只做一致性锚点；快照与事件 seq 不一致时 fail-closed。Secretary 的 ContextWindow 聊天历史不恢复。
 8. **公共群目前只作为公开广播边界**：群内玩家对话、@ 触发、群内决策未接入。
 9. **外部 MCP 仅本地单 supervisor**：远程 TLS/多租户/长期 SSE/Last-Event-ID 重放未验；不要把端口暴露公网。
-10. **events.db 尚未成为完整领域事实源**：P1 只完成内容基础；回合/行动/包/批次/推文/投诉/工单/GM 文档尚未全量写入，旧 JSON 未迁移，事件回放未实现。AgentLibEventSink 当前为旧读取端口兼容双写 payload/payload_json，P2 收口。
-11. **P1 非阻断硬化点**：极端自重叠 secret 的掩码填充复杂度未做基准；chmod 故障注入、并发 close/append 压力、真实历史 events.db 迁移演练未跑。
-12. **依赖/静态质量门禁有限**：当前 `verify` 主要有 enforcer + tests + shade，尚未接入 Spotless/Checkstyle/SpotBugs；不要把它等同于完整质量门禁。
-13. **上游编译 warning**：AgentLib 注解在 javac 编译期有 `SuppressFBWarnings` 缺失 warning，不影响当前构建，但说明注解仅编译期处理。
+10. **events.db 尚未成为完整领域事实源**：P2 已接 Post/Complaint/ActionPool 和 Taskflow 完整快照；DecisionPackage/Batch 推迟 P5，Ticket/GM 文档在 P3/P4，事件回放未实现。AgentLibEventSink 仍为旧读取端口兼容双写 payload/payload_json。
+11. **P2 迁移/快照残留**：旧 JSON 迁移使用 exact reconciled 完成标记并校验目标事件 seq/type/contentHash；运行期 taskflow-state.json 与 TASKFLOW_SNAPSHOT 双写为 best-effort，启动 ensureRecorded 追平 stale/missing；JSON 保存失败而 snapshot event 成功时，重启仍会在 anchor mismatch 处 fail-closed，需运维处置；事件查询面的 per-player visibility scope 尚未实现。
+12. **P1 非阻断硬化点**：极端自重叠 secret 的掩码填充复杂度未做基准；chmod 故障注入、并发 close/append 压力、真实历史 events.db 迁移演练未跑。
+13. **依赖/静态质量门禁有限**：当前 `verify` 主要有 enforcer + tests + shade，尚未接入 Spotless/Checkstyle/SpotBugs；不要把它等同于完整质量门禁。
+14. **上游编译 warning**：AgentLib 注解在 javac 编译期有 `SuppressFBWarnings` 缺失 warning，不影响当前构建，但说明注解仅编译期处理。
 
 ## 7. 下一步
 
-1. **P2**：领域事件全量接入 + 旧 JSON 迁移；先接 Taskflow/ActionPool/DecisionPackage/批次、Post、Complaint，再接工单/GM 文档，不做第二事实源。
-2. P3–P8 按 [`plans/2026-10-24-ideal-workflow-implementation-plan.md`](../superpowers/plans/2026-10-24-ideal-workflow-implementation-plan.md) 顺序推进。
+1. **P3**：控制初始化 + GM 私有文档；沿用 P2 的 DomainEvent/journal 端口，不虚构工单/包恢复。开始前先跑 `git status` 与 docs gate。
+2. P4 工单；P5 补 DecisionPackage/Batch 事务/恢复与事件；P6–P8 按计划推进。
 3. 真实 QQ/LLM/MCP 仍按 M-004 等用户协同；未跑项继续标 `NOT_RUN`。

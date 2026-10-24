@@ -1,6 +1,6 @@
 # 理想 GM 控制工作流实施计划（2026-10-24）
 
-> **状态**：计划有效；P0（v3 行动池/裁定包）与 P1（events.db 完整内容基础）已提交；P2（现有领域事件接入与 JSON 迁移）已完成实现、测试、阶段评审与 full gate，提交待本轮收口；DecisionPackage/Batch 事件推迟 P5。
+> **状态**：计划有效；P0（v3 行动池/裁定包）与 P1（events.db 完整内容基础）已提交；P2（现有领域事件接入与 JSON 迁移）已完成实现、测试、阶段评审与 full gate，提交 `0fbceaa`；DecisionPackage/Batch 事件推迟 P5。
 > **性质**：计划不是设计；事件 schema、数据所有权、工具语义以
 > [`../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md`](../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md) 为准。
 > **当前事实**：以 [`../../agents/STATUS.md`](../../agents/STATUS.md) 为准。本文件里的测试数/工期是预测，不是实测。
@@ -107,7 +107,7 @@ P8 真实 MCP/LLM/多玩家/发布回归与发布
 
 ### P2 领域事件全量接入 + JSON 迁移
 
-**状态**：已完成实现/测试/最终阶段评审/full gate（413 tests）；DecisionPackage/Batch 事件推迟到 P5；Ticket/GM 文档在 P3/P4；提交待本轮收口。
+**状态**：已完成实现/测试/最终阶段评审/full gate（413 tests）；DecisionPackage/Batch 事件推迟到 P5；Ticket/GM 文档在 P3/P4；提交 `0fbceaa`。
 
 **目标**：让回合、行动、推文、投诉以及完整 Taskflow 快照写入 events.db；旧 JSON 安全迁移。
 
