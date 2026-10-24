@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * 宿主侧推文外发器：只消费 GM 已发布且送达状态待处理的推文。
@@ -34,19 +36,28 @@ public final class PostDistributor {
 
     private final PostService postService;
     private final OutboxSender outbox;
-    private final String publicGroupId;
-    private final Map<String, String> playerQqById;
+    private final Supplier<String> publicGroupId;
+    private final Function<String, String> playerQqById;
     private final Set<String> attemptedPostIds = new LinkedHashSet<>();
 
+    /** 兼容固定路由构造器；每个目标在构造时冻结，供旧测试/装配使用。 */
     public PostDistributor(PostService postService, OutboxSender outbox, String publicGroupId,
                            Map<String, String> playerQqById) {
+        this(postService, outbox, constantPublicGroup(publicGroupId),
+                mapLookup(Objects.requireNonNull(playerQqById, "playerQqById")));
+    }
+
+    /**
+     * 动态路由构造器：公开发送前读取当前群，私密发送前读取作者玩家当前 QQ。
+     * 运行期注册玩家无需重建本分发器。
+     */
+    public PostDistributor(PostService postService, OutboxSender outbox,
+                           Supplier<String> publicGroupId,
+                           Function<String, String> playerQqById) {
         this.postService = Objects.requireNonNull(postService, "postService");
         this.outbox = Objects.requireNonNull(outbox, "outbox");
-        if (publicGroupId == null || publicGroupId.isBlank()) {
-            throw new IllegalArgumentException("publicGroupId 不能为空");
-        }
-        this.publicGroupId = publicGroupId;
-        this.playerQqById = Map.copyOf(Objects.requireNonNull(playerQqById, "playerQqById"));
+        this.publicGroupId = Objects.requireNonNull(publicGroupId, "publicGroupId");
+        this.playerQqById = Objects.requireNonNull(playerQqById, "playerQqById");
     }
 
     /**
@@ -76,13 +87,22 @@ public final class PostDistributor {
     private List<SendOutcome> distributeOne(Post post) {
         try {
             if (post.visibility() == PostVisibility.PUBLIC) {
+                String groupId = publicGroupId.get();
+                if (groupId == null || groupId.isBlank()) {
+                    LOG.warn("推文缺少公开群路由 postId={}", post.postId());
+                    recordWithoutSend(post, "UNKNOWN_PUBLIC_GROUP");
+                    return List.of(new SendOutcome(0,
+                            "post:" + post.postId() + ":public",
+                            SendReceipt.State.FAILED_BEFORE_SEND, List.of(),
+                            "UNKNOWN_PUBLIC_GROUP", "公开群路由未配置（未发送）"));
+                }
                 List<SendOutcome> sent = outbox.broadcastToPublicGroup(
-                        publicGroupId, List.of(post.body()),
+                        groupId, List.of(post.body()),
                         "post:" + post.postId() + ":public");
                 return record(post, sent, DeliveryState.SENT);
             }
             if (post.visibility() == PostVisibility.PRIVATE) {
-                String qqId = playerQqById.get(post.authorPlayerId());
+                String qqId = playerQqById.apply(post.authorPlayerId());
                 if (qqId == null || qqId.isBlank()) {
                     LOG.warn("推文缺少作者 QQ 映射 postId={} playerId={}",
                             post.postId(), post.authorPlayerId());
@@ -139,11 +159,24 @@ public final class PostDistributor {
 
     private void recordWithoutSend(Post post, String errorCode) {
         // 明确未发送时才可落 FAILED；SEND_CALL_FAILED 等不确定路径由调用方单独标记 UNKNOWN。
-        if ("UNKNOWN_PLAYER".equals(errorCode) || "UNSUPPORTED_VISIBILITY".equals(errorCode)) {
+        if ("UNKNOWN_PLAYER".equals(errorCode) || "UNSUPPORTED_VISIBILITY".equals(errorCode)
+                || "UNKNOWN_PUBLIC_GROUP".equals(errorCode)) {
             mark(post.postId(), DeliveryState.FAILED);
         } else {
             mark(post.postId(), DeliveryState.UNKNOWN);
         }
+    }
+
+    private static Supplier<String> constantPublicGroup(String publicGroupId) {
+        if (publicGroupId == null || publicGroupId.isBlank()) {
+            throw new IllegalArgumentException("publicGroupId 不能为空");
+        }
+        return () -> publicGroupId;
+    }
+
+    private static Function<String, String> mapLookup(Map<String, String> playerQqById) {
+        Map<String, String> copy = Map.copyOf(playerQqById);
+        return copy::get;
     }
 
     private void mark(String postId, DeliveryState state) {

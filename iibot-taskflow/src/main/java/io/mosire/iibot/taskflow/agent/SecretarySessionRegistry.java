@@ -21,6 +21,19 @@ public final class SecretarySessionRegistry {
         return this;
     }
 
+    /**
+     * 幂等登记秘书会话：不存在时写入并返回传入会话；已存在时保留既有会话并返回它。
+     *
+     * <p>动态注册玩家可能在启动恢复与 MCP 注册之间重复触发同一玩家；该方法不抛异常，
+     * 也不会用新实例覆盖既有上下文/工具状态。旧 {@link #register(SecretarySession)}
+     * 的冲突失败语义保持不变。</p>
+     */
+    public SecretarySession ensure(SecretarySession session) {
+        Objects.requireNonNull(session, "session");
+        SecretarySession previous = sessions.putIfAbsent(session.playerId(), session);
+        return previous == null ? session : previous;
+    }
+
     public Optional<SecretarySession> find(String playerId) {
         return playerId == null ? Optional.empty()
                 : Optional.ofNullable(sessions.get(playerId));

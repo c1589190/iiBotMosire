@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * 已发布回合的结果分发器。
@@ -33,8 +35,8 @@ public final class TurnResultDistributor {
 
     private final TaskflowEngine engine;
     private final OutboxSender outbox;
-    private final String publicGroupId;
-    private final Map<String, String> playerQqById;
+    private final Supplier<String> publicGroupId;
+    private final Function<String, String> playerQqById;
     private final DeliveryLedger ledger;
 
     /**
@@ -49,14 +51,30 @@ public final class TurnResultDistributor {
     /** 使用持久化投递声明的构造器。 */
     public TurnResultDistributor(TaskflowEngine engine, OutboxSender outbox, String publicGroupId,
                                  Map<String, String> playerQqById, DeliveryLedger ledger) {
+        this(engine, outbox, constantPublicGroup(publicGroupId),
+                mapLookup(Objects.requireNonNull(playerQqById, "playerQqById")), ledger);
+    }
+
+    /**
+     * 动态路由构造器：每次分发读取当前公开群与玩家 QQ，不冻结启动期快照。
+     * 运行期注册的新玩家因此在下一轮结果分发时立即生效。
+     */
+    public TurnResultDistributor(TaskflowEngine engine, OutboxSender outbox,
+                                 Supplier<String> publicGroupId,
+                                 Function<String, String> playerQqById,
+                                 DeliveryLedger ledger) {
         this.engine = Objects.requireNonNull(engine, "engine");
         this.outbox = Objects.requireNonNull(outbox, "outbox");
-        if (publicGroupId == null || publicGroupId.isBlank()) {
-            throw new IllegalArgumentException("publicGroupId 不能为空");
-        }
-        this.publicGroupId = publicGroupId;
-        this.playerQqById = Map.copyOf(Objects.requireNonNull(playerQqById, "playerQqById"));
+        this.publicGroupId = Objects.requireNonNull(publicGroupId, "publicGroupId");
+        this.playerQqById = Objects.requireNonNull(playerQqById, "playerQqById");
         this.ledger = Objects.requireNonNull(ledger, "ledger");
+    }
+
+    /** 动态路由 + 兼容进程内 ledger 的构造器。 */
+    public TurnResultDistributor(TaskflowEngine engine, OutboxSender outbox,
+                                 Supplier<String> publicGroupId,
+                                 Function<String, String> playerQqById) {
+        this(engine, outbox, publicGroupId, playerQqById, new InMemoryDeliveryLedger());
     }
 
     /** 便于按“先声明端口后映射表”的顺序装配的兼容重载。 */
@@ -85,10 +103,15 @@ public final class TurnResultDistributor {
         String correlation = "turn:" + turn.turnId();
 
         if (proposal.publicNarrative() != null && !proposal.publicNarrative().isBlank()) {
-            String key = correlation + ":public";
-            if (claim(key, turn.turnId(), null)) {
-                outcomes.addAll(outbox.broadcastToPublicGroup(publicGroupId,
-                        List.of(proposal.publicNarrative()), key));
+            String groupId = publicGroupId.get();
+            if (groupId == null || groupId.isBlank()) {
+                LOG.error("回合结果缺少公开群路由，跳过公开叙事 turnId={}", turn.turnId());
+            } else {
+                String key = correlation + ":public";
+                if (claim(key, turn.turnId(), null)) {
+                    outcomes.addAll(outbox.broadcastToPublicGroup(groupId,
+                            List.of(proposal.publicNarrative()), key));
+                }
             }
         }
 
@@ -105,7 +128,7 @@ public final class TurnResultDistributor {
                 .forEach(entry -> sorted.put(entry.getKey(), entry.getValue()));
         for (Map.Entry<String, String> entry : sorted.entrySet()) {
             String playerId = entry.getKey();
-            String qqId = playerQqById.get(playerId);
+            String qqId = playerQqById.apply(playerId);
             if (qqId == null || qqId.isBlank()) {
                 LOG.warn("回合结果缺少玩家 QQ 映射 turnId={} playerId={}",
                         turn.turnId(), playerId);
@@ -146,6 +169,18 @@ public final class TurnResultDistributor {
 
     private static long countUnknown(List<SendOutcome> outcomes) {
         return outcomes.stream().filter(SendOutcome::unknown).count();
+    }
+
+    private static Supplier<String> constantPublicGroup(String publicGroupId) {
+        if (publicGroupId == null || publicGroupId.isBlank()) {
+            throw new IllegalArgumentException("publicGroupId 不能为空");
+        }
+        return () -> publicGroupId;
+    }
+
+    private static Function<String, String> mapLookup(Map<String, String> playerQqById) {
+        Map<String, String> copy = Map.copyOf(playerQqById);
+        return copy::get;
     }
 
     /** 兼容旧构造器；不提供跨实例/重启持久化。 */

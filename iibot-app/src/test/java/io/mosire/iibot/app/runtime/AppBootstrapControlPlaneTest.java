@@ -8,8 +8,10 @@ import io.modelcontextprotocol.spec.McpSchema;
 import io.mosire.agentlib.llm.LlmResponse;
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.SecretProvider;
+import io.mosire.iibot.app.mcp.ControlBootstrapMcpTools;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
 import io.mosire.iibot.app.mcp.GmAideChatTool;
+import io.mosire.iibot.app.mcp.GmPrivateDocsMcpTools;
 import io.mosire.iibot.app.mcp.GmSecretaryChatTool;
 import io.mosire.iibot.app.mcp.GmSecretaryDispatchTool;
 import io.mosire.iibot.app.mcp.GmSecretaryListTool;
@@ -118,14 +120,18 @@ class AppBootstrapControlPlaneTest {
 
             McpSchema.ListToolsResult list = client.listTools();
             assertThat(list.tools().stream().map(McpSchema.Tool::name))
-                    .hasSize(48)
+                    .hasSize(55)
                     .contains(RunAdjudicationAgentTool.NAME, GmAideChatTool.NAME,
                             GmSecretaryListTool.NAME, GmSecretaryReadTool.NAME,
                             GmSecretaryDispatchTool.NAME, GmSecretaryChatTool.NAME,
                             GmPostListTool.NAME, GmPostGetTool.NAME,
                             GmPostDecideTool.NAME, GmPostPublishTool.NAME)
                     .containsAll(GmSharedSkillMcpTools.NAMES)
-                    .containsAll(GmComplaintMcpTools.NAMES);
+                    .containsAll(GmComplaintMcpTools.NAMES)
+                    .containsAll(ControlBootstrapMcpTools.NAMES)
+                    .containsAll(GmPrivateDocsMcpTools.NAMES)
+                    .doesNotContain("tf_register_player", "tf_register_director",
+                            "tf_load_world_facts");
 
             callOk(client, "tf_open_turn", Map.of(
                     "expectedRevision", runtime.engine().status().engineRevision(),

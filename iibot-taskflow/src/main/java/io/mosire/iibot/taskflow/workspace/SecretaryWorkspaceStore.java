@@ -37,6 +37,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * 每玩家一个的秘书 Workspace/Docs 工作区基础层。
@@ -76,11 +78,11 @@ public final class SecretaryWorkspaceStore {
     private static final String HOLDER = "secretary-workspace-host";
 
     private final Path dataDir;
-    private final Map<String, PlayerWorkspace> workspaces;
+    private final ConcurrentMap<String, PlayerWorkspace> workspaces;
 
     private SecretaryWorkspaceStore(Path dataDir, Map<String, PlayerWorkspace> workspaces) {
         this.dataDir = dataDir;
-        this.workspaces = Map.copyOf(workspaces);
+        this.workspaces = new ConcurrentHashMap<>(workspaces);
     }
 
     /**
@@ -102,13 +104,35 @@ public final class SecretaryWorkspaceStore {
         Path secretaries = ensureDirectory(base, base.resolve("secretaries"));
         Map<String, PlayerWorkspace> mounted = new LinkedHashMap<>();
         for (String playerId : ids) {
-            Path root = ensureDirectory(base, secretaries.resolve(playerId));
-            for (String allowedRoot : ROOT_DIRECTORIES) {
-                ensureDirectory(base, root.resolve(allowedRoot));
-            }
-            mounted.put(playerId, mountWorkspace(root));
+            mounted.put(playerId, createPlayerWorkspace(base, secretaries, playerId));
         }
         return new SecretaryWorkspaceStore(base, mounted);
+    }
+
+    /**
+     * 幂等建立/登记一个运行期新增玩家的隔离工作区。
+     *
+     * <p>已存在的玩家不会重复创建目录、覆盖文档或替换其注册表；未知/非法 playerId
+     * 在触碰文件系统前 fail-closed。目录/软链安全规则与 {@link #open(Path, Collection)}
+     * 完全一致。方法同步以保证并发动态注册不会创建两套挂载。</p>
+     */
+    public synchronized void ensurePlayer(String playerId) {
+        String key = requireValidPlayerId(playerId);
+        if (workspaces.containsKey(key)) {
+            return;
+        }
+        Path base = prepareDataDirectory(dataDir);
+        Path secretaries = ensureDirectory(base, base.resolve("secretaries"));
+        workspaces.put(key, createPlayerWorkspace(base, secretaries, key));
+    }
+
+    private static PlayerWorkspace createPlayerWorkspace(Path base, Path secretaries,
+                                                          String playerId) {
+        Path root = ensureDirectory(base, secretaries.resolve(playerId));
+        for (String allowedRoot : ROOT_DIRECTORIES) {
+            ensureDirectory(base, root.resolve(allowedRoot));
+        }
+        return mountWorkspace(root);
     }
 
     /**

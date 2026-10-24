@@ -6,6 +6,7 @@ import io.mosire.iibot.app.action.EventSourcedActionPoolStore;
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.LlmClientFactory;
 import io.mosire.iibot.app.config.SecretProvider;
+import io.mosire.iibot.app.control.ControlBootstrapService;
 import io.mosire.iibot.app.complaint.EventSourcedComplaintStore;
 import io.mosire.iibot.app.delivery.ComplaintDistributor;
 import io.mosire.iibot.app.delivery.JsonDeliveryLedger;
@@ -51,6 +52,7 @@ import io.mosire.iibot.taskflow.decision.ActionPackageService;
 import io.mosire.iibot.taskflow.skill.SharedSkillStore;
 import io.mosire.iibot.taskflow.event.EventSink;
 import io.mosire.iibot.taskflow.post.PostService;
+import io.mosire.iibot.taskflow.workspace.GmPrivateDocs;
 import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
 import io.mosire.iibot.taskflow.snapshot.TaskflowStateSnapshot;
 import org.slf4j.Logger;
@@ -67,6 +69,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 /**
  * 组合根装配器：把配置、事件审计、领域引擎、Agent、Docs 与消息接入串成一个可启动运行时。
@@ -229,11 +233,15 @@ public final class AppBootstrap {
                     new EventSourcedComplaintStore(eventContentStore, domainEventJournal, clock),
                     clock);
 
-            // 所有后续消费者都读取引擎动态事实，而不是启动时的静态列表。
+            // 所有后续消费者都读取引擎动态事实，而不是启动时的静态列表。重启恢复的
+            // 动态玩家也必须在这里重建 workspace/Session，因此 playerIds 来自 engine。
+            List<String> enginePlayerIds = engine.playerProfiles().stream()
+                    .map(PlayerProfile::playerId).toList();
             SecretaryWorkspaceStore secretaryWorkspaceStore = SecretaryWorkspaceStore.open(
-                    config.dataDir(),
-                    config.players().stream().map(AppConfig.Account::actorId).toList());
+                    config.dataDir(), enginePlayerIds);
             SharedSkillStore sharedSkillStore = SharedSkillStore.open(dataDir);
+            // GM 私有文档区只注入外部控制 MCP，不进入秘书/玩家/GM aide 工具面。
+            GmPrivateDocs gmPrivateDocs = GmPrivateDocs.open(dataDir, domainEventJournal);
             // 行动池与裁定包：行动池从 events.db 重建；包 live 状态仍由 AgentLib 进程内
             // 持有，但每次成功写操作记录完整只读投影事件。
             ActionPoolService actionPoolService = new ActionPoolService(
@@ -245,21 +253,36 @@ public final class AppBootstrap {
                     engine, adjudicatorLlm, clock);
             LlmBriefingService briefingService = new LlmBriefingService(secretaryLlm);
             SecretarySessionRegistry secretaryRegistry = new SecretarySessionRegistry();
-            for (AppConfig.Account player : config.players()) {
-                Actor actor = new Actor(player.actorId(), ActorRole.PLAYER);
-                secretaryRegistry.register(new SecretarySession(player.actorId(), actor, engine,
-                        secretaryLlm, briefingService, bootstrapDirector, clock,
-                        secretaryWorkspaceStore, postService, sharedSkillStore,
-                        complaintService, actionPoolService));
-            }
+            Function<PlayerProfile, SecretarySession> sessionFactory = profile ->
+                    new SecretarySession(profile.playerId(),
+                            new Actor(profile.playerId(), ActorRole.PLAYER), engine,
+                            secretaryLlm, briefingService, bootstrapDirector, clock,
+                            secretaryWorkspaceStore, postService, sharedSkillStore,
+                            complaintService, actionPoolService);
+
+            Actor externalSupervisor = new Actor(
+                    ControlBootstrapService.SUPERVISOR_ACTOR_ID, ActorRole.SUPERVISOR);
+            AtomicReference<WorldDocs> worldDocsRef = new AtomicReference<>();
+            ControlBootstrapService controlBootstrapService = new ControlBootstrapService(
+                    engine, secretaryRegistry, secretaryWorkspaceStore, eventContentStore,
+                    domainEventJournal, config.publicGroupId(), externalSupervisor, clock,
+                    sessionFactory,
+                    () -> {
+                        WorldDocs docs = worldDocsRef.get();
+                        if (docs != null) {
+                            docs.refreshWorld(engine.allWorldFacts());
+                        }
+                    });
+
             AdjudicationService adjudicationService =
                     new AdjudicationService(engine, adjudicatorLlm);
             GmAideAgent gmAideAgent = new GmAideAgent(engine, gmAideLlm, eventReadPort,
                     secretaryWorkspaceStore, postService, sharedSkillStore, complaintService);
-            Map<String, MappedIdentity> identities = buildIdentities(config);
+            // 入站身份解析器在每次消息处理时读取 controlBootstrap 当前路由，不使用启动
+            // 配置 map 快照；动态注册玩家因此立即进入秘书链路。
             InteractionTaskflowService interactionService = new InteractionTaskflowService(
-                    engine, identities, secretaryRegistry, adjudicationService,
-                    engine::allWorldFacts, config.publicGroupId(), clock,
+                    engine, controlBootstrapService::resolve, secretaryRegistry,
+                    adjudicationService, engine::allWorldFacts, config.publicGroupId(), clock,
                     config.maxTurnMinutes(), bootstrapDirector);
 
             MessagingAdapter adapter = options.adapter() == null
@@ -268,13 +291,16 @@ public final class AppBootstrap {
             OutboxSender outbox = new OutboxSender(adapter,
                     Duration.ofSeconds(config.outbox().sendTimeoutSeconds()));
             TurnResultDistributor resultDistributor = new TurnResultDistributor(
-                    engine, outbox, config.publicGroupId(), playerQqById(config),
-                    deliveryLedger);
+                    engine, outbox, controlBootstrapService::publicGroupId,
+                    controlBootstrapService::qqForPlayerOrNull, deliveryLedger);
             PostDistributor postDistributor = new PostDistributor(postService, outbox,
-                    config.publicGroupId(), playerQqById(config));
+                    controlBootstrapService::publicGroupId,
+                    controlBootstrapService::qqForPlayerOrNull);
             ComplaintDistributor complaintDistributor = new ComplaintDistributor(
-                    complaintService, outbox, playerQqById(config));
-            AckPolicy ackPolicy = buildAckPolicy(config);
+                    complaintService, outbox,
+                    controlBootstrapService::qqForPlayerOrNull);
+            AckPolicy ackPolicy = AckPolicy.dynamic(qqId ->
+                    controlBootstrapService.ackTextByQq(qqId).orElse(null));
             dispatcher = new InboundDispatcher(interactionService::handle, outbox,
                     resultDistributor, ackPolicy,
                     config.dispatcher().maxConcurrentSessions(),
@@ -287,16 +313,18 @@ public final class AppBootstrap {
             List<WorldFact> factsForDocs = engine.allWorldFacts();
             worldDocs = WorldDocs.open(dataDir, config.world().promptVersion(),
                     WorldDocs.publicSummary(factsForDocs), factsForDocs);
+            worldDocsRef.set(worldDocs);
 
             ControlPlane controlPlane = resolveControlPlane(
                     options, config, engine, eventReadPort, secrets, clock,
                     adjudicationService, gmAideAgent, resultDistributor, postDistributor,
                     complaintDistributor, secretaryWorkspaceStore, secretaryRegistry,
                     postService, sharedSkillStore, complaintService,
-                    actionPoolService, actionPackageService, actionBatchExecutor);
+                    actionPoolService, actionPackageService, actionBatchExecutor,
+                    controlBootstrapService, gmPrivateDocs);
             runtime = new AppRuntime(config, engine, interactionService, adapter, dispatcher,
                     outbox, scheduler, eventSink, eventReadPort, eventContentStore,
-                    snapshotStore, worldDocs, controlPlane);
+                    snapshotStore, worldDocs, controlPlane, controlBootstrapService);
             LOG.info("组合根装配完成 dataDir={} recovered={} players={} directors={} "
                             + "worldFacts={} worldVersion={}",
                     dataDir, recovered, engine.status().playerCount(),
@@ -389,7 +417,13 @@ public final class AppBootstrap {
         Map<String, PlayerProfile> expectedDirectors = profilesFromAccounts(config.directors());
         Map<String, PlayerProfile> actualPlayers = profilesFromEngine(engine.playerProfiles());
         Map<String, PlayerProfile> actualDirectors = profilesFromEngine(engine.directorProfiles());
-        if (!expectedPlayers.equals(actualPlayers) || !expectedDirectors.equals(actualDirectors)) {
+        // 启动配置是必须存在的身份子集；引擎可包含上一轮通过控制 MCP 动态注册的额外身份。
+        // 配置内已有身份被改名/改 QQ/删除仍 fail-closed，避免静默改写身份事实源。
+        boolean configuredPresent = expectedPlayers.entrySet().stream()
+                .allMatch(entry -> entry.getValue().equals(actualPlayers.get(entry.getKey())))
+                && expectedDirectors.entrySet().stream()
+                .allMatch(entry -> entry.getValue().equals(actualDirectors.get(entry.getKey())));
+        if (!configuredPresent) {
             throw new IllegalStateException("RECOVERY_IDENTITY_MISMATCH "
                     + "expectedPlayers=" + expectedPlayers.keySet()
                     + " snapshotPlayers=" + actualPlayers.keySet()
@@ -452,7 +486,9 @@ public final class AppBootstrap {
                                                     ComplaintService complaintService,
                                                     ActionPoolService actionPoolService,
                                                     ActionPackageService actionPackageService,
-                                                    ActionBatchExecutor actionBatchExecutor) {
+                                                    ActionBatchExecutor actionBatchExecutor,
+                                                    ControlBootstrapService controlBootstrapService,
+                                                    GmPrivateDocs gmPrivateDocs) {
         if (!(options.controlPlane() instanceof NoopControlPlane)) {
             return options.controlPlane();
         }
@@ -477,6 +513,8 @@ public final class AppBootstrap {
                 .actionPoolService(actionPoolService)
                 .actionPackageService(actionPackageService)
                 .actionBatchExecutor(actionBatchExecutor)
+                .controlBootstrapService(controlBootstrapService)
+                .gmPrivateDocs(gmPrivateDocs)
                 .afterMutation(() -> {
                     runAfterMutationSafely("turn-result-distributor",
                             resultDistributor::distributeIfReady);

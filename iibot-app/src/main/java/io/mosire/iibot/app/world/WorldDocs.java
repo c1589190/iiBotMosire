@@ -5,14 +5,17 @@ import io.mosire.agentlib.permission.AgentPermissionSet;
 import io.mosire.agentlib.permission.ResourceScope;
 import io.mosire.agentlib.permission.ResourceScopeMap;
 import io.mosire.docs.AppendRequest;
+import io.mosire.docs.DocAddr;
 import io.mosire.docs.DocEntry;
 import io.mosire.docs.DocException;
 import io.mosire.docs.DocFile;
+import io.mosire.docs.DocOpKind;
 import io.mosire.docs.DocNamespaces;
 import io.mosire.docs.DocReadResult;
 import io.mosire.docs.DocViewer;
 import io.mosire.docs.DocsApi;
 import io.mosire.docs.DocsCapability;
+import io.mosire.docs.EditOp;
 import io.mosire.iibot.taskflow.WorldFact;
 import io.mosire.workspace.CapabilityCatalog;
 import io.mosire.workspace.CapabilityCatalogs;
@@ -62,12 +65,15 @@ public final class WorldDocs implements AutoCloseable {
     private final DocsApi docsApi;
     private final WorkspaceCaller caller;
     private final Path worldDir;
+    private final String promptVersion;
     private final AtomicBoolean closed = new AtomicBoolean();
 
-    private WorldDocs(DocsApi docsApi, WorkspaceCaller caller, Path worldDir) {
+    private WorldDocs(DocsApi docsApi, WorkspaceCaller caller, Path worldDir,
+                      String promptVersion) {
         this.docsApi = docsApi;
         this.caller = caller;
         this.worldDir = worldDir;
+        this.promptVersion = promptVersion;
     }
 
     /**
@@ -118,7 +124,7 @@ public final class WorldDocs implements AutoCloseable {
         AgentPermissionSet landed = registry.grant(HOLDER, permissions);
         WorkspaceCaller caller = new WorkspaceCaller(HOLDER, landed);
         DocsApi api = new DocsApi(registry);
-        WorldDocs worldDocs = new WorldDocs(api, caller, worldDir);
+        WorldDocs worldDocs = new WorldDocs(api, caller, worldDir, promptVersion);
         worldDocs.ensureBible(promptVersion, publicSummary, facts);
         worldDocs.appendAudit("startup", "promptVersion=" + promptVersion);
         LOG.info("世界文档工作区就绪: dir={} promptVersion={}", worldDir, promptVersion);
@@ -136,6 +142,27 @@ public final class WorldDocs implements AutoCloseable {
             }
             // 重启：保留既有世界文档，不静默覆盖；追加一条启动审计即可。
             LOG.info("世界圣经已存在，保留原文件: virtualPath={}", BIBLE_PATH);
+        }
+    }
+
+    /**
+     * 运行期装载世界事实后刷新世界圣经投影。
+     *
+     * <p>先按最新事实渲染完整内容，再经 Docs 的受控 editFile 全量替换；失败向上抛出，
+     * 由调用方决定是否记录。调用方不得在事件/世界状态提交前把它当作事实源。</p>
+     */
+    public synchronized void refreshWorld(List<WorldFact> facts) {
+        String content = renderBible(promptVersion, publicSummary(facts), facts);
+        try {
+            DocReadResult current = docsApi.readFile(BIBLE_PATH, caller, "");
+            int lastLine = Math.max(1, Math.toIntExact(current.totalLines()));
+            docsApi.editFile(BIBLE_PATH, caller, List.of(EditOp.of(
+                    DocAddr.range(1, lastLine), DocOpKind.REPLACE, content)));
+            LOG.info("世界圣经已刷新: facts={} lines={}",
+                    facts == null ? 0 : facts.size(), lastLine);
+        } catch (RuntimeException failure) {
+            LOG.warn("世界圣经刷新失败 type={}", failure.getClass().getSimpleName());
+            throw failure;
         }
     }
 

@@ -67,6 +67,8 @@ public final class DomainEventTypes {
     public static final String TASKFLOW_BASELINE_RECONCILED = "TASKFLOW_BASELINE_RECONCILED";
 
     public static final String CONTROL_INITIALIZED = "CONTROL_INITIALIZED";
+    /** 控制面完整状态快照；content 为 ControlStateSnapshot，summary 只放索引/计数。 */
+    public static final String CONTROL_STATE = "CONTROL_STATE";
     public static final String CONTROL_PUBLIC_GROUP_SET = "CONTROL_PUBLIC_GROUP_SET";
     public static final String CONTROL_PLAYER_REGISTERED = "CONTROL_PLAYER_REGISTERED";
     public static final String CONTROL_DIRECTOR_REGISTERED = "CONTROL_DIRECTOR_REGISTERED";

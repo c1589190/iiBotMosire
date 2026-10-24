@@ -7,6 +7,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * 入站私信 ACK 策略：只根据配置身份与消息类型决定是否回复“已收到”状态提示。
@@ -69,6 +71,43 @@ public interface AckPolicy {
             }
             return Optional.ofNullable(mappings.get(message.userId()));
         };
+    }
+
+    /**
+     * 动态 ACK 策略：每次接收消息时重新调用 {@code ackTextByQq} 读取当前 QQ 映射。
+     *
+     * <p>函数返回 {@code null}/空白表示该 QQ 当前未登记。该端口用于运行期动态注册玩家：
+     * 不重建 dispatcher，也不把启动配置的身份 map 冻结成第二事实源。</p>
+     */
+    static AckPolicy dynamic(Function<String, String> ackTextByQq) {
+        Objects.requireNonNull(ackTextByQq, "ackTextByQq");
+        return message -> {
+            if (message == null
+                    || message.sessionType() != InboundMessage.SessionType.PRIVATE) {
+                return Optional.empty();
+            }
+            if (Objects.equals(message.selfId(), message.userId())) {
+                return Optional.empty();
+            }
+            String userId = message.userId();
+            if (userId == null || userId.isBlank()) {
+                return Optional.empty();
+            }
+            String text = ackTextByQq.apply(userId);
+            return text == null || text.isBlank() ? Optional.empty() : Optional.of(text);
+        };
+    }
+
+    /**
+     * 动态 ACK 策略的快照供应商形式：每次 ACK 时读取 supplier 返回的最新 map。
+     * supplier 返回 null 视为暂无登记身份。
+     */
+    static AckPolicy dynamic(Supplier<Map<String, String>> ackTextByQq) {
+        Objects.requireNonNull(ackTextByQq, "ackTextByQq");
+        return dynamic(qqId -> {
+            Map<String, String> current = ackTextByQq.get();
+            return current == null ? null : current.get(qqId);
+        });
     }
 
     /** {@link #configured(Map)} 的简短别名。 */

@@ -107,6 +107,8 @@ class ControlMcpServerPostToolsTest {
                 .containsAll(GmActionPoolMcpTools.NAMES)
                 .containsAll(GmDecisionPackageMcpTools.NAMES)
                 .containsAll(GmActionBatchMcpTools.NAMES)
+                // 该测试是未注入 ControlBootstrapService 的部分装配：旧三写工具保留。
+                .contains("tf_register_player", "tf_register_director", "tf_load_world_facts")
                 .doesNotContain("tf_qq_send", "qq_send", "tf_confirm_decision", "shutdown");
 
         List<AgentTool> tools = GmPostMcpTools.all(postService,

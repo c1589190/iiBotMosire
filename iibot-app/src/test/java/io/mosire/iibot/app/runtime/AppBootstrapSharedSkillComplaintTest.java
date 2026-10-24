@@ -10,8 +10,10 @@ import io.modelcontextprotocol.spec.McpSchema;
 import io.mosire.agentlib.llm.LlmResponse;
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.SecretProvider;
+import io.mosire.iibot.app.mcp.ControlBootstrapMcpTools;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
 import io.mosire.iibot.app.mcp.GmComplaintGetTool;
+import io.mosire.iibot.app.mcp.GmPrivateDocsMcpTools;
 import io.mosire.iibot.app.mcp.GmComplaintListTool;
 import io.mosire.iibot.app.mcp.GmComplaintMcpTools;
 import io.mosire.iibot.app.mcp.GmComplaintRespondTool;
@@ -70,10 +72,14 @@ class AppBootstrapSharedSkillComplaintTest {
             client = client(server);
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(48)
+            assertThat(names).hasSize(55)
                     .containsAll(GmSharedSkillMcpTools.NAMES)
                     .containsAll(GmComplaintMcpTools.NAMES)
-                    .doesNotContain("tf_qq_send", "qq_send", "tf_confirm_decision", "shutdown");
+                    .containsAll(ControlBootstrapMcpTools.NAMES)
+                    .containsAll(GmPrivateDocsMcpTools.NAMES)
+                    .doesNotContain("tf_qq_send", "qq_send", "tf_confirm_decision", "shutdown")
+                    .doesNotContain("tf_register_player", "tf_register_director",
+                            "tf_load_world_facts");
 
             String body = "共享技能正文-仅get可见-cd9e";
             McpSchema.CallToolResult write = client.callTool(new McpSchema.CallToolRequest(

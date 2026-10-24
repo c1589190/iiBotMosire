@@ -15,6 +15,7 @@ import io.mosire.agentlib.tool.ToolCallAuthorizer;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolRegistry;
 import io.mosire.iibot.app.config.SecretProvider;
+import io.mosire.iibot.app.control.ControlBootstrapService;
 import io.mosire.iibot.app.runtime.ControlPlane;
 import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.TaskflowEngine;
@@ -30,6 +31,7 @@ import io.mosire.iibot.taskflow.complaint.ComplaintStore;
 import io.mosire.iibot.taskflow.skill.SharedSkillStore;
 import io.mosire.iibot.taskflow.post.PostService;
 import io.mosire.iibot.taskflow.post.PostStore;
+import io.mosire.iibot.taskflow.workspace.GmPrivateDocs;
 import io.mosire.iibot.taskflow.workspace.SecretaryWorkspaceStore;
 import io.mosire.iibot.taskflow.control.EventReadPort;
 import io.mosire.iibot.taskflow.control.ExternalControlToolSet;
@@ -82,6 +84,12 @@ public final class ControlMcpServer implements ControlPlane {
     private static final String TASKFLOW_NAMESPACE = "taskflow";
     private static final String SUPERVISOR_ROLE = "supervisor";
 
+    /** 完整控制面启用时由 tf_control_* 取代的旧 identity/world 写工具。 */
+    private static final Set<String> CONTROL_REPLACED_LEGACY_TOOLS = Set.of(
+            ExternalControlToolSet.TF_REGISTER_PLAYER,
+            ExternalControlToolSet.TF_REGISTER_DIRECTOR,
+            ExternalControlToolSet.TF_LOAD_WORLD_FACTS);
+
     private static final Set<String> FORWARD_REQUEST_HEADERS = Set.of(
             HttpHeaders.ACCEPT.toLowerCase(java.util.Locale.ROOT),
             HttpHeaders.CONTENT_TYPE.toLowerCase(java.util.Locale.ROOT),
@@ -118,6 +126,8 @@ public final class ControlMcpServer implements ControlPlane {
     private final ActionPoolService actionPoolService;
     private final ActionPackageService actionPackageService;
     private final ActionBatchExecutor actionBatchExecutor;
+    private final ControlBootstrapService controlBootstrapService;
+    private final GmPrivateDocs gmPrivateDocs;
     private final Runnable afterMutation;
     private final HttpClient upstreamClient;
     private final Object lifecycleLock = new Object();
@@ -149,6 +159,8 @@ public final class ControlMcpServer implements ControlPlane {
         this.actionPoolService = builder.actionPoolService;
         this.actionPackageService = builder.actionPackageService;
         this.actionBatchExecutor = builder.actionBatchExecutor;
+        this.controlBootstrapService = builder.controlBootstrapService;
+        this.gmPrivateDocs = builder.gmPrivateDocs;
         this.afterMutation = builder.afterMutation;
         this.upstreamClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -199,7 +211,13 @@ public final class ControlMcpServer implements ControlPlane {
                         .clock(clock)
                         .build();
                 ToolRegistry registry = new ToolRegistry();
-                toolSet.registerInto(registry);
+                for (var tool : toolSet.tools()) {
+                    if (controlBootstrapService != null
+                            && CONTROL_REPLACED_LEGACY_TOOLS.contains(tool.name())) {
+                        continue;
+                    }
+                    registry.register(tool);
+                }
                 if (adjudicationService != null) {
                     registry.register(new RunAdjudicationAgentTool(
                             engine, adjudicationService, supervisor));
@@ -239,6 +257,16 @@ public final class ControlMcpServer implements ControlPlane {
                         registry.register(tool);
                     }
                     for (var tool : GmActionBatchMcpTools.all(actionPackageService)) {
+                        registry.register(tool);
+                    }
+                }
+                if (controlBootstrapService != null) {
+                    for (var tool : ControlBootstrapMcpTools.all(controlBootstrapService)) {
+                        registry.register(tool);
+                    }
+                }
+                if (gmPrivateDocs != null) {
+                    for (var tool : GmPrivateDocsMcpTools.all(gmPrivateDocs)) {
                         registry.register(tool);
                     }
                 }
@@ -600,6 +628,15 @@ public final class ControlMcpServer implements ControlPlane {
             allTools.addAll(GmDecisionPackageMcpTools.NAMES);
             allTools.addAll(GmActionBatchMcpTools.NAMES);
         }
+        if (controlBootstrapService != null) {
+            // 完整控制面不能同时暴露旧 identity/world 写路径；allowlist 必须与真实
+            // registry 保持一致，旧三工具既不注册也不授权。
+            allTools.removeAll(CONTROL_REPLACED_LEGACY_TOOLS);
+            allTools.addAll(ControlBootstrapMcpTools.NAMES);
+        }
+        if (gmPrivateDocs != null) {
+            allTools.addAll(GmPrivateDocsMcpTools.NAMES);
+        }
 
         Map<String, ResourceScope> scopes = new java.util.LinkedHashMap<>();
         scopes.put(TASKFLOW_NAMESPACE, ResourceScope.unlimited());
@@ -628,6 +665,10 @@ public final class ControlMcpServer implements ControlPlane {
                     ResourceScope.of(GmDecisionToolSupport.DECISION_PACKAGE_NAMESPACE));
             scopes.put(GmDecisionToolSupport.ACTION_BATCH_NAMESPACE,
                     ResourceScope.of(GmDecisionToolSupport.ACTION_BATCH_NAMESPACE));
+        }
+        if (gmPrivateDocs != null) {
+            scopes.put(GmPrivateDocs.RESOURCE_NAMESPACE,
+                    ResourceScope.of(GmPrivateDocs.RESOURCE_NAMESPACE));
         }
         AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
                 .allow(allTools.toArray(String[]::new))
@@ -695,6 +736,8 @@ public final class ControlMcpServer implements ControlPlane {
         private ActionPoolService actionPoolService;
         private ActionPackageService actionPackageService;
         private ActionBatchExecutor actionBatchExecutor;
+        private ControlBootstrapService controlBootstrapService;
+        private GmPrivateDocs gmPrivateDocs;
         private Runnable afterMutation;
 
         private Builder(
@@ -811,6 +854,35 @@ public final class ControlMcpServer implements ControlPlane {
             this.actionBatchExecutor = Objects.requireNonNull(
                     actionBatchExecutor, "actionBatchExecutor");
             return this;
+        }
+
+        /**
+         * 可选注入运行期控制初始化服务。只有注入后才注册六个 tf_control_* 工具；
+         * 未注入时旧工具面与既有测试完全不变。
+         */
+        public Builder controlBootstrapService(ControlBootstrapService controlBootstrapService) {
+            this.controlBootstrapService = Objects.requireNonNull(
+                    controlBootstrapService, "controlBootstrapService");
+            return this;
+        }
+
+        /** {@link #controlBootstrapService(ControlBootstrapService)} 的短别名。 */
+        public Builder controlBootstrap(ControlBootstrapService controlBootstrapService) {
+            return controlBootstrapService(controlBootstrapService);
+        }
+
+        /**
+         * 可选注入 GM 私有文档区。只有注入后才注册 tf_gm_doc_* 与
+         * tf_control_load_gm_doc 四个工具；未注入时工具面不变。
+         */
+        public Builder gmPrivateDocs(GmPrivateDocs gmPrivateDocs) {
+            this.gmPrivateDocs = Objects.requireNonNull(gmPrivateDocs, "gmPrivateDocs");
+            return this;
+        }
+
+        /** {@link #gmPrivateDocs(GmPrivateDocs)} 的短别名。 */
+        public Builder gmPrivateDocsStore(GmPrivateDocs gmPrivateDocs) {
+            return gmPrivateDocs(gmPrivateDocs);
         }
 
         /**

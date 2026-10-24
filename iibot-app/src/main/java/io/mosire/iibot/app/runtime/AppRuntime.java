@@ -2,6 +2,7 @@ package io.mosire.iibot.app.runtime;
 
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.delivery.OutboxSender;
+import io.mosire.iibot.app.control.ControlBootstrapService;
 import io.mosire.iibot.app.dispatch.InboundDispatcher;
 import io.mosire.iibot.app.event.AgentLibEventSink;
 import io.mosire.iibot.app.event.SqliteEventReadPort;
@@ -49,6 +50,7 @@ public final class AppRuntime implements AutoCloseable {
     private final TaskflowSnapshotStore snapshotStore;
     private final WorldDocs worldDocs;
     private final ControlPlane controlPlane;
+    private final ControlBootstrapService controlBootstrapService;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -58,7 +60,8 @@ public final class AppRuntime implements AutoCloseable {
                AutoFreezeScheduler scheduler, AgentLibEventSink eventSink,
                SqliteEventReadPort eventReadPort, EventContentStore eventContentStore,
                TaskflowSnapshotStore snapshotStore,
-               WorldDocs worldDocs, ControlPlane controlPlane) {
+               WorldDocs worldDocs, ControlPlane controlPlane,
+               ControlBootstrapService controlBootstrapService) {
         this.config = Objects.requireNonNull(config, "config");
         this.engine = Objects.requireNonNull(engine, "engine");
         this.interactionService = Objects.requireNonNull(interactionService, "interactionService");
@@ -72,6 +75,8 @@ public final class AppRuntime implements AutoCloseable {
         this.snapshotStore = Objects.requireNonNull(snapshotStore, "snapshotStore");
         this.worldDocs = Objects.requireNonNull(worldDocs, "worldDocs");
         this.controlPlane = Objects.requireNonNull(controlPlane, "controlPlane");
+        this.controlBootstrapService = Objects.requireNonNull(
+                controlBootstrapService, "controlBootstrapService");
     }
 
     /** 启动 adapter 与自动冻结调度器；重复启动为空操作。 */
@@ -134,6 +139,11 @@ public final class AppRuntime implements AutoCloseable {
 
     public WorldDocs worldDocs() {
         return worldDocs;
+    }
+
+    /** 运行期控制状态与动态身份路由（不包含正文/密钥）。 */
+    public ControlBootstrapService controlBootstrapService() {
+        return controlBootstrapService;
     }
 
     /** 当前世界事实的动态只读视图；每次读取都反映引擎最新状态。 */

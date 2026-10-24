@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * 宿主侧投诉回应外发器：只消费 GM 已回应且投递状态待处理的投诉。
@@ -35,14 +36,25 @@ public final class ComplaintDistributor {
 
     private final ComplaintService complaintService;
     private final OutboxSender outbox;
-    private final Map<String, String> playerQqById;
+    private final Function<String, String> playerQqById;
     private final Set<String> attemptedComplaintIds = new LinkedHashSet<>();
 
+    /** 兼容固定路由构造器。 */
     public ComplaintDistributor(ComplaintService complaintService, OutboxSender outbox,
                                 Map<String, String> playerQqById) {
+        this(complaintService, outbox, mapLookup(
+                Objects.requireNonNull(playerQqById, "playerQqById")));
+    }
+
+    /**
+     * 动态路由构造器：每次回应外发时读取投诉玩家当前 QQ 映射，使运行期注册玩家
+     * 无需重启即可收到回应。
+     */
+    public ComplaintDistributor(ComplaintService complaintService, OutboxSender outbox,
+                                Function<String, String> playerQqById) {
         this.complaintService = Objects.requireNonNull(complaintService, "complaintService");
         this.outbox = Objects.requireNonNull(outbox, "outbox");
-        this.playerQqById = Map.copyOf(Objects.requireNonNull(playerQqById, "playerQqById"));
+        this.playerQqById = Objects.requireNonNull(playerQqById, "playerQqById");
     }
 
     /**
@@ -69,7 +81,7 @@ public final class ComplaintDistributor {
     }
 
     private List<SendOutcome> distributeOne(Complaint complaint) {
-        String qqId = playerQqById.get(complaint.playerId());
+        String qqId = playerQqById.apply(complaint.playerId());
         if (qqId == null || qqId.isBlank()) {
             LOG.warn("投诉回应缺少玩家 QQ 映射 complaintId={} playerId={}",
                     complaint.complaintId(), complaint.playerId());
@@ -125,6 +137,11 @@ public final class ComplaintDistributor {
             LOG.warn("投诉回应送达状态标记异常 complaintId={} state={} type={}",
                     complaintId, state, failure.getClass().getSimpleName());
         }
+    }
+
+    private static Function<String, String> mapLookup(Map<String, String> playerQqById) {
+        Map<String, String> copy = Map.copyOf(playerQqById);
+        return copy::get;
     }
 
     private static String privateKey(String complaintId) {
