@@ -35,7 +35,11 @@ connect 36 / connect-agent 21 / taskflow 255 / app 305
 
 ## 部署状态
 
-- 当前 `simulation/dist` 仍是上一版 `256944e469859f5bf84cb35a7850d5377a277cbbaef4c024a98c6effeeba8d52`；
-- 最新 target jar：`0cef4ed434c172acf412fb0b7495e919d479e1af154da84e0eebe87f7a151d6a`；
-- app/proxy 由真实推演会话保持运行，未停止、未替换 jar；
+- `simulation/dist` 已替换为 `0cef4ed434c172acf412fb0b7495e919d479e1af154da84e0eebe87f7a151d6a`；
+- 旧 jar 备份：`simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261024-234843`；
+- 替换前 runtime 备份：`simulation/runtime.backup-20261024-234839-pre-d020`；
+- app 已重启，`tf_status` recovery=true，worldVersion=5，turnNo=1 状态 OPEN；
+- DSH Connector 健康检查 PASS，77 工具可用；
+- 公屏 watcher 与工单板 watcher 已恢复；
+- 部署 jar 经 `javap` 核验：`DEFAULT_MAX_ROUNDS=128`、`DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE=8`；
 - 真实玩家消息验收未跑。
