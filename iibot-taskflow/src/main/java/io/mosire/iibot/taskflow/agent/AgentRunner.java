@@ -43,15 +43,23 @@ import java.util.Optional;
  */
 public final class AgentRunner {
 
+    /** 玩家秘书与 GM 推演秘书的默认最大 LLM 往返轮数。 */
+    public static final int DEFAULT_MAX_ROUNDS = 128;
+    /** 默认单回合时间预算；128 轮仍须有硬时间上限。 */
+    public static final Duration DEFAULT_TIME_BUDGET = Duration.ofMinutes(5);
+    /** 单次响应允许派发的工具调用上限。 */
+    public static final int DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE = 8;
+
     private final LlmClient llm;
     private final ToolCallAuthorizer authorizer;
     private final int maxRounds;
     private final Duration timeBudget;
     private final int maxToolCallsPerResponse;
 
-    /** 使用默认授权器、最多 8 轮、60 秒预算、单响应最多 8 条工具调用。 */
+    /** 使用默认授权器、128 轮、5 分钟预算、单响应最多 8 条工具调用。 */
     public AgentRunner(LlmClient llm) {
-        this(llm, ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(60), 8);
+        this(llm, ToolCallAuthorizer.standard(), DEFAULT_MAX_ROUNDS,
+                DEFAULT_TIME_BUDGET, DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE);
     }
 
     public AgentRunner(LlmClient llm, ToolCallAuthorizer authorizer, int maxRounds,

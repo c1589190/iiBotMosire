@@ -1,10 +1,10 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-24 23:05（Asia/Shanghai）
+> **更新时间**：2026-10-24 23:50（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
-## 0. 最新更新（2026-10-24 23:05）
+## 0. 最新更新（2026-10-24 23:50）
 
 - **D-017 平台级 QQ 能力与受控自主入团已实现代码与自动化测试**：
   connectlib `QqPlatformCapability`、NapCat 目录/历史/消息定位/临时私聊发送；
@@ -27,13 +27,16 @@
     `connectorId=__custom__`。
 - 追加 D-019 外发节奏：所有逻辑外发消息共享最小间隔，默认 150ms，
   生产范围 100..200ms；ACK 与正式回复也串行拉开。
-- 修复后 full gate：**614 tests / 0 failures / 0 errors / 0 skipped**
-  （connect 36、connect-agent 21、taskflow 252、app 305）；
-  `simulation/dist` 已替换为 sha256 `256944e469859f5bf84cb35a7850d5377a277cbbaef4c024a98c6effeeba8d52`。
+- 追加 D-020 秘书预算：玩家秘书与 GM 推演秘书默认 **128 轮 / 5 分钟 / 单响应 8 工具**；
+  中央裁定 Agent 保持 8 轮/120 秒。预算耗尽回执会报告草案/查询/世界状态和是否需重发。
+- D-020 后 full gate：**617 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 36、connect-agent 21、taskflow 255、app 305）；
+  最新 target jar sha256 `0cef4ed434c172acf412fb0b7495e919d479e1af154da84e0eebe87f7a151d6a`，尚未替换 simulation/dist。
 - 默认模拟 MCP 工具面 **77**；`control.platform.allowArbitrarySend=true` 后 **79**。
 - **simulation/dist jar**：已替换为 `256944e469859f5bf84cb35a7850d5377a277cbbaef4c024a98c6effeeba8d52`；
   旧 jar 备份为 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261024-225835`。
-  当前 app/proxy 均已停止，8765/8766 空闲；尚未用新 jar 重启/真实 smoke。
+  当前真实推演会话的 app/proxy 正在运行（app PID 820190、proxy PID 820243，
+  约 23:01 启动），运行的是 `256944e...`；D-020 修复后的 `0cef4ed...` 尚未替换。
 - 下一步：先处理已发现的 fresh-init/runtime 与 campaign 世界事实问题，再按宿主流程
   停旧 app、备份、替换 jar、启动并做真实只读 smoke。真实外发需用户明确目标与授权。
 

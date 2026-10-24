@@ -604,8 +604,9 @@ public final class SecretarySession {
             permissionBuilder.resourceScopes(new ResourceScopeMap(resourceScopes));
         }
         this.permissions = permissionBuilder.build();
-        this.runner = new AgentRunner(llm, ToolCallAuthorizer.standard(), 8,
-                Duration.ofSeconds(60), 8);
+        this.runner = new AgentRunner(llm, ToolCallAuthorizer.standard(),
+                AgentRunner.DEFAULT_MAX_ROUNDS, AgentRunner.DEFAULT_TIME_BUDGET,
+                AgentRunner.DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE);
     }
 
     public String playerId() {
@@ -976,6 +977,50 @@ public final class SecretarySession {
         return reminder.toString();
     }
 
+    /**
+     * 轮数/时间预算耗尽时的玩家可见回执。
+     *
+     * <p>只根据本轮实际成功的工具调用回报，不把未完成写成已完成；秘书没有直接改变
+     * 世界状态的工具，因此世界状态固定为未改变。</p>
+     */
+    static String stoppedReply(AgentRunResult result) {
+        boolean actionDraft = hasSuccessfulTicket(result, "ACTION_DRAFT")
+                || result.toolInvocations().stream().anyMatch(invocation ->
+                        invocation.success()
+                                && DecisionDraftCreateTool.NAME.equals(invocation.toolName()));
+        boolean settingQuery = hasSuccessfulTicket(result, "SETTING_QUERY");
+        boolean complaint = hasSuccessfulTicket(result, "COMPLAINT");
+        boolean brief = result.toolInvocations().stream().anyMatch(invocation ->
+                invocation.success() && RequestBriefTool.NAME.equals(invocation.toolName()));
+        boolean hasProgress = actionDraft || settingQuery || complaint || brief;
+
+        StringBuilder reply = new StringBuilder("刚才处理超过了本轮预算，没能生成完整回复。\n");
+        reply.append("行动草案：").append(actionDraft ? "已创建，尚未确认，不会自动执行" : "未创建")
+                .append("。\n");
+        if (settingQuery) {
+            reply.append("资料查询：已向推演提交，等待回复。\n");
+        } else if (brief) {
+            reply.append("资料查询：已读取现有资料，但没有形成完整回复。\n");
+        } else if (complaint) {
+            reply.append("投诉：已提交，等待处理。\n");
+        } else {
+            reply.append("提交状态：本轮没有提交行动或查询。\n");
+        }
+        reply.append("世界状态：未改变。\n");
+        reply.append(hasProgress
+                ? "不需要重新描述整段内容；发送“继续”让我接着处理。"
+                : "你可以把最重要的一步再发一次，我直接处理。");
+        return reply.toString();
+    }
+
+    private static boolean hasSuccessfulTicket(AgentRunResult result, String type) {
+        return result.toolInvocations().stream().anyMatch(invocation ->
+                invocation.success()
+                        && SecretaryTicketTools.SUBMIT.equals(invocation.toolName())
+                        && type.equalsIgnoreCase(String.valueOf(
+                                invocation.arguments().get("type"))));
+    }
+
     private String recordAndRender(AgentRunResult result, boolean playerFacing) {
         toolInvocations.addAll(result.toolInvocations());
         String text = result.text();
@@ -989,7 +1034,7 @@ public final class SecretarySession {
         }
         if (result.stoppedByPolicy()) {
             return playerFacing
-                    ? "刚才处理太久了，我先停一下。你可以把最重要的一步再说一次。"
+                    ? stoppedReply(result)
                     : "秘书处理超时或达到安全上限，请稍后重试。";
         }
         return playerFacing ? "我还没组织好怎么回答。你再给我一句话，我直接说重点。"

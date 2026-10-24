@@ -892,3 +892,24 @@ bearer token
 - `AppConfigTest` 验证默认 150ms 与自定义 120ms。
 
 未部署：运行中的 simulation/dist 旧 jar 尚未替换。
+
+## 17. D-020 秘书 Agent 回合预算
+
+用户要求玩家秘书从 8 轮提高到 128 轮，并明确包括世界顾问 / GM 推演秘书。
+
+已实现：
+
+- `AgentRunner.DEFAULT_MAX_ROUNDS=128`；
+- `AgentRunner.DEFAULT_TIME_BUDGET=5分钟`；
+- `AgentRunner.DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE=8`；
+- `SecretarySession` 与 `GmAideAgent` 默认构造路径统一使用上述常量；
+- `AdjudicationService` 保持 8 轮/120 秒，不随本轮调整；
+- 预算耗尽回执改为报告行动草案/查询/投诉的实际工具结果、世界状态和是否需要重发。
+
+测试：
+
+- `SecretarySessionBudgetTest` 验证 128/5分钟/8 和两种预算耗尽回执；
+- full gate 617 tests / 0 failures / 0 errors / 0 skipped；
+- 新 target jar sha256 `0cef4ed434c172acf412fb0b7495e919d479e1af154da84e0eebe87f7a151d6a`。
+
+未部署：模拟区仍运行 `256944e...` jar。

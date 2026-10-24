@@ -68,34 +68,39 @@ public final class GmAideAgent {
     /** 不注入事件端口、工作区、推文服务与共享 Skill 区；只产生基础只读工具。 */
     public GmAideAgent(TaskflowEngine engine, LlmClient llm) {
         this(engine, llm, null, null, null, null,
-                ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                ToolCallAuthorizer.standard(), AgentRunner.DEFAULT_MAX_ROUNDS,
+                AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 注入可选只读事件端口；不注入工作区/推文服务/共享 Skill 区。 */
     public GmAideAgent(TaskflowEngine engine, LlmClient llm, EventReadPort eventReadPort) {
         this(engine, llm, eventReadPort, null, null, null,
-                ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                ToolCallAuthorizer.standard(), AgentRunner.DEFAULT_MAX_ROUNDS,
+                AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 只注入全局共享 Skill 区；不注入事件端口、工作区或推文服务。 */
     public GmAideAgent(TaskflowEngine engine, LlmClient llm,
                        SharedSkillStore sharedSkillStore) {
         this(engine, llm, null, null, null, sharedSkillStore,
-                ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                ToolCallAuthorizer.standard(), AgentRunner.DEFAULT_MAX_ROUNDS,
+                AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 注入只读事件端口与全局共享 Skill 区。 */
     public GmAideAgent(TaskflowEngine engine, LlmClient llm, EventReadPort eventReadPort,
                        SharedSkillStore sharedSkillStore) {
         this(engine, llm, eventReadPort, null, null, sharedSkillStore,
-                ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                ToolCallAuthorizer.standard(), AgentRunner.DEFAULT_MAX_ROUNDS,
+                AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 不注入事件端口，但允许 GM aide 全量只读工作区与推文。 */
     public GmAideAgent(TaskflowEngine engine, LlmClient llm,
                        SecretaryWorkspaceStore workspaceStore, PostService postService) {
         this(engine, llm, null, workspaceStore, postService, null,
-                ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                ToolCallAuthorizer.standard(), AgentRunner.DEFAULT_MAX_ROUNDS,
+                AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 不注入事件端口，但允许 GM aide 只读工作区、推文与共享 Skill 区。 */
@@ -103,14 +108,16 @@ public final class GmAideAgent {
                        SecretaryWorkspaceStore workspaceStore, PostService postService,
                        SharedSkillStore sharedSkillStore) {
         this(engine, llm, null, workspaceStore, postService, sharedSkillStore,
-                ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                ToolCallAuthorizer.standard(), AgentRunner.DEFAULT_MAX_ROUNDS,
+                AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 注入只读事件端口、工作区与推文服务；工具面仍是只读集合。 */
     public GmAideAgent(TaskflowEngine engine, LlmClient llm, EventReadPort eventReadPort,
                        SecretaryWorkspaceStore workspaceStore, PostService postService) {
         this(engine, llm, eventReadPort, workspaceStore, postService, null,
-                ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                ToolCallAuthorizer.standard(), AgentRunner.DEFAULT_MAX_ROUNDS,
+                AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 注入只读事件端口、工作区、推文服务与共享 Skill 区；工具面仍是只读集合。 */
@@ -118,7 +125,8 @@ public final class GmAideAgent {
                        SecretaryWorkspaceStore workspaceStore, PostService postService,
                        SharedSkillStore sharedSkillStore) {
         this(engine, llm, eventReadPort, workspaceStore, postService, sharedSkillStore,
-                ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                ToolCallAuthorizer.standard(), AgentRunner.DEFAULT_MAX_ROUNDS,
+                AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 不注入事件端口，但显式注入授权器与循环预算。 */
@@ -165,28 +173,32 @@ public final class GmAideAgent {
                        SecretaryWorkspaceStore workspaceStore, PostService postService,
                        SharedSkillStore sharedSkillStore, ComplaintService complaintService) {
         this(engine, llm, eventReadPort, workspaceStore, postService, sharedSkillStore,
-                complaintService, ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                complaintService, ToolCallAuthorizer.standard(),
+                AgentRunner.DEFAULT_MAX_ROUNDS, AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 只注入投诉服务；不注入事件端口、工作区、推文或共享 Skill 区。 */
     public GmAideAgent(TaskflowEngine engine, LlmClient llm,
                        ComplaintService complaintService) {
         this(engine, llm, null, null, null, null, complaintService,
-                ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                ToolCallAuthorizer.standard(), AgentRunner.DEFAULT_MAX_ROUNDS,
+                AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 只注入共享 Skill 区与投诉服务；不注入工作区或推文服务。 */
     public GmAideAgent(TaskflowEngine engine, LlmClient llm,
                        SharedSkillStore sharedSkillStore, ComplaintService complaintService) {
         this(engine, llm, null, null, null, sharedSkillStore, complaintService,
-                ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                ToolCallAuthorizer.standard(), AgentRunner.DEFAULT_MAX_ROUNDS,
+                AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 注入只读事件端口、共享 Skill 区与投诉服务。 */
     public GmAideAgent(TaskflowEngine engine, LlmClient llm, EventReadPort eventReadPort,
                        SharedSkillStore sharedSkillStore, ComplaintService complaintService) {
         this(engine, llm, eventReadPort, null, null, sharedSkillStore, complaintService,
-                ToolCallAuthorizer.standard(), 8, Duration.ofSeconds(90));
+                ToolCallAuthorizer.standard(), AgentRunner.DEFAULT_MAX_ROUNDS,
+                AgentRunner.DEFAULT_TIME_BUDGET);
     }
 
     /** 测试/高级装配：不含投诉服务；工具面仍固定为只读集合。 */
