@@ -2,7 +2,7 @@
 
 > 帕拉丁帝国在古比奥—帕拉丁战争后的国内政治—军事推演。
 > 当前版本：个人本整理版（2026-10-24）。
-> 当前状态：设定与开本文档已收口；运行态尚未按个人本重新初始化。
+> 当前状态：设定与开本文档已收口；运行态以 `CURRENT_STATE.md` 为准。
 
 ## 这是什么
 
@@ -20,6 +20,24 @@
 4. **执行报名与开本流程**：`04-onboarding-workflow.md`
 5. **给秘书下发规则**：`07-secretary-skill.md`、`10-secretary-AGENTS.md`
 6. **准备第一场戏**：`03-opening-post.md`、`08-personal-opening.md`
+
+## 秘书 Skill 系统
+
+秘书规则的正本不是运行态自动生成的文件，而是本目录中的可版本化文件：
+
+| 文件 | 角色 |
+| --- | --- |
+| `07-secretary-skill.md` | 共享 Skill 正本；玩家文风、主动查询、行动确认与隐私边界 |
+| `10-secretary-AGENTS.md` | 秘书工作区 `AGENTS.md` 模板；D-016 详细规则正本之一 |
+| `05-secretary-start-here.md` | 开本检查单与首轮读取顺序 |
+| `12-secretary-bootstrap.md` | 旧工作区规则覆盖材料 |
+| `../player-experience/02-secretary-playbook.md` | 玩家体验层的秘书行为补充 |
+
+`simulation/runtime/shared-skills/`、`simulation/runtime/secretaries/` 与
+`simulation/runtime/init/` 是运行态生成物或本局数据，不进入 Git；需要长期保留的规则
+变更必须先回写到上述正本，再重新下发。
+- D-020：玩家秘书与 GM 推演秘书默认 128 轮 / 5 分钟 / 单响应 8 工具；
+  明确行动直接起草，资料缺口主动查 brief / 提交 `SETTING_QUERY`，不把问题退回玩家补资料。
 
 ## 当前正本
 
