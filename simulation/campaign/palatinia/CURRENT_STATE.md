@@ -1,6 +1,6 @@
 # 当前状态总结
 
-> 更新时间：2026-10-24（23:52 Asia/Shanghai）
+> 更新时间：2026-10-25（01:10 Asia/Shanghai）
 > 当前方向：《七柱之下：败退之后》个人本
 > 本文件只记录“现在是什么状态、哪些文档已成为正本、哪些事情尚未执行”，不替代设定裁定。
 
@@ -86,8 +86,8 @@
 - 当前注册玩家 1 名，已绑定独立秘书 Session。
 - `tf_status`：worldVersion=5、playerCount=1、directorCount=1、第 1 回合 `OPEN`；engineRevision=20、eventCount=20。
 - `tf_invariant_check`：PASS。
-- `simulation/dist` jar 已替换为 sha256 `0cef4ed434c172acf412fb0b7495e919d479e1af154da84e0eebe87f7a151d6a`；旧 jar 备份为 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261024-234843`。
-- D-020 新 jar 已重启；替换前 runtime 备份为 `simulation/runtime.backup-20261024-234839-pre-d020`；app PID 850034，MCP 8765 正常。
+- `simulation/dist` jar 已替换为 sha256 `484bebc2d486353c9cf9367838a9b415b7f0c60d7e486dd90da2c087c913d3cb`；旧 jar 备份为 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-010828`。
+- 替换前 runtime 备份为 `simulation/runtime.backup-20261025-010828-pre-llbot-compat`；app PID 8852，MCP 8765 正常；QQ 后端切到 LLOneBot 8.3.2（WS 3001 / HTTP 3000）。
 - 实际 MCP 工具数：77（以 `tools/list` 为准）；`tf_qq_send_private/group` 因任意发送策略默认关闭而不在工具面。
 - 初始事实文件 `simulation/config/world-facts.sim.json` 只含 Palatinia 6 条事实；配置的 `promptVersion` 为 `palatinia-personal-v1`。
 - 当前运行态 8 条事实：
@@ -111,6 +111,7 @@
 - 开局与聆听续幕均已发送；第二条 `deliveryState=SENT`，私聊历史可见。
 - 内部秘书健康检查通过；假设玩家说“我去市场看看”时，秘书只使用特尔尼河港、粮价/仓租、税吏、军需粮队和商贩等当前资料回答，没有出现旧世界内容。
 - DSH MCP Connector 与只回环 token 注入代理已重新接入；Connector 健康检查 PASS，77 个工具可用。
+- QQ 后端已切换到 LLOneBot 8.3.2；WS 事件与 HTTP 只读动作已实测，`get_recent_contact` 缺失由群目录兜底。
 - 只读公屏 watcher 与工单板 watcher 已启动，均无 lastError。
 - 已初始化报名记录：`notes/palatinia-player-1-registration.md`；GM 私有文档中保存康斯坦丁五项信息与留白边界。
 - 已开启第 1 回合，状态 `OPEN`，回合号 1，计划关闭时间为 2026-10-24 17:08 UTC；当前无草案/决策提交。
@@ -131,4 +132,4 @@
 
 ## 八、当前停止点
 
-D-020 新 jar 已装载并重启；app、MCP Connector、凭据代理和两个只读 watcher 均保持运行。第一轮借款/粮源调查已结算，售样购粮草案已补发并等待玩家确认；当前没有执行中的新世界行动。
+LLBot 兼容 jar 已装载并重启；app、MCP Connector、凭据代理和两个只读 watcher 均保持运行。第一轮借款/粮源调查已结算，售样购粮草案已补发并等待玩家确认；当前没有执行中的新世界行动。

@@ -1,10 +1,10 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-24 23:52（Asia/Shanghai）
+> **更新时间**：2026-10-25 01:10（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
-## 0. 最新更新（2026-10-24 23:52）
+## 0. 最新更新（2026-10-25 01:10）
 
 - **D-017 平台级 QQ 能力与受控自主入团已实现代码与自动化测试**：
   connectlib `QqPlatformCapability`、NapCat 目录/历史/消息定位/临时私聊发送；
@@ -29,17 +29,21 @@
   生产范围 100..200ms；ACK 与正式回复也串行拉开。
 - 追加 D-020 秘书预算：玩家秘书与 GM 推演秘书默认 **128 轮 / 5 分钟 / 单响应 8 工具**；
   中央裁定 Agent 保持 8 轮/120 秒。预算耗尽回执会报告草案/查询/世界状态和是否需重发。
-- D-020 后 full gate：**617 tests / 0 failures / 0 errors / 0 skipped**
-  （connect 36、connect-agent 21、taskflow 255、app 305）；
-  `simulation/dist` 已替换为 `0cef4ed434c172acf412fb0b7495e919d479e1af154da84e0eebe87f7a151d6a`。
+- D-020 后 full gate：**618 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 37、connect-agent 21、taskflow 255、app 305）；
+  `simulation/dist` 已替换为 `484bebc2d486353c9cf9367838a9b415b7f0c60d7e486dd90da2c087c913d3cb`。
 - 默认模拟 MCP 工具面 **77**；`control.platform.allowArbitrarySend=true` 后 **79**。
-- **simulation/dist jar**：已替换为 `0cef4ed434c172acf412fb0b7495e919d479e1af154da84e0eebe87f7a151d6a`；
-  旧 jar 备份为 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261024-234843`；
-  替换前 runtime 备份：`simulation/runtime.backup-20261024-234839-pre-d020`。
-- **当前运行态**：D-020 新 jar 已启动（app PID 850034），MCP 8765；
-  DSH Connector/回环代理 8766 健康检查 PASS；77 工具；
-  公屏 watcher（PID 850086）与工单板 watcher（PID 850087）已恢复；
+- **QQ 后端迁移**：LLOneBot 8.3.2 / OneBot v11，WS 3001、HTTP 3000；
+  HTTP Bearer/query 与 WS 握手均验证；`get_recent_contact` 缺失时自动回退群目录；
+  `tf_qq_chat_list` / `tf_qq_history_read` / `tf_qq_message_get` 已通过 LLBot 实测。
+- **simulation/dist jar**：已替换为 `484bebc2d486353c9cf9367838a9b415b7f0c60d7e486dd90da2c087c913d3cb`；
+  旧 jar 备份为 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-010828`；
+  替换前 runtime 备份：`simulation/runtime.backup-20261025-010828-pre-llbot-compat`。
+- **当前运行态**：app PID 8852，MCP 8765；LLBot 3000/3001；
+  回环代理 PID 9141（8766）；公屏 watcher PID 8922；工单板 watcher PID 8923；
+  DSH Connector 健康检查 PASS，77 工具；
   `tf_status` recovery=true，worldVersion=5，turnNo=1，状态 OPEN。
+- 迁移细节：[`../../simulation/dsh/LLBOT_MIGRATION.md`](../../simulation/dsh/LLBOT_MIGRATION.md)。
 - 下一步：用真实玩家消息验证 D-020 的“明确行动直接起草”和“资料缺口主动查询”；
   128 轮预算已通过 `javap` 在部署 jar 中核验。真实外发仍需用户明确目标与授权。
 

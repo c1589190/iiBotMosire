@@ -81,6 +81,22 @@ class NapCatAdapterPlatformTest {
     }
 
     @Test
+    void fallsBackToGroupDirectoryWhenProviderLacksRecentContact() throws Exception {
+        try (MockHttpServer server = new MockHttpServer(true);
+             NapCatAdapter adapter = new NapCatAdapter(config(server))) {
+            List<ChatConversation> recent = adapter.recentConversations(10)
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(recent).singleElement().satisfies(conversation -> {
+                assertThat(conversation.sessionType()).isEqualTo(SessionType.GROUP);
+                assertThat(conversation.targetId()).isEqualTo("30003");
+            });
+            assertThat(server.paths).contains(
+                    "/get_recent_contact", "/get_group_list");
+        }
+    }
+
+    @Test
     void sendsPrivateTemporaryAndGroupThroughTypedCapability() throws Exception {
         try (MockHttpServer server = new MockHttpServer();
              NapCatAdapter adapter = new NapCatAdapter(config(server))) {
@@ -140,8 +156,14 @@ class NapCatAdapterPlatformTest {
         private final List<JsonNode> sendPayloads = new CopyOnWriteArrayList<>();
         private final java.util.Map<String, JsonNode> payloads =
                 new java.util.concurrent.ConcurrentHashMap<>();
+        private final boolean recentUnsupported;
 
         private MockHttpServer() throws IOException {
+            this(false);
+        }
+
+        private MockHttpServer(boolean recentUnsupported) throws IOException {
+            this.recentUnsupported = recentUnsupported;
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/get_recent_contact", this::recent);
             server.createContext("/get_group_list", this::groups);
@@ -172,6 +194,13 @@ class NapCatAdapterPlatformTest {
         private void recent(HttpExchange exchange) throws IOException {
             paths.add(exchange.getRequestURI().getPath());
             payloads.put(exchange.getRequestURI().getPath(), read(exchange));
+            if (recentUnsupported) {
+                respondStatus(exchange, 404, """
+                        {"status":"failed","retcode":404,"data":null,
+                         "message":"get_recent_contact API 不存在"}
+                        """);
+                return;
+            }
             respond(exchange, """
                     {"status":"ok","retcode":0,"data":[
                       {"peerUin":"30003","peerName":"测试群","remark":"","msgTime":"1700000000","msgId":"900","chatType":2,
@@ -251,9 +280,14 @@ class NapCatAdapterPlatformTest {
         }
 
         private static void respond(HttpExchange exchange, String body) throws IOException {
+            respondStatus(exchange, 200, body);
+        }
+
+        private static void respondStatus(HttpExchange exchange, int status, String body)
+                throws IOException {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
-            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.sendResponseHeaders(status, bytes.length);
             try (var output = exchange.getResponseBody()) {
                 output.write(bytes);
             }

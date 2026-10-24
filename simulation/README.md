@@ -1,6 +1,6 @@
 # iiBotMosire P8 全真模拟目录
 
-这个目录用于 **P8 真实链路联调**：真实 NapCat/QQ、真实 LLM、真实 DSH MCP 控制方。
+这个目录用于 **P8 真实链路联调**：真实 LLBot/QQ、真实 LLM、真实 DSH MCP 控制方。
 它使用独立的 `simulation/runtime/`，不会覆盖 `/home/cna/.config/iibot/runtime/`。
 
 > **真实发送边界**：`tf_post_publish`、经真人确认的
@@ -42,12 +42,12 @@ simulation/
 ## 0. 前提
 
 - JDK 21、仓库 Maven Wrapper、模拟目录内已构建的 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar`；
-- NapCat 已运行：`127.0.0.1:3001` WS、`127.0.0.1:3000` HTTP；
-- `/home/cna/.config/iibot/{llm,napcat,control}.env` 已有真实 LLM/NapCat/MCP token；
+- LLBot 已运行：`127.0.0.1:3001` WS、`127.0.0.1:3000` HTTP；LLBot 兼容差异见 `simulation/dsh/LLBOT_MIGRATION.md`；
+- `/home/cna/.config/iibot/{llm,napcat,control}.env` 已有真实 LLM/QQ/MCP token；
 - 真实 QQ 测试玩家已加入公开群，且允许 Bot 私聊；
 - 当前 `8765` 没有被旧 app 占用。
 - 若目标玩家与 Bot 不是好友，可设置 `napcat.privateTempGroupId` 为双方共同群；
-  NapCat 会通过 `send_private_msg {user_id, group_id}` 走群临时会话。
+  LLBot/OneBot 通过 `send_private_msg {user_id, group_id}` 走群临时会话。
 - `outbox.minSendIntervalMillis` 默认 150ms，生产范围 100..200ms；所有逻辑外发消息
   （含 ACK 与正式回复）共用同一个节奏锁，避免连续消息挤在一起。
 
@@ -196,7 +196,7 @@ tf_qq_send_group
 
 这些工具默认关闭且只暴露给 supervisor。自主入团默认只允许当前推演群；
 `control.platform.onboardingAllowedGroupIds` 可显式扩展，`["*"]` 表示全部
-Bot 可访问群。读取始终受 QQ/NapCat 权限约束，不能读取他人私聊或未加入的群。
+Bot 可访问群。读取始终受 QQ/LLBot 权限约束，不能读取他人私聊或未加入的群。
 
 ## 4. 接 DSH Agent
 

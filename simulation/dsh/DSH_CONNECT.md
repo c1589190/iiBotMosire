@@ -3,6 +3,9 @@
 > 本文只写接入步骤；实际运行前 app 必须已启动，且 `simulation/dist` 必须是包含新工具的新 jar。
 > MCP endpoint：`http://127.0.0.1:8765/mcp/control`
 > serverName：`iibot`，DSH 中工具名会显示为 `mcp__iibot__tf_*`。
+>
+> QQ 后端：LLOneBot 8.3.2 / OneBot v11，WS `127.0.0.1:3001`、HTTP `127.0.0.1:3000`。
+> 迁移细节与已知差异见 [`LLBOT_MIGRATION.md`](LLBOT_MIGRATION.md)。
 
 ## 0. 两条接入路线
 

@@ -290,22 +290,53 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
         }
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("count", count);
-        return postAction("get_recent_contact", payload).thenApply(root -> {
-            JsonNode data = root.path("data");
-            if (!data.isArray()) {
-                throw new CompletionException(new OneBotActionException(
-                        FailureKind.INVALID_RESPONSE, "INVALID_DIRECTORY_RESPONSE",
-                        "最近会话响应缺少 data 数组"));
+        return postAction("get_recent_contact", payload)
+                .handle((root, error) -> {
+                    if (error == null) {
+                        return CompletableFuture.completedFuture(parseRecent(root, count));
+                    }
+                    Throwable cause = unwrap(error);
+                    if (isMissingRecentContactAction(cause)) {
+                        // LLBot 等轻量 OneBot 实现没有 get_recent_contact；
+                        // 用已加入群列表作为可用目录兜底，不伪造“最近”时间。
+                        return joinedGroups().thenApply(groups -> limitConversations(groups, count));
+                    }
+                    throw new CompletionException(cause);
+                })
+                .thenCompose(stage -> stage);
+    }
+
+    private List<ChatConversation> parseRecent(JsonNode root, int count) {
+        JsonNode data = root.path("data");
+        if (!data.isArray()) {
+            throw new CompletionException(new OneBotActionException(
+                    FailureKind.INVALID_RESPONSE, "INVALID_DIRECTORY_RESPONSE",
+                    "最近会话响应缺少 data 数组"));
+        }
+        List<ChatConversation> result = new ArrayList<>();
+        for (JsonNode item : data) {
+            ChatConversation conversation = parseRecentConversation(item);
+            if (conversation != null && result.size() < count) {
+                result.add(conversation);
             }
-            List<ChatConversation> result = new ArrayList<>();
-            for (JsonNode item : data) {
-                ChatConversation conversation = parseRecentConversation(item);
-                if (conversation != null && result.size() < count) {
-                    result.add(conversation);
-                }
-            }
-            return List.copyOf(result);
-        });
+        }
+        return List.copyOf(result);
+    }
+
+    private static boolean isMissingRecentContactAction(Throwable cause) {
+        if (!(cause instanceof OneBotActionException actionException)) {
+            return false;
+        }
+        return "HTTP_404".equals(actionException.errorCode)
+                || "ONEBOT_RETCODE_404".equals(actionException.errorCode);
+    }
+
+    private static List<ChatConversation> limitConversations(
+            List<ChatConversation> conversations, int count) {
+        if (conversations.size() <= count) {
+            return List.copyOf(conversations);
+        }
+        return List.copyOf(conversations.subList(0, count));
     }
 
     @Override

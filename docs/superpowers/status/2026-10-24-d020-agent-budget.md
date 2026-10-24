@@ -23,8 +23,8 @@
 ```text
 tools/gate.sh full
 PASS
-617 tests / 0 failures / 0 errors / 0 skipped
-connect 36 / connect-agent 21 / taskflow 255 / app 305
+618 tests / 0 failures / 0 errors / 0 skipped
+connect 37 / connect-agent 21 / taskflow 255 / app 305
 ```
 
 新增 `SecretarySessionBudgetTest`：
@@ -35,10 +35,11 @@ connect 36 / connect-agent 21 / taskflow 255 / app 305
 
 ## 部署状态
 
-- `simulation/dist` 已替换为 `0cef4ed434c172acf412fb0b7495e919d479e1af154da84e0eebe87f7a151d6a`；
-- 旧 jar 备份：`simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261024-234843`；
-- 替换前 runtime 备份：`simulation/runtime.backup-20261024-234839-pre-d020`；
+- `simulation/dist` 当前为 LLBot 兼容 jar `484bebc2d486353c9cf9367838a9b415b7f0c60d7e486dd90da2c087c913d3cb`；
+- 旧 jar 备份：`simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-010828`；
+- 替换前 runtime 备份：`simulation/runtime.backup-20261025-010828-pre-llbot-compat`；
 - app 已重启，`tf_status` recovery=true，worldVersion=5，turnNo=1 状态 OPEN；
+- QQ 后端已切换为 LLOneBot 8.3.2，WS 3001 / HTTP 3000；
 - DSH Connector 健康检查 PASS，77 工具可用；
 - 公屏 watcher 与工单板 watcher 已恢复；
 - 部署 jar 经 `javap` 核验：`DEFAULT_MAX_ROUNDS=128`、`DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE=8`；
