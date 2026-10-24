@@ -712,13 +712,29 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
         });
     }
 
+    private static boolean isLlbBotProactiveTempFailure(OneBotActionException failure) {
+        if (!"ONEBOT_RETCODE_200".equals(failure.errorCode)
+                && !"ONEBOT_RETCODE_1200".equals(failure.errorCode)) {
+            return false;
+        }
+        String message = failure.getMessage();
+        return message != null && message.contains("先添加对方为好友");
+    }
+
     private SendReceipt failureReceipt(SendOperation operation, Throwable throwable) {
         if (throwable instanceof OneBotActionException actionException) {
             if (actionException.kind == FailureKind.REJECTED) {
                 if (operation.messageIds.isEmpty()) {
+                    if (operation.message.temporaryGroupId() != null
+                            && isLlbBotProactiveTempFailure(actionException)) {
+                        return SendReceipt.failed(
+                                "LLBOT_TEMP_CHAT_REQUIRES_INBOUND",
+                                "LLBot 不支持主动群临时会话；请让目标先从群里私聊 Bot 一次，"
+                                        + "再显式重试送达");
+                    }
                     return SendReceipt.failed(
                             actionException.errorCode,
-                            "服务端明确拒绝发送");
+                            actionException.getMessage());
                 }
                 return SendReceipt.unknown(
                         "PARTIAL_" + actionException.errorCode,
@@ -844,10 +860,19 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
                     }
                     long retcode = retcodeNode.asLong();
                     if (retcode != 0L) {
+                        String serverMessage = scalarText(body.get("message"));
+                        if (serverMessage == null || serverMessage.isBlank()) {
+                            serverMessage = scalarText(body.get("wording"));
+                        }
+                        String safeMessage = Redaction.sanitize(
+                                serverMessage, config.accessToken().orElse(null));
+                        if (safeMessage.isBlank()) {
+                            safeMessage = "OneBot 动作被服务端拒绝";
+                        }
                         throw new CompletionException(new OneBotActionException(
                                 FailureKind.REJECTED,
                                 "ONEBOT_RETCODE_" + retcode,
-                                "OneBot 动作被服务端拒绝"));
+                                safeMessage));
                     }
                     return body;
                 });

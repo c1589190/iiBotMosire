@@ -1,10 +1,10 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-25 01:13（Asia/Shanghai）
+> **更新时间**：2026-10-25 01:45（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
-## 0. 最新更新（2026-10-25 01:13）
+## 0. 最新更新（2026-10-25 01:45）
 
 - **D-017 平台级 QQ 能力与受控自主入团已实现代码与自动化测试**：
   connectlib `QqPlatformCapability`、NapCat 目录/历史/消息定位/临时私聊发送；
@@ -29,9 +29,9 @@
   生产范围 100..200ms；ACK 与正式回复也串行拉开。
 - 追加 D-020 秘书预算：玩家秘书与 GM 推演秘书默认 **128 轮 / 5 分钟 / 单响应 8 工具**；
   中央裁定 Agent 保持 8 轮/120 秒。预算耗尽回执会报告草案/查询/世界状态和是否需重发。
-- D-020 后 full gate：**618 tests / 0 failures / 0 errors / 0 skipped**
-  （connect 37、connect-agent 21、taskflow 255、app 305）；
-  `simulation/dist` 已替换为 `484bebc2d486353c9cf9367838a9b415b7f0c60d7e486dd90da2c087c913d3cb`。
+- D-020 / LLBot 临时会话修复后 full gate：**619 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 38、connect-agent 21、taskflow 255、app 305）；
+  最新 target jar `f9f2e44885fbb65c9ab3a53fc739eaf137b0dfed7e8c8b2a98e984228bf69960` 尚未替换 simulation/dist。
 - 默认模拟 MCP 工具面 **77**；`control.platform.allowArbitrarySend=true` 后 **79**。
 - **QQ 后端迁移**：LLOneBot 8.3.2 / OneBot v11，WS 3001、HTTP 3000；
   HTTP Bearer/query 与 WS 握手均验证；`get_recent_contact` 缺失时自动回退群目录；
@@ -39,11 +39,16 @@
 - **simulation/dist jar**：已替换为 `484bebc2d486353c9cf9367838a9b415b7f0c60d7e486dd90da2c087c913d3cb`；
   旧 jar 备份为 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-010828`；
   替换前 runtime 备份：`simulation/runtime.backup-20261025-010828-pre-llbot-compat`。
-- **当前运行态**：app、回环代理与两个 watcher 已停止，8765/8766 空闲；
-  LLBot Docker 仍在 3000/3001 运行；
-  交接启动单：`simulation/dsh/LLBOT_HANDOFF.md`；
-  交接前 runtime 备份：`simulation/runtime.backup-20261025-011306-llbot-handoff`。
-- 交接前最后核验：`tf_status` recovery=true，worldVersion=5，turnNo=1，状态 OPEN。
+- **当前运行态**：隔壁会话已启动 app（PID 30737）、回环代理（PID 13152）
+  与两个 watcher（PID 13149/13150）；LLBot 3000/3001 运行；
+  运行中的是 `484beb...`；最新 target jar `f9f2e448...` 未替换，避免打断当前活动局。
+- **2026-10-25 群临时会话事故**：LLBot 不支持主动临时会话；
+  `send_private_msg {user_id, group_id}` 在无 `temp_chat_info` 时降级为普通 C2C，
+  返回 `ONEBOT_RETCODE_200` / code 16“请先添加对方为好友”；
+  当前开局卡帖已发布但 deliveryState=FAILED，玩家未收到，未自动重试。
+  适配器已把该错误映射为 `LLBOT_TEMP_CHAT_REQUIRES_INBOUND`；
+  恢复需目标先主动私聊 Bot 一次，再显式 `tf_post_retry_delivery`。
+  证据与恢复步骤：`simulation/dsh/LLBOT_MIGRATION.md` §7。
 - 迁移细节：[`../../simulation/dsh/LLBOT_MIGRATION.md`](../../simulation/dsh/LLBOT_MIGRATION.md)。
 - 下一步：用真实玩家消息验证 D-020 的“明确行动直接起草”和“资料缺口主动查询”；
   128 轮预算已通过 `javap` 在部署 jar 中核验。真实外发仍需用户明确目标与授权。

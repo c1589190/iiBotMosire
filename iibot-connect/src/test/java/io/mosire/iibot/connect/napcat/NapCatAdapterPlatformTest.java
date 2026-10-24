@@ -120,6 +120,21 @@ class NapCatAdapterPlatformTest {
     }
 
     @Test
+    void mapsLlbBotProactiveTempSessionFailureToActionableCode() throws Exception {
+        try (MockHttpServer server = new MockHttpServer(false, true);
+             NapCatAdapter adapter = new NapCatAdapter(config(server))) {
+            SendReceipt receipt = adapter.sendPrivate("3341796326", "1104560326",
+                            List.of("开局卡"), "llbot-temp-reject")
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(receipt.state()).isEqualTo(SendReceipt.State.FAILED_BEFORE_SEND);
+            assertThat(receipt.errorCode()).isEqualTo("LLBOT_TEMP_CHAT_REQUIRES_INBOUND");
+            assertThat(receipt.detail()).contains("先").contains("私聊").contains("重试");
+            assertThat(server.sentPaths).containsExactly("/send_private_msg");
+        }
+    }
+
+    @Test
     void historyCountsSkippedNonTextSegments() throws Exception {
         try (MockHttpServer server = new MockHttpServer();
              NapCatAdapter adapter = new NapCatAdapter(config(server))) {
@@ -157,13 +172,20 @@ class NapCatAdapterPlatformTest {
         private final java.util.Map<String, JsonNode> payloads =
                 new java.util.concurrent.ConcurrentHashMap<>();
         private final boolean recentUnsupported;
+        private final boolean llbotTempRejected;
 
         private MockHttpServer() throws IOException {
-            this(false);
+            this(false, false);
         }
 
         private MockHttpServer(boolean recentUnsupported) throws IOException {
+            this(recentUnsupported, false);
+        }
+
+        private MockHttpServer(boolean recentUnsupported, boolean llbotTempRejected)
+                throws IOException {
             this.recentUnsupported = recentUnsupported;
+            this.llbotTempRejected = llbotTempRejected;
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/get_recent_contact", this::recent);
             server.createContext("/get_group_list", this::groups);
@@ -271,6 +293,13 @@ class NapCatAdapterPlatformTest {
             paths.add(exchange.getRequestURI().getPath());
             sentPaths.add(path);
             sendPayloads.add(read(exchange));
+            if (llbotTempRejected && "/send_private_msg".equals(path)) {
+                respond(exchange, """
+                        {"status":"failed","retcode":200,"data":null,
+                         "message":"发送消息失败 (code=16): 发送失败，请先添加对方为好友"}
+                        """);
+                return;
+            }
             respond(exchange, "{\"status\":\"ok\",\"retcode\":0,\"data\":{\"message_id\":"
                     + messageId + "}}");
         }
