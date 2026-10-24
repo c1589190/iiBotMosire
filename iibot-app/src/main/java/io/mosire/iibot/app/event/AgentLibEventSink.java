@@ -3,29 +3,34 @@ package io.mosire.iibot.app.event;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.mosire.agentlib.event.Event;
-import io.mosire.agentlib.event.EventWrite;
-import io.mosire.agentlib.event.SqliteEventStore;
+import io.mosire.iibot.app.event.content.EventContentStore;
+import io.mosire.iibot.taskflow.event.EventAppendRequest;
+import io.mosire.iibot.taskflow.event.EventContent;
+import io.mosire.iibot.taskflow.event.EventContentType;
 import io.mosire.iibot.taskflow.event.EventSink;
+import io.mosire.iibot.taskflow.event.EventVisibility;
+import io.mosire.iibot.taskflow.event.StoredEvent;
 import io.mosire.iibot.taskflow.event.TaskflowEvent;
 
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 用 AgentLib {@link SqliteEventStore} 持久化 Taskflow 事件审计。
+ * 用 events.db 持久化 Taskflow 审计事件，并写入完整事件正文。
  *
- * <p><b>当前定位：审计，不是领域回放。</b>启动时不会从事件库重建 {@code TaskflowEngine}；
- * 引擎仍在内存里从空状态装配，事件库只保留跨重启可读的追加审计记录。若未来要恢复领域状态，
- * 必须另建投影/重放器并通过不变量校验，不能把“能读到事件”冒充“已恢复引擎”。</p>
+ * <p>P1 起底层不再只写一行摘要：{@code events} 保存可检索 headers，{@code event_contents}
+ * 保存完整 payload JSON。正文/元数据都经 {@link EventContentStore} 脱敏、限长、计算 hash，
+ * 并在同一事务内提交；因此 {@link #append} 成功返回后才算事件落成。</p>
  *
- * <p>每条底层记录：{@code type=taskflow.event}，payload 是完整、脱敏的 JSON（含领域 seq、
- * 角色、actorId、turnId、幂等键、发生时间与原始 payload 字符串映射）。{@link #append} 返回
- * SQLite 分配的底层 seq。</p>
+ * <p><b>兼容双写说明</b>：为保持旧 {@code SqliteEventReadPort} 的读取契约，本阶段仍把完整
+ * 领域 payload 同时写入 {@code event_contents.content_json} 和 {@code events.payload_json}。
+ * {@code payload_json} 在未来应收口为索引/摘要 header，但 P2 之前不改变旧读取契约。</p>
+ *
+ * <p><b>当前定位仍是审计，不是领域回放。</b>启动时不会从事件库重建 {@code TaskflowEngine}；
+ * 引擎仍在内存里从空状态装配。能读事件不等于引擎已恢复。</p>
  */
 public final class AgentLibEventSink implements EventSink, AutoCloseable {
 
@@ -35,8 +40,7 @@ public final class AgentLibEventSink implements EventSink, AutoCloseable {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int SCHEMA_VERSION = 1;
 
-    private final SqliteEventStore store;
-    private final EventRedactor redactor;
+    private final EventContentStore contentStore;
     private final Path dbFile;
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -46,15 +50,14 @@ public final class AgentLibEventSink implements EventSink, AutoCloseable {
     }
 
     /**
-     * 打开事件存储。
+     * 打开完整事件存储。
      *
      * @param dbFile  事件库文件路径（父目录自动创建）
-     * @param secrets 已知密钥值；若未来 payload 意外包含它们，会被替换为 {@code [REDACTED]}
+     * @param secrets 已知密钥值；若事件 payload/正文意外包含它们，会被替换为 {@code [REDACTED]}
      */
     public AgentLibEventSink(Path dbFile, Collection<String> secrets) {
         this.dbFile = Objects.requireNonNull(dbFile, "dbFile").toAbsolutePath().normalize();
-        this.redactor = new EventRedactor(secrets);
-        this.store = SqliteEventStore.open(this.dbFile);
+        this.contentStore = new EventContentStore(this.dbFile, secrets);
     }
 
     @Override
@@ -63,37 +66,19 @@ public final class AgentLibEventSink implements EventSink, AutoCloseable {
         if (closed.get()) {
             throw new IllegalStateException("事件存储已关闭，拒绝追加事件");
         }
-        Map<String, String> safePayload = redactor.sanitize(event.payload());
-        ObjectNode root = MAPPER.createObjectNode();
-        root.put("schemaVersion", SCHEMA_VERSION);
-        root.put("seq", event.seq());
-        root.put("domainSeq", event.seq());
-        root.put("type", event.type().name());
-        root.put("eventType", event.type().name());
-        root.put("actorRole", event.actorRole().name());
-        root.put("actorId", redactor.sanitize("actorId", event.actorId()));
-        if (event.turnId() == null) {
-            root.putNull("turnId");
-        } else {
-            root.put("turnId", redactor.sanitize("turnId", event.turnId()));
-        }
-        root.put("idempotencyKey", redactor.sanitize("idempotencyKey", event.idempotencyKey()));
-        root.put("occurredAt", event.occurredAt().toString());
-        ObjectNode payloadNode = root.putObject("payload");
-        safePayload.forEach(payloadNode::put);
 
-        String json;
-        try {
-            json = MAPPER.writeValueAsString(root);
-        } catch (JsonProcessingException e) {
-            // 不把原 payload 或序列化异常细节写进上层消息。
-            throw new IllegalStateException("事件 payload 序列化失败: " + event.type());
-        }
-        Event stored = store.append(new EventWrite(
+        String metadataJson = metadataJson(event);
+        String contentJson = payloadJson(event);
+        StoredEvent stored = contentStore.append(new EventAppendRequest(
+                event.occurredAt(),
                 STORE_EVENT_TYPE,
                 event.actorRole().name() + ":" + event.actorId(),
-                json,
-                event.turnId() == null ? "" : event.turnId()));
+                event.turnId() == null ? "" : event.turnId(),
+                event.turnId(),
+                EventContentStore.CURRENT_EVENT_VERSION,
+                EventVisibility.GM,
+                new EventContent(EventContentType.JSON, contentJson, null),
+                metadataJson));
         return stored.seq();
     }
 
@@ -102,12 +87,49 @@ public final class AgentLibEventSink implements EventSink, AutoCloseable {
         return dbFile;
     }
 
-    /** 幂等关闭；底层 SQLite 连接一并关闭。 */
+    private static String metadataJson(TaskflowEvent event) {
+        ObjectNode root = MAPPER.createObjectNode();
+        root.put("schemaVersion", SCHEMA_VERSION);
+        root.put("seq", event.seq());
+        root.put("domainSeq", event.seq());
+        root.put("type", event.type().name());
+        root.put("eventType", event.type().name());
+        root.put("actorRole", event.actorRole().name());
+        root.put("actorId", event.actorId());
+        if (event.turnId() == null) {
+            root.putNull("turnId");
+        } else {
+            root.put("turnId", event.turnId());
+        }
+        root.put("idempotencyKey", event.idempotencyKey());
+        root.put("occurredAt", event.occurredAt().toString());
+        ObjectNode payloadNode = root.putObject("payload");
+        event.payload().forEach(payloadNode::put);
+        try {
+            return MAPPER.writeValueAsString(root);
+        } catch (JsonProcessingException e) {
+            // 不把原 payload 或序列化异常细节写进上层消息。
+            throw new IllegalStateException("事件 metadata 序列化失败: " + event.type());
+        }
+    }
+
+    private static String payloadJson(TaskflowEvent event) {
+        try {
+            return MAPPER.writeValueAsString(event.payload());
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("事件 payload 序列化失败: " + event.type());
+        }
+    }
+
+    /**
+     * 幂等关闭；与 {@link #append} 使用同一实例锁做生命周期屏障，避免 close 与 append
+     * 交错后把已开始的追加写到已关闭连接上。底层 SQLite 连接一并关闭。
+     */
     @Override
-    public void close() {
+    public synchronized void close() {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        store.close();
+        contentStore.close();
     }
 }

@@ -1,6 +1,6 @@
 # 理想 GM 控制工作流实施计划（2026-10-24）
 
-> **状态**：计划有效；v3 行动池/裁定包部分代码已在工作树，但未 full gate、未提交。
+> **状态**：计划有效；P0（v3 行动池/裁定包）与 P1（events.db 完整内容基础）已完成实现、测试、阶段评审与 full gate，提交待本轮收口。
 > **性质**：计划不是设计；事件 schema、数据所有权、工具语义以
 > [`../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md`](../specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md) 为准。
 > **当前事实**：以 [`../../agents/STATUS.md`](../../agents/STATUS.md) 为准。本文件里的测试数/工期是预测，不是实测。
@@ -72,6 +72,8 @@ P8 真实 MCP/LLM/多玩家/发布回归与发布
 - full gate 不通过或 action pool/package 测试不可复现 ⇒ 不进入 P1。
 
 ### P1 events.db 完整内容基础
+
+**状态**：已完成实现/测试/阶段评审/full gate（398 tests）；待提交。
 
 **目标**：建立完整事件内容 schema、追加端口、内容 hash、schema 版本和迁移框架。
 

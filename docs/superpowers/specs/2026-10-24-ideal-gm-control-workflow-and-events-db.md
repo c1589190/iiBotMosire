@@ -176,7 +176,9 @@ events(
   event_version  INTEGER NOT NULL,
   visibility     TEXT NOT NULL,
   content_hash   TEXT NOT NULL,
-  payload_json   TEXT NOT NULL
+  payload_json   TEXT NOT NULL,
+  payload        TEXT NOT NULL DEFAULT '', -- 旧 AgentLib 读取兼容列
+  content_missing INTEGER NOT NULL DEFAULT 1
 );
 
 event_contents(
@@ -187,10 +189,17 @@ event_contents(
 );
 ```
 
-- 大正文进 `event_contents`，`events.payload_json` 保留索引/元数据；
-- `content_hash` 计算正文/结构化内容；
+- 大正文进 `event_contents`，`events.payload_json` 保留索引/元数据；`payload` 是旧
+  AgentLib `SqliteEventReadPort` 兼容列。P1 暂时兼容双写，P2 将旧读取路径收口后只保留
+  必要索引，不能把双写当第二事实源。
+- `event_contents` 严格二选一：`JSON` 只能有 `content_json`，`MARKDOWN/TEXT` 只能有
+  `content_text`；
+- `content_hash` 对**脱敏后的最终正文**计算 SHA-256，读取时重算；不一致 fail-closed；
 - 敏感数据不入 DB；可见性 `PUBLIC/GM/PLAYER/SECRETARY` 由事件写入时固定；
-- 迁移旧事件：`event_version=0, content_missing=true`，只读保留。
+- 新事件 header 与正文在同一 SQLite 事务提交；schema 版本写 `PRAGMA user_version=1`；
+- 迁移旧事件：`event_version=0, visibility=GM, content_missing=1`，`payload_json`
+  从旧 `payload` 回填，只读保留，不伪造正文；
+- events.db 主文件权限 600；WAL/SHM 等伴随文件 best-effort 收口。
 
 ### 4.3 完整事件类型（至少）
 
@@ -366,3 +375,9 @@ tf_record_rebuild
 - 迁移无法对账时保留旧快照只读，不删除旧 JSON；
 - 包状态无法从 DB 重建前，不宣称“重启恢复通过”；
 - 真实外部发送未获用户明确协同授权时，保持 `WAITING_USER/NOT_RUN`。
+
+## 11. 修订记录
+
+| 日期 | 修订 | 原因 |
+|---|---|---|
+| 2026-10-24 | §4.2 补 `content_missing`、旧 `payload` 兼容列、正文二选一、事务/hash/权限/schemaVersion 说明 | 将 P1 已实现的完整事件内容 schema 与迁移语义回写设计，避免设计与 `events.db` 实际 schema 漂移 |
