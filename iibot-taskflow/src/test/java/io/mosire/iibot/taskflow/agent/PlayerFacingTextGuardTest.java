@@ -67,6 +67,16 @@ class PlayerFacingTextGuardTest {
     }
 
     @Test
+    void rawLeaksDetectInputThatNormalizeWouldSilentlyReplace() {
+        String raw = "这是一条包含 MCP 的正文。";
+
+        assertThat(PlayerFacingTextGuard.rawBackstageLeaks(raw))
+                .contains("BACKSTAGE_FIELD");
+        assertThat(PlayerFacingTextGuard.normalizeForPost(raw))
+                .contains("你再说一次");
+    }
+
+    @Test
     void emptyUnsafeInputFallsBackToReadableChinese() {
         String clean = PlayerFacingTextGuard.normalizeForChat("""
                 draftId: 11111111-1111-1111-1111-111111111111

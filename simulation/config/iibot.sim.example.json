@@ -38,7 +38,8 @@
     "dedupeCapacity": 10000
   },
   "outbox": {
-    "sendTimeoutSeconds": 15
+    "sendTimeoutSeconds": 15,
+    "minSendIntervalMillis": 150
   },
   "scheduler": {
     "autoFreezeIntervalSeconds": 30

@@ -120,13 +120,17 @@ public final class GmPostComposeTool implements AgentTool {
             data.put("mode", mode);
             data.put("guardApplied", result.guardApplied());
             data.put("publishNow", result.publishNow());
+            if (result.guardApplied()) {
+                data.put("guardSanitizedBody", result.sanitizedBody());
+            }
             return GmPostToolSupport.success(NAME, data);
         } catch (ResourceDeniedException denied) {
             throw denied;
         } catch (GmPostToolSupport.InvalidArgumentsException invalid) {
             return GmPostToolSupport.failure(NAME, "INVALID_ARGUMENTS", invalid.getMessage());
         } catch (ExternalPostService.ExternalPostException failure) {
-            return GmPostToolSupport.failure(NAME, failure.code(), failure.getMessage());
+            return GmPostToolSupport.failure(
+                    NAME, failure.code(), failure.getMessage(), failure.data());
         } catch (RuntimeException failure) {
             return GmPostToolSupport.failure(NAME, "POST_UNAVAILABLE",
                     "外部发帖服务暂不可用（内部原因已脱敏）");

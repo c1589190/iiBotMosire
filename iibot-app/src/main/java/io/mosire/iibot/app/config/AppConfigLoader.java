@@ -56,7 +56,8 @@ public final class AppConfigLoader {
             AppConfig.AGENT_SECRETARY, AppConfig.AGENT_ADJUDICATOR, AppConfig.AGENT_GM_AIDE);
     private static final Set<String> DISPATCHER_FIELDS = Set.of(
             "maxConcurrentSessions", "maxPendingPerUser", "dedupeCapacity");
-    private static final Set<String> OUTBOX_FIELDS = Set.of("sendTimeoutSeconds");
+    private static final Set<String> OUTBOX_FIELDS = Set.of(
+            "sendTimeoutSeconds", "minSendIntervalMillis");
     private static final Set<String> SCHEDULER_FIELDS = Set.of("autoFreezeIntervalSeconds");
     private static final Set<String> CONTROL_FIELDS = Set.of(
             "enabled", "host", "port", "path", "bearerTokenEnv", "maxRequestBytes", "platform");
@@ -259,8 +260,12 @@ public final class AppConfigLoader {
 
     private static AppConfig.Outbox parseOutbox(JsonNode node) {
         rejectUnknown(node, OUTBOX_FIELDS, "outbox");
-        return new AppConfig.Outbox(optionalInt(node, "sendTimeoutSeconds", "outbox",
-                AppConfig.Outbox.defaults().sendTimeoutSeconds()));
+        AppConfig.Outbox defaults = AppConfig.Outbox.defaults();
+        return new AppConfig.Outbox(
+                optionalInt(node, "sendTimeoutSeconds", "outbox",
+                        defaults.sendTimeoutSeconds()),
+                optionalInt(node, "minSendIntervalMillis", "outbox",
+                        defaults.minSendIntervalMillis()));
     }
 
     private static AppConfig.Scheduler parseScheduler(JsonNode node) {

@@ -23,9 +23,12 @@ DSH 中工具名会带命名空间前缀：`mcp__iibot__<tool>`，例如
 - `tf_qq_history_read`：不传目标时默认当前推演群；可以显式读取任意 Bot 可访问的
   私聊或群历史，不再要求目标已注册。
 - `tf_qq_group_members`：查群成员；`tf_qq_message_get`：按消息 ID 取一条消息，
-  用于核验报名来源。
+  用于核验报名来源。较早消息不在 NapCat live cache 时，可额外传
+  `chatType/targetId/maxScan` 回扫历史；live cache 未命中且没有 target 会返回
+  `MESSAGE_NOT_IN_LIVE_CACHE`，不会伪装成已读取。
 - `tf_post_compose`：外部控制方自行撰写推文。`DRAFT` 只建 PENDING_APPROVAL；
   `PUBLISH_NOW` 直接发布到当前推演群或已注册玩家私聊，不依赖 ActionBatch 或 app 内 LLM。
+  正文触发玩家可见文本守卫时返回 `TEXT_GUARD_REJECTED`，不会静默替换或创建草稿。
 - `tf_player_onboard_from_group`：根据群消息证据自主注册玩家、绑定秘书并发送报名卡。
   必须带 `sourceGroupId/sourceMessageId/qqId`；默认要求报名/加入意图且群在 allowlist。
   这是 D-017 的自主入团例外，不要求 app 内 Agent 审核或逐次真人确认。
@@ -92,6 +95,8 @@ DSH 中工具名会带命名空间前缀：`mcp__iibot__<tool>`，例如
 - 不读取或传播 GM 私有文档给玩家。
 - 不伪造玩家硬确认，不代替玩家提交行动。
 - 外部发送返回 UNKNOWN 时不自动重发；先报告给人，等待明确处理。
+- 宿主会自动为所有逻辑外发消息保留至少 100–200ms 间隔（默认 150ms）；
+  不要在 DSH 侧手工 sleep，也不要并行刷多条消息。
 - 除 D-017 自主入团（来源 opt-in、群 allowlist、配额、单 QQ 幂等全部通过）外，
   每次真实出站前向真人 GM 报告目标与摘要并得到确认。
 - 入团报名卡只发给通过来源校验的 QQ；不得据此批量私信群成员或自行扩大 allowlist。

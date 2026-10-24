@@ -110,16 +110,41 @@ class ExternalPostServiceTest {
     }
 
     @Test
-    void guardSanitizesMarkdownAndBackstageFieldsButStillPublishesControlledText() {
-        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("guard"))) {
+    void guardAppliesBenignNormalizationAndReturnsSanitizedBody() {
+        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("guard-normalize"))) {
             ExternalPostService service = service(fixture);
 
             ExternalPostService.Result result = service.compose(
                     P6Fixture.SUPERVISOR, PostVisibility.PUBLIC, null,
-                    "标题", "# 公告\n这是正文。", "external-guard", false);
+                    "标题", "- 公告\n这是正文。", "external-guard-normalize", false);
 
             assertThat(result.guardApplied()).isTrue();
-            assertThat(result.post().body()).isEqualTo("公告\n这是正文。");
+            assertThat(result.sanitizedBody()).isEqualTo("· 公告\n这是正文。");
+            assertThat(result.guardViolations()).isEmpty();
+            assertThat(result.post().body()).isEqualTo("· 公告\n这是正文。");
+        }
+    }
+
+    @Test
+    void backstageBodyIsRejectedExplicitlyWithoutCreatingFallbackDraft() {
+        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("guard-reject"))) {
+            ExternalPostService service = service(fixture);
+
+            assertThatThrownBy(() -> service.compose(
+                    P6Fixture.SUPERVISOR, PostVisibility.PUBLIC, null,
+                    "标题", "这是一条包含 MCP 的正文。",
+                    "external-guard-reject", false))
+                    .isInstanceOfSatisfying(ExternalPostService.ExternalPostException.class,
+                            failure -> {
+                                assertThat(failure.code()).isEqualTo(
+                                        ExternalPostService.TEXT_GUARD_REJECTED);
+                                assertThat(failure.data().get("guardApplied")).isEqualTo(true);
+                                assertThat((java.util.List<String>) failure.data().get(
+                                        "guardViolations")).contains("BACKSTAGE_FIELD");
+                                assertThat(failure.data().get("guardSanitizedBody"))
+                                        .isInstanceOf(String.class);
+                            });
+            assertThat(fixture.postService.postsForGm()).isEmpty();
         }
     }
 

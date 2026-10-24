@@ -203,6 +203,22 @@ class AppConfigTest {
     }
 
     @Test
+    void outboxDefaultsTo150msMinimumSendIntervalAndParsesCustomValue() {
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("outbox-pacing.json"),
+                TestSupport.validConfigNode(tempDir.resolve("data"), tempDir.resolve("facts.json")));
+
+        AppConfig defaults = TestSupport.loadConfig(configFile);
+        assertThat(defaults.outbox().sendTimeoutSeconds()).isEqualTo(15);
+        assertThat(defaults.outbox().minSendIntervalMillis()).isEqualTo(150);
+
+        ObjectNode root = readNode(configFile);
+        root.putObject("outbox").put("minSendIntervalMillis", 120);
+        TestSupport.writeJson(configFile, root);
+        AppConfig custom = TestSupport.loadConfig(configFile);
+        assertThat(custom.outbox().minSendIntervalMillis()).isEqualTo(120);
+    }
+
+    @Test
     void controlConfigDefaultsDisabledAndParsesLoopbackBearerConfig() {
         Path configFile = TestSupport.writeConfig(tempDir.resolve("control-off.json"),
                 TestSupport.validConfigNode(tempDir.resolve("data"), tempDir.resolve("facts.json")));

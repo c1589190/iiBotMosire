@@ -626,6 +626,17 @@ class AppBootstrapP3McpTest {
                             "idempotencyKey", "platform-mcp-compose-draft")));
             assertThat(composed.isError()).as(wireText(composed)).isFalse();
             assertThat(wireText(composed)).contains("PENDING_APPROVAL", "tf_post_compose");
+
+            McpSchema.CallToolResult rejectedPost = client.callTool(
+                    new McpSchema.CallToolRequest("tf_post_compose", Map.of(
+                            "mode", "DRAFT",
+                            "visibility", "PUBLIC",
+                            "title", "非法正文",
+                            "body", "这是一条包含 MCP 的正文。",
+                            "idempotencyKey", "platform-mcp-compose-rejected")));
+            assertThat(rejectedPost.isError()).as(wireText(rejectedPost)).isTrue();
+            assertThat(wireText(rejectedPost)).contains(
+                    "TEXT_GUARD_REJECTED", "BACKSTAGE_FIELD", "guardSanitizedBody");
             assertThat(adapter.delegate.sent()).isEmpty();
 
             McpSchema.CallToolResult onboard = client.callTool(

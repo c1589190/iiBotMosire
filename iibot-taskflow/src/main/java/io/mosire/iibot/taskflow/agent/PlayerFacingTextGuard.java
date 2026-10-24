@@ -78,6 +78,32 @@ public final class PlayerFacingTextGuard {
         return List.copyOf(leaks);
     }
 
+    /**
+     * 在未清洗原文上检测后台泄漏类型。
+     *
+     * <p>{@link #remainingBackstageLeaks(String)} 会先 normalize，因此整行被删除后
+     * 可能看不到原始触发词；外部发帖需要“拒绝而不是静默替换”，应使用本方法。</p>
+     */
+    public static List<String> rawBackstageLeaks(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        List<String> leaks = new ArrayList<>();
+        if (BACKSTAGE_WORD.matcher(text).find()) {
+            leaks.add("BACKSTAGE_FIELD");
+        }
+        if (UUID.matcher(text).find()) {
+            leaks.add("INTERNAL_ID");
+        }
+        if (ABSOLUTE_PATH.matcher(text).find()) {
+            leaks.add("FILE_PATH");
+        }
+        if (hasMarkdownStructure(text)) {
+            leaks.add("MARKDOWN");
+        }
+        return List.copyOf(leaks);
+    }
+
     /** 是否包含明显的 Markdown 结构标记。 */
     public static boolean hasMarkdownStructure(String text) {
         if (text == null || text.isBlank()) {

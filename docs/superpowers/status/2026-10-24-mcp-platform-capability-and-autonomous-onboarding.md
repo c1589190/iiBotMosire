@@ -104,23 +104,50 @@ D-017 例外：通过上述策略时，不要求 app 内 Agent 审核或逐次�
   - 只有成功 commit 才唤醒，存储失败不唤醒。
 - 测试：`TicketServiceChangeWaitTest`、`GmTicketBoardToolWaitTest`。
 
+### 1.7 smoke 后问题修复（源码，未部署）
+
+1. `tf_post_compose` 守卫：
+   - 旧行为：整行被守卫删空后使用 fallback，静默替换正文，仅返回 `guardApplied=true`；
+   - 新行为：原文命中后台字段/Markdown 时返回 `TEXT_GUARD_REJECTED`，
+     数据含 `guardViolations` / `guardSanitizedBody`，且零草稿创建；
+   - 新增 `PlayerFacingTextGuard.rawBackstageLeaks`，在 normalize 前检测原始泄漏。
+2. `tf_qq_message_get`：
+   - 根因：NapCat `MessageUniqueWrapper` live cache 有界（默认 5000），`get_msg`
+     先查该缓存；较早消息可能不在缓存；
+   - 新增可选 `chatType/targetId/maxScan` 历史回扫兜底；
+   - live cache 未命中且无 target 返回 `MESSAGE_NOT_IN_LIVE_CACHE`；
+     回扫未找到返回 `MESSAGE_NOT_FOUND_IN_SCAN`。
+3. Connector：
+   - 自定义连接 tools_list/health_check 使用 `connectorId=__custom__` +
+     `connectionKey=custom-iibot`；`iibot` 只是 serverName/展示名。
+
+### 1.8 外发消息最小间隔（D-019）
+
+- `OutboxSender` 增加全局逻辑消息节奏锁；
+- 生产配置 `outbox.minSendIntervalMillis` 默认 150，范围 100..200；
+- ACK、正式回复、公开/私密推文、回合结果、投诉回应、自主入团报名卡统一生效；
+- 等待发生在外部请求前；中断返回发送前失败 `SEND_PACING_INTERRUPTED`；
+- 多线程 ACK/回复共享同一节奏，不并发挤发。
+
 ## 2. 验证证据
 
 ```text
 tools/gate.sh full
 PASS
-604 tests / 0 failures / 0 errors / 0 skipped
-connect 36 / connect-agent 21 / taskflow 251 / app 296
+614 tests / 0 failures / 0 errors / 0 skipped
+connect 36 / connect-agent 21 / taskflow 252 / app 305
 ```
 
 shaded jar：`iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`
-sha256 `36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`
+sha256 `256944e469859f5bf84cb35a7850d5377a277cbbaef4c024a98c6effeeba8d52`
 
 `java -jar ... --help` rc=0。
 
 ## 3. 未验证 / 风险
 
-1. **真实 NapCat smoke NOT_RUN**：没有用新 jar 对真实 QQ 群/私聊执行工具调用。
+1. **最新修复 jar 的真实 smoke NOT_RUN**：真实 smoke 发生在 `36be71e` jar 上；
+   当前修复后 target jar `256944e` 尚未部署，所以守卫报错、消息回扫与出站节奏
+   仍只有自动化测试证据。
 2. **真实自主入团 NOT_RUN**：没有向真实公屏玩家发送报名卡。
 3. **好友列表慢**：本机 `get_friend_list` / `get_friends_with_category` 超过 40 秒未返回；
    `scope=friends/all` 可能返回 partial + `FRIENDS_TIMEOUT`。
@@ -137,11 +164,9 @@ sha256 `36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`
 
 ## 4. 部署状态
 
-- `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar` 已替换为新 jar；
-- 新 jar sha256：`36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`；
-- 旧 jar 备份：`simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261024-222732`；
-- 当前 app 未启动，`127.0.0.1:8765` 空闲；
-- 未发送任何真实 QQ 消息；真实 NapCat/QQ smoke 仍为 `NOT_RUN`。
+- `simulation/dist` jar：已替换为 `256944e469859f5bf84cb35a7850d5377a277cbbaef4c024a98c6effeeba8d52`；
+- 旧 jar 备份：`simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261024-225835`；
+- app 与回环凭据代理当前均已停止；本轮替换了 jar，但未重启进程、未发送真实 QQ 消息。
 
 发布前需按用户协同流程停止旧 app、备份 runtime、替换 jar、重启并做真实只读 smoke；
 自主入团和任意发送的真实外发仍需用户明确目标与验收内容。

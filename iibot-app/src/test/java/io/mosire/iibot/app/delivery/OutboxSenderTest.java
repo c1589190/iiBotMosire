@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -106,6 +107,21 @@ class OutboxSenderTest {
             assertThat(message.temporaryGroupId()).isEqualTo("source-group");
             assertThat(message.textSegments()).containsExactly("报名卡");
         });
+    }
+
+    @Test
+    void minimumSendIntervalSpacesConsecutiveLogicalMessages() {
+        FakeMessagingAdapter adapter = new FakeMessagingAdapter();
+        OutboxSender outbox = new OutboxSender(adapter, Duration.ofSeconds(2),
+                null, Duration.ofMillis(150));
+
+        long start = System.nanoTime();
+        outbox.sendPrivateToUser("qq-p1", List.of("first"), "paced-1");
+        outbox.sendPrivateToUser("qq-p1", List.of("second"), "paced-2");
+        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
+        assertThat(adapter.sent()).hasSize(2);
+        assertThat(elapsedMillis).isGreaterThanOrEqualTo(120L);
     }
 
     @Test

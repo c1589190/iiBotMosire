@@ -35,20 +35,37 @@ public final class OutboxSender {
     private final MessagingAdapter adapter;
     private final Duration sendTimeout;
     private final String privateTempGroupId;
+    private final long minSendIntervalNanos;
+    private final Object paceLock = new Object();
+    private long lastSendStartedNanos = -1L;
 
     public OutboxSender(MessagingAdapter adapter, Duration sendTimeout) {
-        this(adapter, sendTimeout, null);
+        this(adapter, sendTimeout, null, Duration.ZERO);
     }
 
     public OutboxSender(MessagingAdapter adapter, Duration sendTimeout,
                         String privateTempGroupId) {
+        this(adapter, sendTimeout, privateTempGroupId, Duration.ZERO);
+    }
+
+    /**
+     * @param minSendInterval 两条逻辑消息之间的最小间隔；生产默认 150ms，
+     *                        测试可用 ZERO 关闭
+     */
+    public OutboxSender(MessagingAdapter adapter, Duration sendTimeout,
+                        String privateTempGroupId, Duration minSendInterval) {
         this.adapter = Objects.requireNonNull(adapter, "adapter");
         this.sendTimeout = Objects.requireNonNull(sendTimeout, "sendTimeout");
         this.privateTempGroupId = privateTempGroupId == null || privateTempGroupId.isBlank()
                 ? null : privateTempGroupId;
+        Objects.requireNonNull(minSendInterval, "minSendInterval");
         if (sendTimeout.isZero() || sendTimeout.isNegative()) {
             throw new IllegalArgumentException("sendTimeout 必须为正");
         }
+        if (minSendInterval.isNegative()) {
+            throw new IllegalArgumentException("minSendInterval 不能为负");
+        }
+        this.minSendIntervalNanos = minSendInterval.toNanos();
     }
 
     private OutboundMessage privateOutbound(String userId, String text, String key) {
@@ -176,7 +193,45 @@ public final class OutboxSender {
         return List.copyOf(outcomes);
     }
 
+    /**
+     * 全局出站节奏：同一宿主的所有逻辑消息至少间隔 minSendInterval。
+     * ACK 与正式回复来自不同线程，也必须共享同一个节奏锁。
+     */
+    private void awaitSendInterval() throws PacingInterruptedException {
+        if (minSendIntervalNanos <= 0L) {
+            return;
+        }
+        synchronized (paceLock) {
+            long now = System.nanoTime();
+            if (lastSendStartedNanos >= 0L) {
+                long earliest = lastSendStartedNanos + minSendIntervalNanos;
+                long remaining = earliest - now;
+                if (remaining > 0L) {
+                    try {
+                        long millis = remaining / 1_000_000L;
+                        int nanos = (int) (remaining % 1_000_000L);
+                        Thread.sleep(millis, nanos);
+                    } catch (InterruptedException interrupted) {
+                        throw new PacingInterruptedException();
+                    }
+                }
+            }
+            lastSendStartedNanos = System.nanoTime();
+        }
+    }
+
     private SendOutcome send(int index, String idempotencyKey, OutboundMessage outbound) {
+        try {
+            awaitSendInterval();
+        } catch (PacingInterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            SendOutcome outcome = new SendOutcome(index, idempotencyKey,
+                    SendReceipt.State.FAILED_BEFORE_SEND, List.of(),
+                    "SEND_PACING_INTERRUPTED",
+                    "发送节奏等待被中断；请求尚未发出");
+            log(outcome);
+            return outcome;
+        }
         try {
             SendReceipt receipt = adapter.send(outbound).toCompletableFuture()
                     .get(sendTimeout.toMillis(), TimeUnit.MILLISECONDS);
@@ -217,6 +272,10 @@ public final class OutboxSender {
             log(outcome);
             return outcome;
         }
+    }
+
+    private static final class PacingInterruptedException extends Exception {
+        private static final long serialVersionUID = 1L;
     }
 
     private static void log(SendOutcome outcome) {

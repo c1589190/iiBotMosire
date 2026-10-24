@@ -33,6 +33,7 @@
 | `D-016` | 秘书 system prompt 保持最小；详细规则放 AGENTS.md/Skill | 有效；已实现、待真实 playtest | 需求原稿 §5.5；[运行时架构](specs/2026-10-24-player-experience-runtime-architecture.md) |
 | `D-017` | connectlib 平台级 QQ 能力 + 受控自主入团 | 已实现代码与测试；未部署/未真实 smoke | 需求原稿 §5.6；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
 | `D-018` | 工单板 wait 长轮询，第一条新信息到达前保持调用 | 已实现代码与测试；未部署/未真实 DSH smoke | 需求原稿 §5.7；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
+| `D-019` | 所有外发逻辑消息共享 100–200ms 最小间隔 | 已实现代码与测试；运行中旧 jar 未替换 | 需求原稿 §5.8；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
 
 ## 三、专题设计索引
 

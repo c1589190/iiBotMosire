@@ -59,6 +59,32 @@ class InboundDispatcherAckTest {
     }
 
     @Test
+    void ackAndFormalReplyAreSpacedByMinimumSendInterval() {
+        List<Long> sendTimes = new ArrayList<>();
+        FakeMessagingAdapter adapter = new FakeMessagingAdapter(message -> {
+            sendTimes.add(System.nanoTime());
+            return CompletableFuture.completedFuture(SendReceipt.sent(List.of("ok")));
+        });
+        InboundDispatcher dispatcher = new InboundDispatcher(
+                message -> List.of(new InteractionReply("正式回复")),
+                new OutboxSender(adapter, Duration.ofSeconds(2), null,
+                        Duration.ofMillis(150)),
+                TWO_ACCOUNT_POLICY, 64, 32, 1_000);
+        try {
+            assertThat(dispatcher.submit(TestSupport.privateMessage(
+                    "qq-player", "原始消息", "dedupe-paced"))).isTrue();
+            assertThat(dispatcher.awaitIdle(Duration.ofSeconds(3))).isTrue();
+
+            assertThat(sendTimes).hasSize(2);
+            long deltaMillis = TimeUnit.NANOSECONDS.toMillis(
+                    sendTimes.get(1) - sendTimes.get(0));
+            assertThat(deltaMillis).isGreaterThanOrEqualTo(120L);
+        } finally {
+            dispatcher.close();
+        }
+    }
+
+    @Test
     void registeredDirectorPrivateUsesGmAck() {
         FakeMessagingAdapter adapter = new FakeMessagingAdapter();
         InboundDispatcher dispatcher = dispatcher(message -> List.of(new InteractionReply("GM reply")),

@@ -9,6 +9,9 @@ import io.mosire.iibot.taskflow.post.PostCommandResult;
 import io.mosire.iibot.taskflow.post.PostService;
 import io.mosire.iibot.taskflow.post.PostVisibility;
 
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Predicate;
 
@@ -25,6 +28,7 @@ public final class ExternalPostService {
     public static final String POST_CREATE_FAILED = "POST_CREATE_FAILED";
     public static final String POST_APPROVE_FAILED = "POST_APPROVE_FAILED";
     public static final String POST_PUBLISH_FAILED = "POST_PUBLISH_FAILED";
+    public static final String TEXT_GUARD_REJECTED = "TEXT_GUARD_REJECTED";
 
     private final PostService postService;
     private final Predicate<String> playerExists;
@@ -34,9 +38,12 @@ public final class ExternalPostService {
         this.playerExists = Objects.requireNonNull(playerExists, "playerExists");
     }
 
-    public record Result(Post post, boolean guardApplied, boolean publishNow) {
+    public record Result(Post post, boolean guardApplied, boolean publishNow,
+                         String sanitizedBody, List<String> guardViolations) {
         public Result {
             Objects.requireNonNull(post, "post");
+            sanitizedBody = sanitizedBody == null ? "" : sanitizedBody;
+            guardViolations = guardViolations == null ? List.of() : List.copyOf(guardViolations);
         }
     }
 
@@ -76,6 +83,17 @@ public final class ExternalPostService {
                 ? PlayerFacingTextGuard.normalizeForPost(body)
                 : PlayerFacingTextGuard.normalizeForChat(body);
         boolean guardApplied = !guarded.equals(body);
+        List<String> guardViolations = PlayerFacingTextGuard.rawBackstageLeaks(body);
+        if (!guardViolations.isEmpty()) {
+            Map<String, Object> guardData = new LinkedHashMap<>();
+            guardData.put("guardApplied", true);
+            guardData.put("guardViolations", guardViolations);
+            guardData.put("guardSanitizedBody", guarded);
+            guardData.put("hint", "正文含玩家不可见的后台字段/Markdown；"
+                    + "未创建草稿，请清理后重试");
+            throw new ExternalPostException(TEXT_GUARD_REJECTED,
+                    "正文触发玩家可见文本守卫，已拒绝创建草稿", guardData);
+        }
         String digest = Hashes.sha256("external-post:" + idempotencyKey);
         String createKey = "external-post:" + digest + ":create";
         String approveKey = "external-post:" + digest + ":approve";
@@ -86,7 +104,7 @@ public final class ExternalPostService {
         String postId = requirePostId(created, POST_CREATE_FAILED, "创建草稿失败");
         Post post = current(postId);
         if (!publishNow) {
-            return new Result(post, guardApplied, false);
+            return new Result(post, guardApplied, false, guarded, guardViolations);
         }
 
         // 外部发帖的三段键固定对应同一 post 的 revision 1→2→3。
@@ -98,7 +116,7 @@ public final class ExternalPostService {
         PostCommandResult published = postService.publish(
                 supervisor, postId, 2L, publishKey);
         requireOk(published, POST_PUBLISH_FAILED, "发布推文失败");
-        return new Result(current(postId), guardApplied, true);
+        return new Result(current(postId), guardApplied, true, guarded, guardViolations);
     }
 
     private Post current(String postId) {
@@ -135,13 +153,25 @@ public final class ExternalPostService {
         private static final long serialVersionUID = 1L;
         private final String code;
 
+        private final Map<String, Object> data;
+
         public ExternalPostException(String code, String message) {
+            this(code, message, Map.of());
+        }
+
+        public ExternalPostException(String code, String message,
+                                     Map<String, Object> data) {
             super(message);
             this.code = code;
+            this.data = data == null ? Map.of() : Map.copyOf(data);
         }
 
         public String code() {
             return code;
+        }
+
+        public Map<String, Object> data() {
+            return data;
         }
     }
 }

@@ -257,16 +257,25 @@ public record AppConfig(
         }
     }
 
-    /** 发送等待上限；超时进入 UNKNOWN，绝不自动重发。 */
-    public record Outbox(int sendTimeoutSeconds) {
+    /**
+     * 出站节奏与等待上限。
+     *
+     * @param sendTimeoutSeconds 单条逻辑消息等待回执上限
+     * @param minSendIntervalMillis 两条逻辑消息之间的最小间隔；生产范围 100..200ms
+     */
+    public record Outbox(int sendTimeoutSeconds, int minSendIntervalMillis) {
         public Outbox {
             if (sendTimeoutSeconds <= 0) {
                 throw new ConfigException("outbox.sendTimeoutSeconds 必须为正整数");
             }
+            if (minSendIntervalMillis < 100 || minSendIntervalMillis > 200) {
+                throw new ConfigException(
+                        "outbox.minSendIntervalMillis 必须在 100..200 之间");
+            }
         }
 
         public static Outbox defaults() {
-            return new Outbox(15);
+            return new Outbox(15, 150);
         }
     }
 

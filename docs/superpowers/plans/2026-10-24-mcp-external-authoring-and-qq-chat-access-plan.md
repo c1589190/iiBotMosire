@@ -816,13 +816,13 @@ bearer token
 验证：
 
 - `tools/gate.sh full` **PASS**；
-- 全仓 **604 tests / 0 failures / 0 errors / 0 skipped**
-  （connect 36、connect-agent 21、taskflow 251、app 296）；
-- shaded jar 成功：`iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`
-  sha256 `36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`；
-- 真实 NapCat/QQ 读取与外发 smoke **NOT_RUN**；
-- `simulation/dist` jar 已替换为新 jar，sha256 `36be71e69743e89e6c94285613409c8ada55a53a27c2c8777bcb9b3dd66374e8`；旧 jar 已备份；
-- app 未启动；未发送任何真实 QQ 消息。
+- 修复后全仓 **614 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 36、connect-agent 21、taskflow 252、app 305）；
+- 修复后 shaded jar：`iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`
+  sha256 `256944e469859f5bf84cb35a7850d5377a277cbbaef4c024a98c6effeeba8d52`；
+- 真实 smoke 已在早先 `36be71e` jar 上跑过；最新修复 jar 尚未部署/真实 smoke；
+- `simulation/dist` 仍保留 `36be71e` smoke jar，新 target jar 未替换；
+- 未发送任何真实 QQ 消息。
 
 ## 14. D-018 追加：工单板长轮询
 
@@ -854,3 +854,41 @@ bearer token
 - 真实 DSH MCP client 的请求超时是否大于 300 秒；若客户端先超时，需要降低
   `waitSeconds` 或调整 DSH MCP client 超时；
 - app 关闭/重启时的进行中长轮询取消语义尚未做真实进程级 smoke。
+
+## 15. smoke 后修复（2026-10-24）
+
+真实 MCP/DSH smoke 暴露三项问题，源码已修复：
+
+1. `tf_post_compose` 守卫不再静默 fallback：
+   - `TEXT_GUARD_REJECTED`；
+   - 返回 `guardViolations` + `guardSanitizedBody`；
+   - 零草稿创建。
+2. `tf_qq_message_get` 增加历史回扫兜底：
+   - 根因是 NapCat `MessageUnique` 有界缓存（5000）；
+   - `chatType/targetId/maxScan` 可回扫历史；
+   - 稳定错误码 `MESSAGE_NOT_IN_LIVE_CACHE` / `MESSAGE_NOT_FOUND_IN_SCAN`。
+3. Connector 自定义连接使用 `connectorId=__custom__`，
+   `connectionKey=custom-iibot`；serverName `iibot` 不是 connectorId。
+
+修复后 full gate：614 tests / 0 failures / 0 errors / 0 skipped。
+新 target jar sha256 `256944e469859f5bf84cb35a7850d5377a277cbbaef4c024a98c6effeeba8d52`，**未替换 simulation/dist**。
+
+## 16. D-019 外发节奏
+
+用户要求所有外发消息不能挤着发，尤其是 ACK 与正式回复。
+
+已实现：
+
+- `OutboxSender` 增加全局最小发送间隔锁；
+- 生产配置 `outbox.minSendIntervalMillis`，默认 150，范围 100..200；
+- ACK、正式回复、公开/私密推文、回合结果、投诉回应、入团报名卡均经同一出口；
+- 等待发生在外部请求前；中断返回 `SEND_PACING_INTERRUPTED`（发送前失败）；
+- 多线程 ACK/回复也共享同一节奏锁。
+
+测试：
+
+- `OutboxSenderTest` 验证两条逻辑消息至少间隔约 150ms；
+- `InboundDispatcherAckTest` 验证 ACK 与正式回复之间至少间隔约 150ms；
+- `AppConfigTest` 验证默认 150ms 与自定义 120ms。
+
+未部署：运行中的 simulation/dist 旧 jar 尚未替换。

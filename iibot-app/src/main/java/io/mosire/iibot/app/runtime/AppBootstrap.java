@@ -345,7 +345,8 @@ public final class AppBootstrap {
                     playerId -> controlBootstrapService.qqForPlayer(playerId).isPresent());
             OutboxSender outbox = new OutboxSender(adapter,
                     Duration.ofSeconds(config.outbox().sendTimeoutSeconds()),
-                    config.napcat().privateTempGroupId().orElse(null));
+                    config.napcat().privateTempGroupId().orElse(null),
+                    Duration.ofMillis(config.outbox().minSendIntervalMillis()));
             PlayerOnboardingService playerOnboardingService =
                     qqPlatformCapability == null ? null : new PlayerOnboardingService(
                             qqPlatformCapability, controlBootstrapService, outbox,

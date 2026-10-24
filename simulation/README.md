@@ -48,6 +48,8 @@ simulation/
 - 当前 `8765` 没有被旧 app 占用。
 - 若目标玩家与 Bot 不是好友，可设置 `napcat.privateTempGroupId` 为双方共同群；
   NapCat 会通过 `send_private_msg {user_id, group_id}` 走群临时会话。
+- `outbox.minSendIntervalMillis` 默认 150ms，生产范围 100..200ms；所有逻辑外发消息
+  （含 ACK 与正式回复）共用同一个节奏锁，避免连续消息挤在一起。
 
 检查：
 
@@ -180,8 +182,8 @@ tf_qq_chat_list          # 默认 configured=当前推演群；可展开 recent/
 tf_ticket_board          # wait=true 时长轮询到第一条工单/板面变更或超时
 tf_qq_history_read       # 省略目标默认当前群；可查任意 Bot 可访问私聊/群
 tf_qq_group_members      # 群成员
-tf_qq_message_get        # 按消息 ID 取一条消息，用于核验入团来源
-tf_post_compose          # 外部控制方自由撰写推文；DRAFT 或 PUBLISH_NOW
+tf_qq_message_get        # 按消息 ID 取消息；可带 target 回扫 live cache 未命中的旧消息，用于核验入团来源
+tf_post_compose          # 外部控制方自由撰写推文；DRAFT 或 PUBLISH_NOW；守卫拒绝时明确报错
 tf_player_onboard_from_group  # 来源消息校验后自主注册、绑定秘书、发报名卡
 ```
 
