@@ -51,6 +51,12 @@ public record ActionBatch(
                 createdAt, nextStatus, nextResult);
     }
 
+    /** 绑定执行该批次的 engine turnId；null 表示执行时没有当前回合。 */
+    public ActionBatch withTurnId(String nextTurnId) {
+        return new ActionBatch(batchId, packageId, nextTurnId, actionIds, texts, playerIds,
+                createdAt, status, result);
+    }
+
     public ActionBatch committed(String summary) {
         return withStatus(ActionBatchStatus.COMMITTED, summary);
     }

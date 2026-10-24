@@ -20,12 +20,17 @@ public record PostSnapshot(
         List<Post> posts,
         Map<String, Long> collectionRevisions,
         Map<String, PostCommandResult> idempotentResults,
+        Map<String, String> idempotencyFingerprints,
+        Map<String, String> idempotencyRequestMetadata,
         List<PostAuditEntry> auditLog) {
 
     public PostSnapshot {
         posts = posts == null ? List.of() : List.copyOf(posts);
         collectionRevisions = immutableLinkedMap(collectionRevisions);
         idempotentResults = immutableLinkedMap(idempotentResults);
+        // 旧 posts.json / 旧事件没有指纹/元数据字段；Jackson 传 null 时保持可读。
+        idempotencyFingerprints = immutableLinkedMap(idempotencyFingerprints);
+        idempotencyRequestMetadata = immutableLinkedMap(idempotencyRequestMetadata);
         auditLog = auditLog == null ? List.of() : List.copyOf(auditLog);
         Set<String> ids = new LinkedHashSet<>();
         for (Post post : posts) {
@@ -44,10 +49,38 @@ public record PostSnapshot(
                 throw new IllegalArgumentException("非法 idempotentResults 条目");
             }
         }
+        for (Map.Entry<String, String> entry : idempotencyFingerprints.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isBlank()
+                    || entry.getValue() == null || entry.getValue().isBlank()) {
+                throw new IllegalArgumentException("非法 idempotencyFingerprints 条目");
+            }
+        }
+        for (Map.Entry<String, String> entry : idempotencyRequestMetadata.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isBlank()
+                    || entry.getValue() == null || entry.getValue().isBlank()) {
+                throw new IllegalArgumentException("非法 idempotencyRequestMetadata 条目");
+            }
+        }
+    }
+
+    /** 向后兼容 P6-B3 中间快照；没有 typed request metadata。 */
+    public PostSnapshot(List<Post> posts, Map<String, Long> collectionRevisions,
+                        Map<String, PostCommandResult> idempotentResults,
+                        Map<String, String> idempotencyFingerprints,
+                        List<PostAuditEntry> auditLog) {
+        this(posts, collectionRevisions, idempotentResults, idempotencyFingerprints,
+                Map.of(), auditLog);
+    }
+
+    /** 向后兼容 P6-B3 之前的四参数快照；旧数据没有 fingerprint。 */
+    public PostSnapshot(List<Post> posts, Map<String, Long> collectionRevisions,
+                        Map<String, PostCommandResult> idempotentResults,
+                        List<PostAuditEntry> auditLog) {
+        this(posts, collectionRevisions, idempotentResults, Map.of(), Map.of(), auditLog);
     }
 
     public static PostSnapshot empty() {
-        return new PostSnapshot(List.of(), Map.of(), Map.of(), List.of());
+        return new PostSnapshot(List.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of());
     }
 
     public Optional<Post> findPost(String postId) {
@@ -86,7 +119,8 @@ public record PostSnapshot(
         if (!replaced) {
             next.add(post);
         }
-        return new PostSnapshot(next, collectionRevisions, idempotentResults, auditLog);
+        return new PostSnapshot(next, collectionRevisions, idempotentResults,
+                idempotencyFingerprints, idempotencyRequestMetadata, auditLog);
     }
 
     public PostSnapshot withCollectionRevision(String playerId, long revision) {
@@ -95,7 +129,8 @@ public record PostSnapshot(
         }
         Map<String, Long> next = new LinkedHashMap<>(collectionRevisions);
         next.put(playerId, revision);
-        return new PostSnapshot(posts, next, idempotentResults, auditLog);
+        return new PostSnapshot(posts, next, idempotentResults,
+                idempotencyFingerprints, idempotencyRequestMetadata, auditLog);
     }
 
     public PostSnapshot withIdempotentResult(String idempotencyKey, PostCommandResult result) {
@@ -105,7 +140,34 @@ public record PostSnapshot(
         Objects.requireNonNull(result, "result");
         Map<String, PostCommandResult> next = new LinkedHashMap<>(idempotentResults);
         next.put(idempotencyKey, result);
-        return new PostSnapshot(posts, collectionRevisions, next, auditLog);
+        return new PostSnapshot(posts, collectionRevisions, next,
+                idempotencyFingerprints, idempotencyRequestMetadata, auditLog);
+    }
+
+    public PostSnapshot withIdempotencyFingerprint(String idempotencyKey, String fingerprint) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("idempotencyKey 不能为空");
+        }
+        if (fingerprint == null || fingerprint.isBlank()) {
+            throw new IllegalArgumentException("idempotencyFingerprint 不能为空");
+        }
+        Map<String, String> next = new LinkedHashMap<>(idempotencyFingerprints);
+        next.put(idempotencyKey, fingerprint);
+        return new PostSnapshot(posts, collectionRevisions, idempotentResults, next,
+                idempotencyRequestMetadata, auditLog);
+    }
+
+    public PostSnapshot withIdempotencyRequestMetadata(String idempotencyKey, String metadata) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("idempotencyKey 不能为空");
+        }
+        if (metadata == null || metadata.isBlank()) {
+            throw new IllegalArgumentException("idempotencyRequestMetadata 不能为空");
+        }
+        Map<String, String> next = new LinkedHashMap<>(idempotencyRequestMetadata);
+        next.put(idempotencyKey, metadata);
+        return new PostSnapshot(posts, collectionRevisions, idempotentResults,
+                idempotencyFingerprints, next, auditLog);
     }
 
     public PostSnapshot withAuditEntry(PostAuditEntry entry) {
@@ -113,7 +175,8 @@ public record PostSnapshot(
         List<PostAuditEntry> next = new ArrayList<>(auditLog.size() + 1);
         next.addAll(auditLog);
         next.add(entry);
-        return new PostSnapshot(posts, collectionRevisions, idempotentResults, next);
+        return new PostSnapshot(posts, collectionRevisions, idempotentResults,
+                idempotencyFingerprints, idempotencyRequestMetadata, next);
     }
 
     private static <V> Map<String, V> immutableLinkedMap(Map<String, V> input) {

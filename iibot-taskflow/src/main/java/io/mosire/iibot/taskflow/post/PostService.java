@@ -44,6 +44,7 @@ public final class PostService {
     public static final String INVALID_STATUS = "INVALID_STATUS";
     public static final String POST_NOT_PUBLISHED = "POST_NOT_PUBLISHED";
     public static final String DELIVERY_STATE_CONFLICT = "DELIVERY_STATE_CONFLICT";
+    public static final String IDEMPOTENCY_KEY_CONFLICT = "IDEMPOTENCY_KEY_CONFLICT";
     public static final String STORE_UNAVAILABLE = "STORE_UNAVAILABLE";
 
     public static final int MAX_TITLE_LENGTH = 200;
@@ -55,6 +56,8 @@ public final class PostService {
             Comparator.comparing(Post::createdAt).thenComparing(Post::postId);
 
     private static final String DELIVERY_ACTOR = "system:post-delivery";
+    private static final String PUBLICATION_DRAFT_METADATA_PREFIX = "PUBLICATION_DRAFT|";
+    public static final String SYSTEM_PUBLICATION_AUTHOR = "system:publication";
 
     private final PostStore store;
     private final Clock clock;
@@ -88,10 +91,6 @@ public final class PostService {
         if (keyFailure != null) {
             return keyFailure;
         }
-        PostCommandResult duplicate = state.idempotentResults().get(idempotencyKey);
-        if (duplicate != null) {
-            return duplicate;
-        }
         if (secretaryPlayer == null || secretaryPlayer.role() != ActorRole.PLAYER) {
             return failure(FORBIDDEN, "只有玩家秘书可以创建自己的推文草稿", null, 0);
         }
@@ -113,6 +112,13 @@ public final class PostService {
         if (visibility == null) {
             return failure(INVALID_ARGUMENT, "visibility 不能为空", null, 0);
         }
+        String fingerprint = fingerprint("CREATE_DRAFT_V1",
+                secretaryPlayer.actorId(), secretaryPlayer.role().name(), expectedRevision,
+                visibility.name(), title, body, PostStatus.PENDING_APPROVAL.name());
+        PostCommandResult duplicate = replayIdempotent(idempotencyKey, fingerprint);
+        if (duplicate != null) {
+            return duplicate;
+        }
 
         long currentCollectionRevision = state.collectionRevision(secretaryPlayer.actorId());
         if (expectedRevision != currentCollectionRevision) {
@@ -130,6 +136,7 @@ public final class PostService {
                 .withPost(post)
                 .withCollectionRevision(secretaryPlayer.actorId(), currentCollectionRevision + 1)
                 .withIdempotentResult(idempotencyKey, result)
+                .withIdempotencyFingerprint(idempotencyKey, fingerprint)
                 .withAuditEntry(new PostAuditEntry(PostAuditAction.CREATE, postId,
                         secretaryPlayer.actorId(), null, PostStatus.PENDING_APPROVAL,
                         post.revision(), "visibility=" + visibility, now));
@@ -147,6 +154,140 @@ public final class PostService {
         return commit(next, result, event);
     }
 
+    /**
+     * GM 侧发布编排专用草稿创建：PUBLIC 可使用 {@code system:publication} 作者，
+     * PRIVATE 的作者必须是收件玩家。创建后固定进入 PENDING_APPROVAL，不发送任何消息。
+     *
+     * <p>PUBLIC 作者必须固定为 {@link #SYSTEM_PUBLICATION_AUTHOR}；PRIVATE 的作者是收件
+     * playerId 且拒绝 system 作者。该领域服务不持有 ActionBatch，批次 playerIds 子集与
+     * recipient 绑定由上层 {@code PublicationOrchestrator} 在生成时强制校验。</p>
+     *
+     * <p>幂等键与普通草稿共享同一快照命名空间；同 key 只有同 actor 的完全相同请求可
+     * replay，具体由 fingerprint 校验。事件 content 是完整 PostSnapshot，summary 不含正文。</p>
+     */
+    public synchronized PostCommandResult createPublicationDraft(
+            Actor gm, String authorPlayerId, PostVisibility visibility,
+            String title, String body, String idempotencyKey) {
+        PostCommandResult keyFailure = validateIdempotencyKey(idempotencyKey);
+        if (keyFailure != null) {
+            return keyFailure;
+        }
+        if (!isGmSide(gm)) {
+            return failure(FORBIDDEN,
+                    "只有 GM/DIRECTOR/SUPERVISOR 可以创建发布草稿", null, 0);
+        }
+        if (authorPlayerId == null || authorPlayerId.isBlank()) {
+            return failure(INVALID_ARGUMENT, "authorPlayerId 不能为空", null, 0);
+        }
+        if (visibility == null) {
+            return failure(INVALID_ARGUMENT, "visibility 不能为空", null, 0);
+        }
+        if (visibility == PostVisibility.PUBLIC
+                && !SYSTEM_PUBLICATION_AUTHOR.equals(authorPlayerId)) {
+            return failure(INVALID_ARGUMENT,
+                    "PUBLIC 发布草稿作者必须是 " + SYSTEM_PUBLICATION_AUTHOR, null, 0);
+        }
+        if (visibility == PostVisibility.PRIVATE
+                && authorPlayerId.startsWith("system:")) {
+            return failure(INVALID_ARGUMENT,
+                    "PRIVATE 发布草稿的作者必须是收件玩家", null, 0);
+        }
+        if (title == null || title.isBlank()) {
+            return failure(INVALID_ARGUMENT, "title 不能为空白", null, 0);
+        }
+        if (title.length() > MAX_TITLE_LENGTH) {
+            return failure(INVALID_ARGUMENT, "title 超过长度限制", null, 0);
+        }
+        if (body == null || body.isBlank()) {
+            return failure(INVALID_ARGUMENT, "body 不能为空白", null, 0);
+        }
+        if (body.length() > MAX_BODY_LENGTH) {
+            return failure(INVALID_ARGUMENT, "body 超过长度限制", null, 0);
+        }
+        String fingerprint = fingerprint("CREATE_PUBLICATION_DRAFT_V1",
+                gm.actorId(), gm.role().name(), authorPlayerId, visibility.name(),
+                title, body, PostStatus.PENDING_APPROVAL.name());
+        String requestMetadata = publicationDraftMetadata(
+                gm, authorPlayerId, visibility, title);
+        PostCommandResult duplicate = replayIdempotent(idempotencyKey, fingerprint);
+        if (duplicate != null) {
+            return duplicate;
+        }
+
+        Instant now = clock.instant();
+        String postId = UUID.randomUUID().toString();
+        Post post = new Post(postId, authorPlayerId, visibility, title, body,
+                PostStatus.PENDING_APPROVAL, 1L, now, now, null, null, null);
+        PostCommandResult result = PostCommandResult.success(postId, post.revision());
+        long collectionRevision = state.collectionRevision(authorPlayerId) + 1;
+        PostSnapshot next = state
+                .withPost(post)
+                .withCollectionRevision(authorPlayerId, collectionRevision)
+                .withIdempotentResult(idempotencyKey, result)
+                .withIdempotencyFingerprint(idempotencyKey, fingerprint)
+                .withIdempotencyRequestMetadata(idempotencyKey, requestMetadata)
+                .withAuditEntry(new PostAuditEntry(PostAuditAction.CREATE, postId,
+                        gm.actorId(), null, PostStatus.PENDING_APPROVAL,
+                        post.revision(), "publication visibility=" + visibility, now));
+        DomainEvent event = new DomainEvent(now, DomainEventTypes.POST_DRAFTED,
+                gm.role(), gm.actorId(), postId, null,
+                eventVisibility(post), next, Map.of(
+                "postId", post.postId(),
+                "authorPlayerId", post.authorPlayerId(),
+                "status", post.status().name(),
+                "revision", post.revision(),
+                "visibility", post.visibility().name(),
+                "idempotencyKeyHash", Hashes.sha256(idempotencyKey),
+                "collectionRevision", collectionRevision,
+                "publicationDraft", true,
+                "postCount", next.size()));
+        return commit(next, result, event);
+    }
+
+    /** 按幂等键读取首次成功回执；不存在/尚未成功时为空。 */
+    public synchronized Optional<PostCommandResult> idempotentResult(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(state.idempotentResults().get(idempotencyKey));
+    }
+
+    /**
+     * 受控的 publication-draft 复用查询：仅当 key 的成功 fingerprint 属于
+     * PUBLICATION_DRAFT，且 GM actor/author/visibility/title 完全匹配时返回既有 post。
+     * 正文不参与匹配，因此 LLM 重试文本变化时仍可复用首次持久化 body。
+     *
+     * <p>该查询只服务 {@code PublicationOrchestrator} 的重试恢复；其他命令占用同一
+     * key、缺少 typed metadata、权限或字段不匹配时返回 empty，随后 create 路径会以
+     * IDEMPOTENCY_KEY_CONFLICT fail-closed。</p>
+     */
+    public synchronized Optional<Post> findPublicationDraftForReuse(
+            Actor gm, String idempotencyKey, String authorPlayerId,
+            PostVisibility visibility, String deterministicTitle) {
+        if (!isGmSide(gm) || idempotencyKey == null || idempotencyKey.isBlank()
+                || authorPlayerId == null || authorPlayerId.isBlank()
+                || visibility == null || deterministicTitle == null
+                || deterministicTitle.isBlank()) {
+            return Optional.empty();
+        }
+        PostCommandResult result = state.idempotentResults().get(idempotencyKey);
+        if (result == null || !result.ok() || result.postId() == null) {
+            return Optional.empty();
+        }
+        String storedFingerprint = state.idempotencyFingerprints().get(idempotencyKey);
+        String storedMetadata = state.idempotencyRequestMetadata().get(idempotencyKey);
+        String expectedMetadata = publicationDraftMetadata(
+                gm, authorPlayerId, visibility, deterministicTitle);
+        if (storedFingerprint == null || storedMetadata == null
+                || !storedMetadata.equals(expectedMetadata)) {
+            return Optional.empty();
+        }
+        return state.findPost(result.postId())
+                .filter(post -> post.visibility() == visibility)
+                .filter(post -> post.authorPlayerId().equals(authorPlayerId))
+                .filter(post -> post.title().equals(deterministicTitle));
+    }
+
     /** PENDING_APPROVAL → APPROVED；DIRECTOR/GM/SUPERVISOR 才可执行。 */
     public synchronized PostCommandResult approve(Actor gm, String postId, long expectedRevision,
                                                    String idempotencyKey) {
@@ -157,20 +298,6 @@ public final class PostService {
     /** PENDING_APPROVAL → REJECTED；原因只写审计摘要，不写正文。 */
     public synchronized PostCommandResult reject(Actor gm, String postId, long expectedRevision,
                                                   String idempotencyKey, String reason) {
-        PostCommandResult keyFailure = validateIdempotencyKey(idempotencyKey);
-        if (keyFailure != null) {
-            return keyFailure;
-        }
-        PostCommandResult duplicate = state.idempotentResults().get(idempotencyKey);
-        if (duplicate != null) {
-            return duplicate;
-        }
-        if (reason == null || reason.isBlank()) {
-            return failure(INVALID_ARGUMENT, "拒绝原因不能为空白", null, 0);
-        }
-        if (reason.length() > MAX_REJECTION_REASON_LENGTH) {
-            return failure(INVALID_ARGUMENT, "拒绝原因超过长度限制", null, 0);
-        }
         return review(gm, postId, expectedRevision, idempotencyKey, PostAuditAction.REJECT,
                 PostStatus.REJECTED, reason);
     }
@@ -182,19 +309,25 @@ public final class PostService {
         if (keyFailure != null) {
             return keyFailure;
         }
-        PostCommandResult duplicate = state.idempotentResults().get(idempotencyKey);
-        if (duplicate != null) {
-            return duplicate;
-        }
         if (!isGmSide(gm)) {
             return failure(FORBIDDEN, "只有 GM/DIRECTOR/SUPERVISOR 可以发布推文", postId, 0);
         }
         if (postId == null || postId.isBlank()) {
             return failure(INVALID_ARGUMENT, "postId 不能为空", null, 0);
         }
+        if (expectedRevision < 0) {
+            return failure(INVALID_ARGUMENT, "expectedRevision 不能为负", postId, 0);
+        }
         Post post = state.findPost(postId).orElse(null);
         if (post == null) {
             return failure(POST_NOT_FOUND, "推文不存在", postId, 0);
+        }
+        String fingerprint = fingerprint("PUBLISH_V1", gm.actorId(), gm.role().name(),
+                postId, expectedRevision, PostStatus.PUBLISHED.name(),
+                DeliveryState.PENDING.name());
+        PostCommandResult duplicate = replayIdempotent(idempotencyKey, fingerprint);
+        if (duplicate != null) {
+            return duplicate;
         }
         if (expectedRevision != post.revision()) {
             return failure(REVISION_CONFLICT, "推文版本已变化，请刷新后重试",
@@ -214,6 +347,7 @@ public final class PostService {
                 .withPost(updated)
                 .withCollectionRevision(post.authorPlayerId(), collectionRevision)
                 .withIdempotentResult(idempotencyKey, result)
+                .withIdempotencyFingerprint(idempotencyKey, fingerprint)
                 .withAuditEntry(new PostAuditEntry(PostAuditAction.PUBLISH, postId, gm.actorId(),
                         PostStatus.APPROVED, PostStatus.PUBLISHED, updated.revision(),
                         "published", now));
@@ -367,19 +501,34 @@ public final class PostService {
         if (keyFailure != null) {
             return keyFailure;
         }
-        PostCommandResult duplicate = state.idempotentResults().get(idempotencyKey);
-        if (duplicate != null) {
-            return duplicate;
-        }
         if (!isGmSide(gm)) {
             return failure(FORBIDDEN, "只有 GM/DIRECTOR/SUPERVISOR 可以审核推文", postId, 0);
         }
         if (postId == null || postId.isBlank()) {
             return failure(INVALID_ARGUMENT, "postId 不能为空", null, 0);
         }
+        if (expectedRevision < 0) {
+            return failure(INVALID_ARGUMENT, "expectedRevision 不能为负", postId, 0);
+        }
+        if (action == PostAuditAction.REJECT) {
+            if (summary == null || summary.isBlank()) {
+                return failure(INVALID_ARGUMENT, "拒绝原因不能为空白", postId, 0);
+            }
+            if (summary.length() > MAX_REJECTION_REASON_LENGTH) {
+                return failure(INVALID_ARGUMENT, "拒绝原因超过长度限制", postId, 0);
+            }
+        }
         Post post = state.findPost(postId).orElse(null);
         if (post == null) {
             return failure(POST_NOT_FOUND, "推文不存在", postId, 0);
+        }
+        String fingerprint = fingerprint(
+                action == PostAuditAction.APPROVE ? "APPROVE_POST_V1" : "REJECT_POST_V1",
+                gm.actorId(), gm.role().name(), postId, expectedRevision,
+                targetStatus.name(), summary == null ? "" : summary);
+        PostCommandResult duplicate = replayIdempotent(idempotencyKey, fingerprint);
+        if (duplicate != null) {
+            return duplicate;
         }
         if (expectedRevision != post.revision()) {
             return failure(REVISION_CONFLICT, "推文版本已变化，请刷新后重试",
@@ -402,6 +551,7 @@ public final class PostService {
                 .withPost(updated)
                 .withCollectionRevision(post.authorPlayerId(), collectionRevision)
                 .withIdempotentResult(idempotencyKey, result)
+                .withIdempotencyFingerprint(idempotencyKey, fingerprint)
                 .withAuditEntry(new PostAuditEntry(action, postId, gm.actorId(),
                         PostStatus.PENDING_APPROVAL, targetStatus, updated.revision(),
                         auditSummary, now));
@@ -462,6 +612,45 @@ public final class PostService {
         return actor.role() == ActorRole.DIRECTOR
                 || actor.role() == ActorRole.GM
                 || actor.role() == ActorRole.SUPERVISOR;
+    }
+
+    /**
+     * 幂等键只允许同 actor 的完全相同请求重放。不同命令/请求或旧快照缺 fingerprint
+     * 一律返回稳定冲突，绝不把历史成功伪装成当前命令成功。
+     */
+    private PostCommandResult replayIdempotent(String idempotencyKey, String fingerprint) {
+        PostCommandResult previous = state.idempotentResults().get(idempotencyKey);
+        if (previous == null) {
+            return null;
+        }
+        String storedFingerprint = state.idempotencyFingerprints().get(idempotencyKey);
+        if (storedFingerprint == null || !storedFingerprint.equals(fingerprint)) {
+            return failure(IDEMPOTENCY_KEY_CONFLICT,
+                    "idempotencyKey 已用于不同命令或不同请求", null, 0);
+        }
+        return previous;
+    }
+
+    private static String publicationDraftMetadata(
+            Actor gm, String authorPlayerId, PostVisibility visibility, String title) {
+        return PUBLICATION_DRAFT_METADATA_PREFIX + fingerprint(
+                "PUBLICATION_DRAFT_REUSE_V1", gm.actorId(), gm.role().name(),
+                authorPlayerId, visibility.name(), title);
+    }
+
+    /** 对语义字段做长度前缀编码后哈希，避免分隔符注入/字段拼接歧义。 */
+    private static String fingerprint(String command, Object... fields) {
+        StringBuilder canonical = new StringBuilder(command);
+        for (Object field : fields) {
+            String value = field == null ? null : String.valueOf(field);
+            canonical.append('\u001F');
+            if (value == null) {
+                canonical.append("-1:");
+            } else {
+                canonical.append(value.length()).append(':').append(value);
+            }
+        }
+        return Hashes.sha256(canonical.toString());
     }
 
     private static PostCommandResult validateIdempotencyKey(String idempotencyKey) {

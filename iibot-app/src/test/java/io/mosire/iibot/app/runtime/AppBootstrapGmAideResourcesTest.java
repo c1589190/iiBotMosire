@@ -11,6 +11,8 @@ import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.mcp.ControlBootstrapMcpTools;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
+import io.mosire.iibot.app.mcp.GmPublicationMcpTools;
+import io.mosire.iibot.app.mcp.GmRecordMcpTools;
 import io.mosire.iibot.app.mcp.GmAideChatTool;
 import io.mosire.iibot.app.mcp.GmComplaintMcpTools;
 import io.mosire.iibot.app.mcp.GmPrivateDocsMcpTools;
@@ -107,7 +109,9 @@ class AppBootstrapGmAideResourcesTest {
             client = client(controlServer);
             McpSchema.ListToolsResult list = client.listTools();
             assertThat(list.tools().stream().map(McpSchema.Tool::name))
-                    .hasSize(61)
+                    .hasSize(65)
+                    .containsAll(GmPublicationMcpTools.NAMES)
+                    .containsAll(GmRecordMcpTools.NAMES)
                     .contains(GmAideChatTool.NAME)
                     .containsAll(ControlBootstrapMcpTools.NAMES)
                     .containsAll(GmPrivateDocsMcpTools.NAMES)

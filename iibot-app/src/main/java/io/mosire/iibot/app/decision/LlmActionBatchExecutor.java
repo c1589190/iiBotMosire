@@ -6,6 +6,7 @@ import io.mosire.agentlib.llm.LlmRequest;
 import io.mosire.agentlib.llm.LlmResponse;
 import io.mosire.iibot.taskflow.EngineStatus;
 import io.mosire.iibot.taskflow.TaskflowEngine;
+import io.mosire.iibot.taskflow.TurnView;
 import io.mosire.iibot.taskflow.Visibility;
 import io.mosire.iibot.taskflow.WorldFact;
 import io.mosire.iibot.taskflow.decision.ActionBatch;
@@ -58,14 +59,20 @@ public final class LlmActionBatchExecutor implements ActionBatchExecutor {
     @Override
     public ActionBatch execute(ActionBatch batch) {
         Objects.requireNonNull(batch, "batch");
+        // 只绑定执行时仍未终态的 engine 当前回合；无当前回合或已 PUBLISHED/CANCELLED 写 null。
+        String turnId = engine.turnView()
+                .filter(turn -> !turn.state().isTerminal())
+                .map(TurnView::turnId)
+                .orElse(null);
+        ActionBatch correlated = batch.withTurnId(turnId);
         String prompt;
         try {
-            prompt = buildPrompt(batch);
+            prompt = buildPrompt(correlated);
         } catch (RuntimeException failure) {
-            return batch.withStatus(ActionBatchStatus.REJECTED, REJECT_LLM_FAILED);
+            return correlated.withStatus(ActionBatchStatus.REJECTED, REJECT_LLM_FAILED);
         }
         if (prompt == null) {
-            return batch.withStatus(ActionBatchStatus.REJECTED, REJECT_INPUT_TOO_LARGE);
+            return correlated.withStatus(ActionBatchStatus.REJECTED, REJECT_INPUT_TOO_LARGE);
         }
 
         try {
@@ -77,12 +84,12 @@ public final class LlmActionBatchExecutor implements ActionBatchExecutor {
             LlmResponse response = adjudicatorLlm.chat(request);
             String result = response.textPart().orElse("");
             if (result.isBlank()) {
-                return batch.withStatus(ActionBatchStatus.REJECTED, REJECT_EMPTY_RESULT);
+                return correlated.withStatus(ActionBatchStatus.REJECTED, REJECT_EMPTY_RESULT);
             }
-            return batch.committed(boundResult(result));
+            return correlated.committed(boundResult(result));
         } catch (RuntimeException failure) {
             // 不记录也不回显异常消息：供应商错误可能包含 prompt/正文/凭据片段。
-            return batch.withStatus(ActionBatchStatus.REJECTED, REJECT_LLM_FAILED);
+            return correlated.withStatus(ActionBatchStatus.REJECTED, REJECT_LLM_FAILED);
         }
     }
 

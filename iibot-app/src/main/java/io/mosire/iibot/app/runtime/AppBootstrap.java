@@ -26,6 +26,9 @@ import io.mosire.iibot.app.decision.ActionPackageRecoveryService;
 import io.mosire.iibot.app.decision.LlmActionBatchExecutor;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
 import io.mosire.iibot.app.publication.EventSourcedPostStore;
+import io.mosire.iibot.app.publication.PublicationOrchestrator;
+import io.mosire.iibot.app.records.RecordQueryService;
+import io.mosire.iibot.app.records.TurnRecordProjector;
 import io.mosire.iibot.app.ticket.EventSourcedTicketStore;
 import io.mosire.iibot.app.world.WorldDocs;
 import io.mosire.iibot.app.world.WorldFactsLoader;
@@ -262,6 +265,17 @@ public final class AppBootstrap {
                     packageRecoveryService.recover(actionPoolService);
             ActionBatchExecutor actionBatchExecutor = new LlmActionBatchExecutor(
                     engine, adjudicatorLlm, clock);
+            PublicationOrchestrator publicationOrchestrator = new PublicationOrchestrator(
+                    postService, actionPackageService, adjudicatorLlm, engine,
+                    eventContentStore, domainEventJournal, clock);
+            TurnRecordProjector turnRecordProjector = new TurnRecordProjector(
+                    dataDir, engine, actionPackageService, postService,
+                    publicationOrchestrator);
+            RecordQueryService recordQueryService = new RecordQueryService(
+                    dataDir, turnRecordProjector);
+            // 投影是派生面：启动时失败只记录，不回滚任何已恢复领域状态。
+            runAfterMutationSafely("turn-record-projector-initial",
+                    turnRecordProjector::rebuildAll);
             LlmBriefingService briefingService = new LlmBriefingService(secretaryLlm);
             SecretarySessionRegistry secretaryRegistry = new SecretarySessionRegistry();
             Function<PlayerProfile, SecretarySession> sessionFactory = profile ->
@@ -332,8 +346,9 @@ public final class AppBootstrap {
                     complaintDistributor, secretaryWorkspaceStore, secretaryRegistry,
                     postService, sharedSkillStore, complaintService,
                     actionPoolService, actionPackageService, actionBatchExecutor,
+                    publicationOrchestrator, recordQueryService,
                     controlBootstrapService, gmPrivateDocs, ticketService,
-                    ticketActionPromotionService);
+                    ticketActionPromotionService, turnRecordProjector);
             runtime = new AppRuntime(config, engine, interactionService, adapter, dispatcher,
                     outbox, scheduler, eventSink, eventReadPort, eventContentStore,
                     snapshotStore, worldDocs, controlPlane, controlBootstrapService);
@@ -499,11 +514,16 @@ public final class AppBootstrap {
                                                     ActionPoolService actionPoolService,
                                                     ActionPackageService actionPackageService,
                                                     ActionBatchExecutor actionBatchExecutor,
+                                                    PublicationOrchestrator
+                                                            publicationOrchestrator,
+                                                    RecordQueryService recordQueryService,
                                                     ControlBootstrapService controlBootstrapService,
                                                     GmPrivateDocs gmPrivateDocs,
                                                     TicketService ticketService,
                                                     TicketActionPromotionService
-                                                            ticketActionPromotionService) {
+                                                            ticketActionPromotionService,
+                                                    TurnRecordProjector
+                                                            turnRecordProjector) {
         if (!(options.controlPlane() instanceof NoopControlPlane)) {
             return options.controlPlane();
         }
@@ -530,15 +550,22 @@ public final class AppBootstrap {
                 .actionPoolService(actionPoolService)
                 .actionPackageService(actionPackageService)
                 .actionBatchExecutor(actionBatchExecutor)
+                .publicationOrchestrator(publicationOrchestrator)
+                .recordQueryService(recordQueryService)
                 .controlBootstrapService(controlBootstrapService)
                 .gmPrivateDocs(gmPrivateDocs)
                 .afterMutation(() -> {
                     runAfterMutationSafely("turn-result-distributor",
                             resultDistributor::distributeIfReady);
+                    // 只有 GM 已通过 tf_post_publish 置为 PUBLISHED 且 PENDING 的推文
+                    // 才可能被此分发器选中；publication 仅创建 PENDING_APPROVAL draft。
                     runAfterMutationSafely("post-distributor",
                             postDistributor::distributeIfReady);
                     runAfterMutationSafely("complaint-distributor",
                             complaintDistributor::distributeIfReady);
+                    // 投影重建失败只记录；已经返回的 MCP 响应与领域事件不受影响。
+                    runAfterMutationSafely("turn-record-projector",
+                            turnRecordProjector::rebuildAll);
                 })
                 .build();
     }

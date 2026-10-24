@@ -16,6 +16,8 @@ import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolRegistry;
 import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.control.ControlBootstrapService;
+import io.mosire.iibot.app.publication.PublicationOrchestrator;
+import io.mosire.iibot.app.records.RecordQueryService;
 import io.mosire.iibot.app.runtime.ControlPlane;
 import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.TaskflowEngine;
@@ -132,6 +134,8 @@ public final class ControlMcpServer implements ControlPlane {
     private final ActionPoolService actionPoolService;
     private final ActionPackageService actionPackageService;
     private final ActionBatchExecutor actionBatchExecutor;
+    private final PublicationOrchestrator publicationOrchestrator;
+    private final RecordQueryService recordQueryService;
     private final ControlBootstrapService controlBootstrapService;
     private final GmPrivateDocs gmPrivateDocs;
     private final Runnable afterMutation;
@@ -167,6 +171,8 @@ public final class ControlMcpServer implements ControlPlane {
         this.actionPoolService = builder.actionPoolService;
         this.actionPackageService = builder.actionPackageService;
         this.actionBatchExecutor = builder.actionBatchExecutor;
+        this.publicationOrchestrator = builder.publicationOrchestrator;
+        this.recordQueryService = builder.recordQueryService;
         this.controlBootstrapService = builder.controlBootstrapService;
         this.gmPrivateDocs = builder.gmPrivateDocs;
         this.afterMutation = builder.afterMutation;
@@ -241,6 +247,17 @@ public final class ControlMcpServer implements ControlPlane {
                 }
                 if (postService != null) {
                     for (var tool : GmPostMcpTools.all(postService, supervisor)) {
+                        registry.register(tool);
+                    }
+                }
+                if (publicationOrchestrator != null) {
+                    for (var tool : GmPublicationMcpTools.all(
+                            publicationOrchestrator, supervisor)) {
+                        registry.register(tool);
+                    }
+                }
+                if (recordQueryService != null) {
+                    for (var tool : GmRecordMcpTools.all(recordQueryService)) {
                         registry.register(tool);
                     }
                 }
@@ -634,6 +651,12 @@ public final class ControlMcpServer implements ControlPlane {
         if (postService != null) {
             allTools.addAll(GmPostMcpTools.NAMES);
         }
+        if (publicationOrchestrator != null) {
+            allTools.addAll(GmPublicationMcpTools.NAMES);
+        }
+        if (recordQueryService != null) {
+            allTools.addAll(GmRecordMcpTools.NAMES);
+        }
         if (sharedSkillStore != null) {
             allTools.addAll(GmSharedSkillMcpTools.NAMES);
         }
@@ -671,6 +694,14 @@ public final class ControlMcpServer implements ControlPlane {
         if (postService != null) {
             scopes.put(PostStore.RESOURCE_NAMESPACE,
                     ResourceScope.of(PostStore.RESOURCE_NAMESPACE));
+        }
+        if (publicationOrchestrator != null) {
+            scopes.put(GmPublicationMcpTools.RESOURCE_NAMESPACE,
+                    ResourceScope.of(GmPublicationMcpTools.RESOURCE_NAMESPACE));
+        }
+        if (recordQueryService != null) {
+            scopes.put(GmRecordMcpTools.RESOURCE_NAMESPACE,
+                    ResourceScope.of(GmRecordMcpTools.RESOURCE_NAMESPACE));
         }
         if (sharedSkillStore != null) {
             scopes.put(SharedSkillStore.RESOURCE_NAMESPACE,
@@ -765,6 +796,8 @@ public final class ControlMcpServer implements ControlPlane {
         private ActionPoolService actionPoolService;
         private ActionPackageService actionPackageService;
         private ActionBatchExecutor actionBatchExecutor;
+        private PublicationOrchestrator publicationOrchestrator;
+        private RecordQueryService recordQueryService;
         private ControlBootstrapService controlBootstrapService;
         private GmPrivateDocs gmPrivateDocs;
         private Runnable afterMutation;
@@ -902,6 +935,20 @@ public final class ControlMcpServer implements ControlPlane {
         public Builder actionBatchExecutor(ActionBatchExecutor actionBatchExecutor) {
             this.actionBatchExecutor = Objects.requireNonNull(
                     actionBatchExecutor, "actionBatchExecutor");
+            return this;
+        }
+
+        /** 可选注入发布编排；注入后注册 tf_publication_generate（工具面 62）。 */
+        public Builder publicationOrchestrator(PublicationOrchestrator publicationOrchestrator) {
+            this.publicationOrchestrator = Objects.requireNonNull(
+                    publicationOrchestrator, "publicationOrchestrator");
+            return this;
+        }
+
+        /** 可选注入 Markdown 回合记录查询服务；注入后注册三个 tf_record_* 工具。 */
+        public Builder recordQueryService(RecordQueryService recordQueryService) {
+            this.recordQueryService = Objects.requireNonNull(
+                    recordQueryService, "recordQueryService");
             return this;
         }
 

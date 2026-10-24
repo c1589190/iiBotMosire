@@ -13,6 +13,8 @@ import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.mcp.ControlBootstrapMcpTools;
 import io.mosire.iibot.app.mcp.ControlInitializeTool;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
+import io.mosire.iibot.app.mcp.GmPublicationMcpTools;
+import io.mosire.iibot.app.mcp.GmRecordMcpTools;
 import io.mosire.iibot.app.mcp.GmPrivateDocsMcpTools;
 import io.mosire.iibot.app.mcp.GmComplaintMcpTools;
 import io.mosire.iibot.app.mcp.GmSharedSkillGetTool;
@@ -72,7 +74,9 @@ class AppBootstrapSharedSkillComplaintTest {
             client = client(server);
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
-            assertThat(names).hasSize(61)
+            assertThat(names).hasSize(65)
+            .containsAll(GmPublicationMcpTools.NAMES)
+            .containsAll(GmRecordMcpTools.NAMES)
                     .containsAll(GmSharedSkillMcpTools.NAMES)
                     .containsAll(GmTicketMcpTools.NAMES)
                     .containsAll(ControlBootstrapMcpTools.NAMES)

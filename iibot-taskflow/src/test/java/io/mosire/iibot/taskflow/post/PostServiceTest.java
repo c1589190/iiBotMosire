@@ -103,6 +103,61 @@ class PostServiceTest {
     }
 
     @Test
+    void publicationDraftsUseSystemPublicAuthorAndRecipientPrivateAuthorAndStayPending() {
+        InMemoryPostStore store = new InMemoryPostStore();
+        PostService service = new PostService(store, CLOCK);
+
+        PostCommandResult publicDraft = service.createPublicationDraft(supervisor,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC,
+                "公共发布草稿", "公共发布正文-7f21", "publication-public-draft");
+        PostCommandResult privateDraft = service.createPublicationDraft(supervisor,
+                playerA.actorId(), PostVisibility.PRIVATE,
+                "私密发布草稿", "私密发布正文-93ac", "publication-private-draft");
+
+        assertThat(publicDraft.ok()).isTrue();
+        assertThat(privateDraft.ok()).isTrue();
+        Post publicPost = service.post(publicDraft.postId()).orElseThrow();
+        assertThat(publicPost.authorPlayerId()).isEqualTo(PostService.SYSTEM_PUBLICATION_AUTHOR);
+        assertThat(publicPost.visibility()).isEqualTo(PostVisibility.PUBLIC);
+        assertThat(publicPost.status()).isEqualTo(PostStatus.PENDING_APPROVAL);
+        assertThat(publicPost.revision()).isEqualTo(1);
+        assertThat(publicPost.deliveryState()).isNull();
+        Post privatePost = service.post(privateDraft.postId()).orElseThrow();
+        assertThat(privatePost.authorPlayerId()).isEqualTo(playerA.actorId());
+        assertThat(privatePost.visibility()).isEqualTo(PostVisibility.PRIVATE);
+        assertThat(privatePost.status()).isEqualTo(PostStatus.PENDING_APPROVAL);
+        assertThat(privatePost.deliveryState()).isNull();
+        assertThat(service.postsForGm()).hasSize(2);
+
+        PostCommandResult replay = service.createPublicationDraft(supervisor,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC,
+                "公共发布草稿", "公共发布正文-7f21", "publication-public-draft");
+        assertThat(replay).isEqualTo(publicDraft);
+        PostCommandResult conflictingReplay = service.createPublicationDraft(supervisor,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC,
+                "不同标题", "不同正文", "publication-public-draft");
+        assertThat(conflictingReplay.code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(service.postsForGm()).hasSize(2);
+        assertThat(service.post(publicDraft.postId()).orElseThrow().title())
+                .isEqualTo("公共发布草稿");
+
+        assertThat(service.createPublicationDraft(playerA, PostService.SYSTEM_PUBLICATION_AUTHOR,
+                PostVisibility.PUBLIC, "t", "b", "player-publication-forbidden").code())
+                .isEqualTo(PostService.FORBIDDEN);
+        assertThat(service.createPublicationDraft(supervisor, playerA.actorId(),
+                PostVisibility.PUBLIC, "t", "b", "public-player-author").code())
+                .isEqualTo(PostService.INVALID_ARGUMENT);
+        assertThat(service.createPublicationDraft(supervisor, "system:other",
+                PostVisibility.PUBLIC, "t", "b", "public-other-system-author").code())
+                .isEqualTo(PostService.INVALID_ARGUMENT);
+        assertThat(service.createPublicationDraft(supervisor, PostService.SYSTEM_PUBLICATION_AUTHOR,
+                PostVisibility.PRIVATE, "t", "b", "private-system-author").code())
+                .isEqualTo(PostService.INVALID_ARGUMENT);
+        assertThat(service.postsForGm()).hasSize(2);
+    }
+
+    @Test
     void rejectStoresReasonOnlyInAuditSummary() {
         PostService service = new PostService(new InMemoryPostStore(), CLOCK);
         PostCommandResult created = service.createDraft(playerA, "待审", "绝不能进入审计的正文",
@@ -153,42 +208,183 @@ class PostServiceTest {
     }
 
     @Test
-    void duplicateIdempotencyKeysReturnFirstResultWithoutDuplicatingWrites() {
+    void idempotencyKeyRequiresExactSameActorAndRequestForEveryCommand() {
         InMemoryPostStore store = new InMemoryPostStore();
         PostService service = new PostService(store, CLOCK);
 
         PostCommandResult first = service.createDraft(playerA, "t1", "body-one",
                 PostVisibility.PUBLIC, 0, "same-create");
-        PostCommandResult duplicateCreate = service.createDraft(playerA, "t2", "body-two",
-                PostVisibility.PRIVATE, 99, "same-create");
-
-        assertThat(duplicateCreate).isEqualTo(first);
-        assertThat(service.postsForGm()).hasSize(1);
-        assertThat(service.postsForGm().get(0).body()).isEqualTo("body-one");
+        assertThat(service.createDraft(playerA, "t1", "body-one",
+                PostVisibility.PUBLIC, 0, "same-create")).isEqualTo(first);
+        assertThat(service.createDraft(playerA, "t2", "body-two",
+                PostVisibility.PUBLIC, 0, "same-create").code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(service.createDraft(playerA, "t1", "body-one",
+                PostVisibility.PUBLIC, 1, "same-create").code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(service.createDraft(playerB, "t1", "body-one",
+                PostVisibility.PUBLIC, 0, "same-create").code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(service.postsForGm()).singleElement().satisfies(post -> {
+            assertThat(post.postId()).isEqualTo(first.postId());
+            assertThat(post.body()).isEqualTo("body-one");
+        });
 
         PostCommandResult approved = service.approve(gm, first.postId(), 1, "same-approve");
-        PostCommandResult duplicateApprove = service.approve(gm, first.postId(), 1, "same-approve");
-        assertThat(duplicateApprove).isEqualTo(approved);
+        assertThat(service.approve(gm, first.postId(), 1, "same-approve")).isEqualTo(approved);
+        assertThat(service.approve(supervisor, first.postId(), 1, "same-approve").code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(service.approve(gm, first.postId(), 2, "same-approve").code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(service.reject(gm, first.postId(), 1, "same-approve", "不同命令").code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(service.post(first.postId()).orElseThrow().status())
+                .isEqualTo(PostStatus.APPROVED);
         assertThat(service.post(first.postId()).orElseThrow().revision()).isEqualTo(2);
 
         PostCommandResult published = service.publish(gm, first.postId(), 2, "same-publish");
-        PostCommandResult duplicatePublish = service.publish(gm, first.postId(), 2, "same-publish");
-        assertThat(duplicatePublish).isEqualTo(published);
+        assertThat(service.publish(gm, first.postId(), 2, "same-publish")).isEqualTo(published);
+        assertThat(service.publish(supervisor, first.postId(), 2, "same-publish").code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(service.publish(gm, first.postId(), 3, "same-publish").code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(service.post(first.postId()).orElseThrow().status())
+                .isEqualTo(PostStatus.PUBLISHED);
         assertThat(service.post(first.postId()).orElseThrow().revision()).isEqualTo(3);
-        assertThat(store.load().idempotentResults()).hasSize(3);
 
-        PostCommandResult second = service.createDraft(playerA, "t3", "body-three",
-                PostVisibility.PUBLIC, 3, "create-second");
-        PostCommandResult rejected = service.reject(gm, second.postId(), 1, "same-reject",
-                "缺少来源");
-        PostCommandResult duplicateReject = service.reject(gm, second.postId(), 1, "same-reject",
-                "缺少来源");
-        assertThat(duplicateReject).isEqualTo(rejected);
+        PostCommandResult second = service.createDraft(playerA, "second", "second-body",
+                PostVisibility.PUBLIC, service.collectionRevision(playerA.actorId()),
+                "second-create");
+        assertThat(service.approve(gm, second.postId(), 1, "second-approve").ok()).isTrue();
+        assertThat(service.publish(gm, second.postId(), 2, "same-publish").code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
         assertThat(service.post(second.postId()).orElseThrow().status())
-                .isEqualTo(PostStatus.REJECTED);
-        assertThat(service.post(second.postId()).orElseThrow().revision()).isEqualTo(2);
-        assertThat(service.auditLog()).filteredOn(entry ->
-                entry.action() == PostAuditAction.REJECT).hasSize(1);
+                .isEqualTo(PostStatus.APPROVED);
+
+        assertThat(service.auditLog()).extracting(PostAuditEntry::action)
+                .containsExactly(PostAuditAction.CREATE, PostAuditAction.APPROVE,
+                        PostAuditAction.PUBLISH, PostAuditAction.CREATE,
+                        PostAuditAction.APPROVE);
+    }
+
+    @Test
+    void approveAndPublishCannotShareAKeyAndFailedCommandsAreNotCached() {
+        InMemoryPostStore store = new InMemoryPostStore();
+        PostService service = new PostService(store, CLOCK);
+        PostCommandResult created = service.createDraft(playerA, "t", "body",
+                PostVisibility.PUBLIC, 0, "create");
+
+        PostCommandResult wrongRevision = service.approve(gm, created.postId(), 99,
+                "shared-command-key");
+        assertThat(wrongRevision.code()).isEqualTo(PostService.REVISION_CONFLICT);
+        assertThat(store.load().idempotentResults()).doesNotContainKey("shared-command-key");
+        assertThat(store.load().idempotencyFingerprints())
+                .doesNotContainKey("shared-command-key");
+
+        PostCommandResult approved = service.approve(gm, created.postId(), 1,
+                "shared-command-key");
+        assertThat(approved.ok()).isTrue();
+        PostCommandResult publishWithApproveKey = service.publish(gm, created.postId(), 2,
+                "shared-command-key");
+        assertThat(publishWithApproveKey.code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(publishWithApproveKey.ok()).isFalse();
+        assertThat(service.post(created.postId()).orElseThrow().status())
+                .isEqualTo(PostStatus.APPROVED);
+        assertThat(service.post(created.postId()).orElseThrow().revision()).isEqualTo(2);
+        assertThat(service.auditLog()).extracting(PostAuditEntry::action)
+                .containsExactly(PostAuditAction.CREATE, PostAuditAction.APPROVE);
+
+        assertThat(service.publish(gm, created.postId(), 2, "publish-now").ok()).isTrue();
+        assertThat(service.post(created.postId()).orElseThrow().status())
+                .isEqualTo(PostStatus.PUBLISHED);
+    }
+
+    @Test
+    void publicationDraftReuseMatchesOnlyExactTypedMetadataAndIgnoresBody() {
+        InMemoryPostStore store = new InMemoryPostStore();
+        PostService service = new PostService(store, CLOCK);
+        String key = "publication-reuse-key";
+        String title = "批次 batch-reuse public 公共叙事";
+        PostCommandResult created = service.createPublicationDraft(supervisor,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC,
+                title, "首次正文-A", key);
+        assertThat(created.ok()).isTrue();
+        Post original = service.post(created.postId()).orElseThrow();
+        PostSnapshot typedSnapshot = store.load();
+
+        assertThat(service.findPublicationDraftForReuse(supervisor, key,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC, title))
+                .contains(original);
+        // body 不参与 reuse 匹配；不同 body 的 same-key create 会冲突，但 find 仍返回首次 post。
+        assertThat(service.createPublicationDraft(supervisor,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC,
+                title, "第二次正文-B", key).code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(service.findPublicationDraftForReuse(supervisor, key,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC, title))
+                .hasValueSatisfying(post -> assertThat(post.body()).isEqualTo("首次正文-A"));
+
+        assertThat(service.findPublicationDraftForReuse(gm, key,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC, title))
+                .isEmpty();
+        assertThat(service.findPublicationDraftForReuse(supervisor, key,
+                "player-1", PostVisibility.PUBLIC, title)).isEmpty();
+        assertThat(service.findPublicationDraftForReuse(supervisor, key,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PRIVATE, title))
+                .isEmpty();
+        assertThat(service.findPublicationDraftForReuse(supervisor, key,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC,
+                title + "-不同标题")).isEmpty();
+        assertThat(service.findPublicationDraftForReuse(playerA, key,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC, title))
+                .isEmpty();
+
+        String ordinaryKey = "ordinary-command-key";
+        PostCommandResult ordinary = service.createDraft(playerA, "普通草稿",
+                "普通草稿正文", PostVisibility.PRIVATE, 0, ordinaryKey);
+        assertThat(ordinary.ok()).isTrue();
+        assertThat(service.findPublicationDraftForReuse(supervisor, ordinaryKey,
+                playerA.actorId(), PostVisibility.PRIVATE,
+                "批次 batch-reuse private " + playerA.actorId() + " 私密结果"))
+                .isEmpty();
+
+        // P6-B3 中间快照：有 fingerprint、无 typed request metadata，可加载但不得复用。
+        PostSnapshot legacyWithoutMetadata = new PostSnapshot(typedSnapshot.posts(),
+                typedSnapshot.collectionRevisions(), typedSnapshot.idempotentResults(),
+                typedSnapshot.idempotencyFingerprints(), typedSnapshot.auditLog());
+        assertThat(legacyWithoutMetadata.idempotencyRequestMetadata()).isEmpty();
+        InMemoryPostStore legacyStore = new InMemoryPostStore(legacyWithoutMetadata);
+        PostService legacyService = new PostService(legacyStore, CLOCK);
+        assertThat(legacyService.post(created.postId())).contains(original);
+        assertThat(legacyService.findPublicationDraftForReuse(supervisor, key,
+                PostService.SYSTEM_PUBLICATION_AUTHOR, PostVisibility.PUBLIC, title))
+                .isEmpty();
+    }
+
+    @Test
+    void legacySnapshotWithoutFingerprintFailsClosedInsteadOfReplaying() {
+        InMemoryPostStore store = new InMemoryPostStore();
+        PostService service = new PostService(store, CLOCK);
+        PostCommandResult created = service.createDraft(playerA, "t", "body",
+                PostVisibility.PUBLIC, 0, "legacy-key");
+        PostSnapshot current = store.load();
+        PostSnapshot legacy = new PostSnapshot(current.posts(),
+                current.collectionRevisions(), current.idempotentResults(),
+                current.auditLog());
+        assertThat(legacy.idempotentResults()).containsKey("legacy-key");
+        assertThat(legacy.idempotencyFingerprints()).isEmpty();
+        InMemoryPostStore legacyStore = new InMemoryPostStore(legacy);
+        PostService restored = new PostService(legacyStore, CLOCK);
+
+        PostCommandResult replay = restored.createDraft(playerA, "t", "body",
+                PostVisibility.PUBLIC, 0, "legacy-key");
+
+        assertThat(replay.ok()).isFalse();
+        assertThat(replay.code()).isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(restored.postsForGm()).singleElement()
+                .extracting(Post::postId).isEqualTo(created.postId());
+        assertThat(legacyStore.load().idempotencyFingerprints()).isEmpty();
     }
 
     @Test
@@ -253,8 +449,11 @@ class PostServiceTest {
         assertThat(post.revision()).isEqualTo(2);
         assertThat(restored.collectionRevision(playerA.actorId())).isEqualTo(2);
         assertThat(restored.auditLog()).hasSize(2);
+        assertThat(restored.createDraft(playerA, "t", "body",
+                PostVisibility.PRIVATE, 0, "persisted-create")).isEqualTo(created);
         assertThat(restored.createDraft(playerA, "other", "other body",
-                PostVisibility.PUBLIC, 0, "persisted-create")).isEqualTo(created);
+                PostVisibility.PUBLIC, 0, "persisted-create").code())
+                .isEqualTo(PostService.IDEMPOTENCY_KEY_CONFLICT);
         assertThat(restored.postsForGm()).hasSize(1);
     }
 

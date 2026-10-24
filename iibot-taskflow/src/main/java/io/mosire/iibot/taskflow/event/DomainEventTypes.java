@@ -14,6 +14,7 @@ public final class DomainEventTypes {
     public static final String ACTION_PREFIX = "ACTION_";
     public static final String PACKAGE_PREFIX = "PACKAGE_";
     public static final String BATCH_PREFIX = "BATCH_";
+    public static final String PUBLICATION_PREFIX = "PUBLICATION_";
     public static final String TASKFLOW_SNAPSHOT_PREFIX = "TASKFLOW_SNAPSHOT";
 
     public static final String POST_DRAFTED = "POST_DRAFTED";
@@ -66,6 +67,9 @@ public final class DomainEventTypes {
     public static final String BATCH_CREATED = "BATCH_CREATED";
     public static final String BATCH_COMPLETED = "BATCH_COMPLETED";
     public static final String BATCH_PROJECTION = "BATCH_PROJECTION";
+
+    /** 一次 ActionBatch 的公共/私密发布草稿已完成映射；content 为完整 PublicationRecord。 */
+    public static final String PUBLICATION_GENERATED = "PUBLICATION_GENERATED";
 
     public static final String TASKFLOW_SNAPSHOT = "TASKFLOW_SNAPSHOT";
     public static final String TASKFLOW_SNAPSHOT_MIGRATED = "TASKFLOW_SNAPSHOT_MIGRATED";

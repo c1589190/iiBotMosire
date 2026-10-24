@@ -128,7 +128,9 @@ class ControlMcpServerDecisionToolsTest {
                 .containsAll(GmActionPoolMcpTools.NAMES)
                 .containsAll(GmDecisionPackageMcpTools.NAMES)
                 .containsAll(GmActionBatchMcpTools.NAMES)
-                .doesNotContain("tf_qq_send", "tf_confirm_decision", "shutdown");
+                .doesNotContain("tf_qq_send", "tf_confirm_decision", "shutdown")
+                .doesNotContain(GmPublicationMcpTools.NAMES.toArray(String[]::new))
+                .doesNotContain(GmRecordMcpTools.NAMES.toArray(String[]::new));
 
         PlayerAction a1 = actionPool.submit(p1, "行动池正文-仅 get 可见-a11",
                 "private-chat", "decision-a1");
