@@ -91,10 +91,11 @@ Inbox/MCP/DSH adapter 链路；**不是真实 QQ/LLM 联调**。
 - 新增 `simulation/scripts/08-inbox-descriptor.sh`；`02-start.sh` 在 MCP ready 后自动
   调用它，生成 0600 `simulation/runtime/inbox-binding-descriptor.json`。
 - 新增 `simulation/dsh/INBOX_NEIGHBOR_HANDOFF_PROMPT.md`，给隔壁 DSH 会话直接接入。
-- 模拟 app 实际启动 smoke：PID `79068`，控制 MCP `127.0.0.1:8765/mcp/control`，
+- 模拟 app 实际启动 smoke：控制 MCP `127.0.0.1:8765/mcp/control`，
   `tools/list=88`，无 `tf_ticket_board`；`inbox_status` 从已有权威工单产生
   `available=1`；inbox token 文件 0600；descriptor 输出仅两字段、内部仅固定五字段。
-  未执行真实 QQ 外发。
+  未执行真实 QQ 外发。smoke 进程随后退出，不保持常驻；测试时运行
+  `simulation/scripts/02-start.sh` 重新生成随机端口 descriptor。
 
 ## 5. 未验证 / 风险
 

@@ -6,14 +6,14 @@
 
 ## 0. 最新更新（2026-10-25 22:18）
 
-- **模拟区 Inbox Mode A 已部署并启动**：
+- **模拟区 Inbox Mode A 已部署并通过启动 smoke**：
   `simulation/dist` jar 已替换为 `a1b171...`（旧 jar 备份
   `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-221343-pre-inbox`）；
   模拟 local config 已加入 Inbox 块（备份
   `simulation/config/iibot.sim.local.json.backup-20261025-221343-pre-inbox`）。
-  app 当前在 tmux `iibot-sim` 运行 PID `79068`，控制 MCP `127.0.0.1:8765/mcp/control`，
-  embedded Inbox API `127.0.0.1:44765`，实际 `tools/list=88`，无
-  `tf_ticket_board`；`inbox_status` 已从权威工单产生 `available=1`，尚未绑定 DSH 会话。
+  启动 smoke 实测 `tools/list=88`、无 `tf_ticket_board`；`inbox_status` 已从权威工单
+  产生 `available=1`；descriptor 生成成功且 token 文件 0600。smoke 进程已退出，
+  当前不保持常驻；用户用 `simulation/scripts/02-start.sh` 启动测试。
 - 启动脚本 `02-start.sh` 现在会自动调用新增的 `08-inbox-descriptor.sh`，
   写出 `simulation/runtime/inbox-binding-descriptor.json`；给隔壁会话的引导词为
   `simulation/dsh/INBOX_NEIGHBOR_HANDOFF_PROMPT.md`。
@@ -36,10 +36,10 @@
   unbind 后 occupied=false；两个 token 文件 0600、descriptor 无 raw token；
   进程停止后 control/embedded 端口关闭，显式 inbox dataDir 与 `inbox.db` 保留。
   证据：[`../superpowers/status/2026-10-25-inbox-mode-a-notification-workflow.md`](../superpowers/status/2026-10-25-inbox-mode-a-notification-workflow.md)。
-- **当前运行态（2026-10-25 22:18）**：模拟 app 正在运行 PID `79068`，
-  使用 `simulation/dist` 的 `a1b171...` jar；控制 MCP `127.0.0.1:8765/mcp/control`。
-  该进程仅供用户/隔壁会话测试 Inbox 接入，未执行真实 QQ 外发；停止使用
-  `simulation/scripts/03-stop.sh`。
+- **当前运行态（2026-10-25 22:20）**：收尾核对未发现常驻模拟 app 进程。
+  需要测试时运行 `simulation/scripts/02-start.sh`；该脚本会自动生成当前端口的
+  Inbox descriptor 并打印隔壁会话 handoff 提示。停止用
+  `simulation/scripts/03-stop.sh`。启动 smoke 未执行真实 QQ 外发。
 - **此前（01:45 快照）**：D-017 平台级 QQ 能力与受控自主入团已实现代码与自动化测试：
   connectlib `QqPlatformCapability`、NapCat 目录/历史/消息定位/临时私聊发送；
   MCP `tf_qq_chat_list`、`tf_qq_history_read`（任意 Bot 可访问目标）、
