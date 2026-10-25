@@ -130,7 +130,7 @@
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
 | 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.3`（Pages 固定版） |
 | 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`，约 21 MB |
-| Git/提交 | HEAD `35062c6`（本轮未提交）；工作树含 Inbox Mode A 改动及既有 Skill 改动。P8-A 历史 feature `1480c55` |
+| Git/提交 | Inbox Mode A 已提交并推送：`0b4d585`（`origin/main`）；工作树仅余开工前既有的 `simulation/.agents/skills/iibot-live-simulation-gm/SKILL.md` 改动。P8-A 历史 feature `1480c55` |
 | 本机工作树 | 代码/文档/模拟区资产已提交；`target/`、`simulation/dist/`、`simulation/runtime/` 按 gitignore 不入库 |
 
 ## 3. 最近功能门禁
