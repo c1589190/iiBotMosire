@@ -11,14 +11,14 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** D-020：默认预算为 128 轮/5 分钟，且预算耗尽回执说明真实进度。 */
+/** D-020：默认预算为 128 轮/5 分钟/128 工具调用，且预算耗尽回执说明真实进度。 */
 class SecretarySessionBudgetTest {
 
     @Test
-    void defaultsAre128RoundsAndFiveMinutesWithEightToolCalls() {
+    void defaultsAre128RoundsFiveMinutesAnd128ToolCalls() {
         assertThat(AgentRunner.DEFAULT_MAX_ROUNDS).isEqualTo(128);
         assertThat(AgentRunner.DEFAULT_TIME_BUDGET).isEqualTo(Duration.ofMinutes(5));
-        assertThat(AgentRunner.DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE).isEqualTo(8);
+        assertThat(AgentRunner.DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE).isEqualTo(128);
     }
 
     @Test

@@ -1,14 +1,25 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-25 22:18（Asia/Shanghai）
+> **更新时间**：2026-10-25 22:43（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
-## 0. 最新更新（2026-10-25 22:18）
+## 0. 最新更新（2026-10-25 22:43）
 
+- **秘书单响应工具调用上限已从 8 改为 128**：
+  `AgentRunner.DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE=128`；
+  `SecretarySession` 与 `GmAideAgent` 默认均使用 128。
+  新增 10 个工具调用单响应回归测试，验证 10 个全部执行。
+  `tools/gate.sh focused iibot-taskflow test` PASS（taskflow 256）；
+  `tools/gate.sh full` PASS（全仓 **627 tests**）。
+  target/dist jar sha256 `55212c2d...`，旧 dist jar 备份
+  `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-224319-pre-tool-call-128`。
+  证据：[`../superpowers/status/2026-10-25-secretary-tool-call-limit-128.md`](../superpowers/status/2026-10-25-secretary-tool-call-limit-128.md)。
 - **模拟区 Inbox Mode A 已部署并通过启动 smoke**：
-  `simulation/dist` jar 已替换为 `a1b171...`（旧 jar 备份
-  `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-221343-pre-inbox`）；
+  `simulation/dist` jar 已替换为 `55212c2d...`；本次替换前 jar 备份
+  `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-224319-pre-tool-call-128`，
+  更早 Mode A 部署前备份
+  `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-221343-pre-inbox`；
   模拟 local config 已加入 Inbox 块（备份
   `simulation/config/iibot.sim.local.json.backup-20261025-221343-pre-inbox`）。
   启动 smoke 实测 `tools/list=88`、无 `tf_ticket_board`；`inbox_status` 已从权威工单
@@ -25,10 +36,10 @@
   宿主通知桥按 revision 去重推送 ticket 与 publication-review 引用。
 - `tools/gate.sh focused iibot-app test` **PASS**：app 312 tests / 0 failures /
   0 errors / 0 skipped；结论为 `FOCUSED TEST PASSED (NOT a full gate)`。
-- `tools/gate.sh full` **PASS**：全仓 **626 tests / 0 failures / 0 errors / 0 skipped**
-  （connect 38、connect-agent 21、taskflow 255、app 312）；shaded jar 已重建，
-  sha256 `a1b1711a998806d76cf2a39862e84f0b3dfde302bd1be97498d49b3c1f24adfb`。
-- `tools/gate.sh docs` **PASS**：modules=4 files=486 links=174，active skills=1。
+- 此前 Inbox Mode A full gate：全仓 **626 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 38、connect-agent 21、taskflow 255、app 312）；当时 shaded jar sha256
+  `a1b1711a998806d76cf2a39862e84f0b3dfde302bd1be97498d49b3c1f24adfb`。
+- 当前 docs gate **PASS**：modules=4 files=491 links=178，active skills=1。
 - 隔离 smoke（Fake LLM/Fake QQ adapter，非真实外发）：新工单 + 待审推文产生
   `revision=2, available=2`；当前项目 MCP `tools/list=83` 且无 `tf_ticket_board`（隔离 Fake 装配；真实模拟装配 `NOT_RUN`）；
   经当前项目 MCP 手工完成 push→list→claim→complete（push revision 3，
@@ -61,7 +72,8 @@
     `connectorId=__custom__`。
 - 追加 D-019 外发节奏：所有逻辑外发消息共享最小间隔，默认 150ms，
   生产范围 100..200ms；ACK 与正式回复也串行拉开。
-- 追加 D-020 秘书预算：玩家秘书与 GM 推演秘书默认 **128 轮 / 5 分钟 / 单响应 8 工具**；
+- D-020 当前修订：玩家秘书与 GM 推演秘书默认 **128 轮 / 5 分钟 / 单响应 128 工具**
+  （2026-10-25 由 8 修订）；
   中央裁定 Agent 保持 8 轮/120 秒。预算耗尽回执会报告草案/查询/世界状态和是否需重发。
 - 此前 D-020 / LLBot 临时会话修复后 full gate：**619 tests / 0 failures / 0 errors / 0 skipped**
   （connect 38、connect-agent 21、taskflow 255、app 305）；
@@ -72,11 +84,12 @@
 - **QQ 后端迁移**：LLOneBot 8.3.2 / OneBot v11，WS 3001、HTTP 3000；
   HTTP Bearer/query 与 WS 握手均验证；`get_recent_contact` 缺失时自动回退群目录；
   `tf_qq_chat_list` / `tf_qq_history_read` / `tf_qq_message_get` 已通过 LLBot 实测。
-- **simulation/dist jar**：当前已替换为
-  `a1b1711a998806d76cf2a39862e84f0b3dfde302bd1be97498d49b3c1f24adfb`；
-  替换前 jar 备份为
-  `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-221343-pre-inbox`。
-  01:45 历史备份仍保留：`...backup-20261025-010828`；runtime 备份
+- **simulation/dist jar**：当前为
+  `55212c2ddb272d42000bec28a71eaac722769fb3e55021da72b729a08a08f010`；
+  本次替换前备份：
+  `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-224319-pre-tool-call-128`；
+  Mode A 部署前备份 `...backup-20261025-221343-pre-inbox`；01:45 历史备份
+  `...backup-20261025-010828`。runtime 备份
   `simulation/runtime.backup-20261025-010828-pre-llbot-compat`。
 - **01:45 时运行态**：当时隔壁会话启动过 app（PID 30737）、回环代理与 watcher；
   该进程在 2026-10-25 22:10 收工核对时已不存在。LLBot 3000/3001 仍监听。
@@ -137,6 +150,8 @@
 
 | 项 | 实际结果 |
 |---|---|
+| **秘书工具上限 128 focused** | **PASS**：`tools/gate.sh focused iibot-taskflow test`；taskflow 256 tests / 0 failures / 0 errors / 0 skipped；日志 `.work/tool-limit-128-focused.log` |
+| **秘书工具上限 128 full** | **PASS**：`tools/gate.sh full`；全仓 627 tests / 0 failures / 0 errors / 0 skipped（connect 38、connect-agent 21、taskflow 256、app 312）；日志 `.work/tool-limit-128-full.log` |
 | **本轮 Inbox Mode A focused** | **PASS**：`tools/gate.sh focused iibot-app test`；app 312 tests / 0 failures / 0 errors / 0 skipped；日志 `.work/inbox-gate-focused-final.log` |
 | **本轮 Inbox Mode A full** | **PASS**：`tools/gate.sh full`；全仓 626 tests / 0 failures / 0 errors / 0 skipped（connect 38、connect-agent 21、taskflow 255、app 312）；日志 `.work/inbox-gate-full-final.log` |
 | **本轮 docs** | **PASS**：`tools/gate.sh docs`；modules=4 files=486 links=174，active skills=1；日志 `.work/inbox-gate-docs-final.log` |

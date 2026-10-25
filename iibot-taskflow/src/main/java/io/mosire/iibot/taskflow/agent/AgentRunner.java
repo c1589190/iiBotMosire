@@ -48,7 +48,7 @@ public final class AgentRunner {
     /** 默认单回合时间预算；128 轮仍须有硬时间上限。 */
     public static final Duration DEFAULT_TIME_BUDGET = Duration.ofMinutes(5);
     /** 单次响应允许派发的工具调用上限。 */
-    public static final int DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE = 8;
+    public static final int DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE = 128;
 
     private final LlmClient llm;
     private final ToolCallAuthorizer authorizer;
@@ -56,7 +56,7 @@ public final class AgentRunner {
     private final Duration timeBudget;
     private final int maxToolCallsPerResponse;
 
-    /** 使用默认授权器、128 轮、5 分钟预算、单响应最多 8 条工具调用。 */
+    /** 使用默认授权器、128 轮、5 分钟预算、单响应最多 128 条工具调用。 */
     public AgentRunner(LlmClient llm) {
         this(llm, ToolCallAuthorizer.standard(), DEFAULT_MAX_ROUNDS,
                 DEFAULT_TIME_BUDGET, DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE);

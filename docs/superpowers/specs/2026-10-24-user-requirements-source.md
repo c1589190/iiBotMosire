@@ -305,7 +305,8 @@
 - **裁定**：
   1. 玩家秘书 `SecretarySession` 默认最大 LLM 往返轮数为 **128**；
   2. 世界顾问 / GM 推演秘书 `GmAideAgent` 默认最大轮数同步为 **128**；
-  3. 对应单回合时间预算为 **5 分钟**，单响应工具调用上限保持 **8**；
+  3. 对应单回合时间预算为 **5 分钟**；单响应工具调用上限原为 **8**，
+     2026-10-25 已修订为 **128**（见下）；
   4. 三者仍是硬上限，不允许无限循环、无限费用或自动外部副作用；
   5. 中央裁定 `AdjudicationService` 本轮不跟随调整（仍为 8 轮/120 秒）；
   6. 轮数/时间耗尽只能作为异常边界；玩家可见回执必须说明行动草案是否创建、
@@ -315,8 +316,19 @@
      用 `secretary_ticket_submit` 提交 `SETTING_QUERY`，不得把问题退回玩家补资料。
 - **默认常量**：`AgentRunner.DEFAULT_MAX_ROUNDS=128`、
   `AgentRunner.DEFAULT_TIME_BUDGET=5分钟`、
-  `AgentRunner.DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE=8`。
+  `AgentRunner.DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE=128`。
 - **状态**：已实现源码与自动化测试；模拟区 jar 尚未替换，真实玩家消息验收待跑。
+
+#### D-020 修订（2026-10-25）：单响应工具调用上限改为 128
+
+- **用户原话（逐字）**：
+  > 「竟然不许？我不是说了吗，别乱限制上限，改成128，你耳朵聋了吗？」
+- **裁定**：覆盖上节 D-020 第 3 项。玩家秘书 `SecretarySession`、GM 推演秘书
+  `GmAideAgent` 与 `AgentRunner` 默认单响应工具调用上限统一为 **128**；
+  不再使用 8 作为默认上限。
+- **触发证据**：模型一次性派发 10 个 `secretary_post_read_visible`，被
+  `DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE=8` 拦截为 `TOOL_CALL_LIMIT`，导致读取全部未执行。
+- **状态**：本轮改为 128，并增加“单响应 10 个工具调用全部执行”的回归测试。
 
 ## 六、待补问题
 

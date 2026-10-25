@@ -34,7 +34,7 @@
 | `D-017` | connectlib 平台级 QQ 能力 + 受控自主入团 | 已实现代码与测试；未部署/未真实 smoke | 需求原稿 §5.6；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
 | `D-018` | 工单板 wait 长轮询，第一条新信息到达前保持调用 | 已实现代码与测试；未部署/未真实 DSH smoke | 需求原稿 §5.7；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
 | `D-019` | 所有外发逻辑消息共享 100–200ms 最小间隔 | 已实现代码与测试；运行中旧 jar 未替换 | 需求原稿 §5.8；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
-| `D-020` | 玩家秘书与 GM 推演秘书默认 128 轮 / 5 分钟 / 单响应 8 工具 | 已实现源码与测试；目标 jar 未部署 | 需求原稿 §5.9；[状态](status/2026-10-24-d020-agent-budget.md) |
+| `D-020` | 玩家秘书与 GM 推演秘书默认 128 轮 / 5 分钟 / 单响应 128 工具（2026-10-25 修订，原 8） | 源码与测试已更新；模拟区 jar 需重新部署后生效 | 需求原稿 §5.9（含 2026-10-25 修订）；[历史状态](status/2026-10-24-d020-agent-budget.md) |
 
 ## 三、专题设计索引
 

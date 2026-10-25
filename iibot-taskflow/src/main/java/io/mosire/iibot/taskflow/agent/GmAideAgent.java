@@ -251,7 +251,8 @@ public final class GmAideAgent {
         }
         this.permissions = permissionBuilder.build();
         this.runner = new AgentRunner(llm, Objects.requireNonNull(authorizer, "authorizer"),
-                maxRounds, Objects.requireNonNull(timeBudget, "timeBudget"), 8);
+                maxRounds, Objects.requireNonNull(timeBudget, "timeBudget"),
+                AgentRunner.DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE);
     }
 
     /** 供宿主/测试核对工具面；返回不可变快照。 */

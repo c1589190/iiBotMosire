@@ -36,7 +36,7 @@
 `simulation/runtime/shared-skills/`、`simulation/runtime/secretaries/` 与
 `simulation/runtime/init/` 是运行态生成物或本局数据，不进入 Git；需要长期保留的规则
 变更必须先回写到上述正本，再重新下发。
-- D-020：玩家秘书与 GM 推演秘书默认 128 轮 / 5 分钟 / 单响应 8 工具；
+- D-020：玩家秘书与 GM 推演秘书默认 128 轮 / 5 分钟 / 单响应 128 工具；
   明确行动直接起草，资料缺口主动查 brief / 提交 `SETTING_QUERY`，不把问题退回玩家补资料。
 
 ## 当前正本

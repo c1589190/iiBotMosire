@@ -2,7 +2,9 @@ package io.mosire.iibot.taskflow.agent;
 
 import io.mosire.agentlib.context.ContextWindow;
 import io.mosire.agentlib.llm.ContentPart;
+import io.mosire.agentlib.llm.LlmMessage;
 import io.mosire.agentlib.llm.LlmResponse;
+import io.mosire.agentlib.runtime.StopReason;
 import io.mosire.agentlib.permission.AccessToken;
 import io.mosire.agentlib.permission.AgentPermissionSet;
 import io.mosire.agentlib.tool.AgentTool;
@@ -11,6 +13,7 @@ import io.mosire.agentlib.tool.ToolDefs;
 import io.mosire.agentlib.tool.ToolResult;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -49,6 +52,33 @@ class AgentRunnerTest {
         assertThat(llm.requests().get(0).messages().get(0).role()).isEqualTo("system");
         assertThat(llm.requests().get(1).messages().get(0).role()).isEqualTo("system");
         assertThat(ToolDefs.ofAll(List.of(tool))).hasSize(1);
+    }
+
+    @Test
+    void defaultRunnerAcceptsTenToolCallsInOneResponse() {
+        List<ContentPart> calls = new ArrayList<>();
+        for (int index = 0; index < 10; index++) {
+            calls.add(new ContentPart.ToolCall(
+                    "call-" + index, "allowed_tool", Map.of("value", "x")));
+        }
+        ScriptedLlm llm = ScriptedLlm.with(
+                new LlmResponse(LlmMessage.assistant(calls), "scripted", 0L, 0L),
+                LlmResponse.text("完成"));
+        CountingTool tool = new CountingTool("allowed_tool");
+        AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
+                .allowAll().build();
+        ContextWindow window = new ContextWindow("runner-ten-calls");
+
+        AgentRunResult result = new AgentRunner(llm).runTurn(window, "测试 system",
+                List.of(tool), new ToolContext(AccessToken.DEFAULT, permissions,
+                        Map.of(), Map.of()), "一次读取十项");
+
+        assertThat(result.turnResult().stopReason()).isEqualTo(StopReason.FINISHED);
+        assertThat(result.turnResult().toolCalls()).isEqualTo(10);
+        assertThat(result.toolInvocations()).hasSize(10);
+        assertThat(tool.calls()).isEqualTo(10);
+        assertThat(window.messages()).filteredOn(message -> message.role().equals("tool"))
+                .hasSize(10);
     }
 
     @Test

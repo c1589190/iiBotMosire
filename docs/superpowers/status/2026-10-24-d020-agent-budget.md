@@ -1,6 +1,7 @@
 # D-020 秘书 Agent 回合预算实现快照
 
 > **状态**：历史快照（2026-10-24）。**当前状态入口**：[`../../agents/STATUS.md`](../../agents/STATUS.md)。
+> **后续修订（2026-10-25）**：单响应工具调用上限已由 8 改为 **128**；本文中的 8 仅为历史实现快照。
 > **对应需求**：D-020
 > **需求原稿**：[`../specs/2026-10-24-user-requirements-source.md`](../specs/2026-10-24-user-requirements-source.md) §5.9
 
