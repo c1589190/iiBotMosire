@@ -11,8 +11,8 @@
   `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-221343-pre-inbox`）；
   模拟 local config 已加入 Inbox 块（备份
   `simulation/config/iibot.sim.local.json.backup-20261025-221343-pre-inbox`）。
-  app 当前运行 PID `78464`，控制 MCP `127.0.0.1:8765/mcp/control`，
-  embedded Inbox API `127.0.0.1:45253`，实际 `tools/list=88`，无
+  app 当前在 tmux `iibot-sim` 运行 PID `79068`，控制 MCP `127.0.0.1:8765/mcp/control`，
+  embedded Inbox API `127.0.0.1:44765`，实际 `tools/list=88`，无
   `tf_ticket_board`；`inbox_status` 已从权威工单产生 `available=1`，尚未绑定 DSH 会话。
 - 启动脚本 `02-start.sh` 现在会自动调用新增的 `08-inbox-descriptor.sh`，
   写出 `simulation/runtime/inbox-binding-descriptor.json`；给隔壁会话的引导词为
@@ -36,7 +36,7 @@
   unbind 后 occupied=false；两个 token 文件 0600、descriptor 无 raw token；
   进程停止后 control/embedded 端口关闭，显式 inbox dataDir 与 `inbox.db` 保留。
   证据：[`../superpowers/status/2026-10-25-inbox-mode-a-notification-workflow.md`](../superpowers/status/2026-10-25-inbox-mode-a-notification-workflow.md)。
-- **当前运行态（2026-10-25 22:18）**：模拟 app 正在运行 PID `78464`，
+- **当前运行态（2026-10-25 22:18）**：模拟 app 正在运行 PID `79068`，
   使用 `simulation/dist` 的 `a1b171...` jar；控制 MCP `127.0.0.1:8765/mcp/control`。
   该进程仅供用户/隔壁会话测试 Inbox 接入，未执行真实 QQ 外发；停止使用
   `simulation/scripts/03-stop.sh`。
