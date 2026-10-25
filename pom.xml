@@ -24,6 +24,7 @@
     <maven.compiler.release>21</maven.compiler.release>
     <jackson.version>2.22.2</jackson.version>
     <agentlib.version>0.2.3</agentlib.version>
+    <inbox.version>0.1.0-SNAPSHOT</inbox.version>
     <junit.version>5.11.4</junit.version>
     <assertj.version>3.27.7</assertj.version>
     <java.websocket.version>1.5.7</java.websocket.version>
@@ -64,6 +65,21 @@
         <groupId>io.mosire</groupId>
         <artifactId>docs-mosire</artifactId>
         <version>${agentlib.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.mosire</groupId>
+        <artifactId>inbox-embedded</artifactId>
+        <version>${inbox.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.mosire</groupId>
+        <artifactId>inbox-client</artifactId>
+        <version>${inbox.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.mosire</groupId>
+        <artifactId>inbox-mcp-tools-client</artifactId>
+        <version>${inbox.version}</version>
       </dependency>
       <dependency>
         <groupId>org.junit.jupiter</groupId>

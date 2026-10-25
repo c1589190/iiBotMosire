@@ -2,7 +2,8 @@
 """Read-only board watchdog with explicit publish-existing mode.
 
 Default policy:
-- Poll tickets and pending posts.
+- Poll the authoritative ticket list and pending posts via the project MCP.
+- Never use the retired tf_ticket_board long-poll workflow.
 - Record only state changes.
 - Never generate narrative, advance a campaign clock, auto-reply tickets, or publish.
 
@@ -80,12 +81,13 @@ def call_json(tool, args=None, timeout=POLL_TIMEOUT):
 
 
 def board_snapshot():
-    tickets = call_json('tf_ticket_board', {})
+    tickets = call_json('tf_ticket_list', {'limit': 500})
     posts = call_json('tf_post_list', {'status': 'PENDING_APPROVAL'})
-    ticket_rows = tickets.get('openClaimedRecent') or tickets.get('recent') or []
+    pending_statuses = {'OPEN', 'CLAIMED', 'CONFIRMED'}
     ticket_ids = sorted(
         (row.get('ticketId'), row.get('status'), row.get('revision'))
-        for row in ticket_rows if row.get('ticketId')
+        for row in tickets.get('tickets', [])
+        if row.get('ticketId') and row.get('status') in pending_statuses
     )
     post_ids = sorted(
         (row.get('postId'), row.get('revision'), row.get('visibility'))

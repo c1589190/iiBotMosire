@@ -51,5 +51,17 @@
     "path": "/mcp/control",
     "bearerTokenEnv": "IIBOT_CONTROL_TOKEN",
     "maxRequestBytes": 16777216
+  },
+  "inbox": {
+    "enabled": true,
+    "dataDir": "../runtime/inbox",
+    "inboxId": "iibot-sim",
+    "bindingLabel": "dsh-simulator-agent",
+    "channels": [
+      "ticket",
+      "publication-review"
+    ],
+    "pollIntervalMillis": 1000,
+    "bindingTtlHours": 24
   }
 }

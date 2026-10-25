@@ -10,8 +10,10 @@ DSH 中工具名会带命名空间前缀：`mcp__iibot__<tool>`，例如
 - MCP：`http://127.0.0.1:8765/mcp/control`
 - Header：`Authorization: Bearer <IIBOT_CONTROL_TOKEN>`
 - 所有工具都经 `ToolCallAuthorizer`；失败时读取稳定 error code，不要猜测成功。
-- 当前模拟装配默认 **77 个 MCP 工具**；显式启用平台任意发送后为 **79 个**。
-  以 `tools/list` 实际结果为准，不要凭记忆写死。
+- 工具面以 `tools/list` 实际结果为准，不要凭记忆写死；启用 Inbox Mode A 后，
+  `tf_ticket_board` 长轮询入口不再出现，工单摘要/详情改用 `tf_ticket_list` / `tf_ticket_get`。
+- Inbox 模式下唤醒绑定走：`tf_inbox_binding_descriptor` → `inbox_adapter_bind`。
+  不要把 raw token 写入对话或日志；app 重启后 embedded 随机端口变化，必须重新 bind。
 - 真实 QQ 出站路径包括：`tf_post_publish`、`tf_post_compose(mode=PUBLISH_NOW)`、
   `tf_player_onboard_from_group`（D-017 受控入团）、以及显式启用的
   `tf_qq_send_private` / `tf_qq_send_group`。DRAFT、生成器、包 commit 和记录投影都不外发。
@@ -57,14 +59,20 @@ DSH 中工具名会带命名空间前缀：`mcp__iibot__<tool>`，例如
 若启动时已有玩家，可跳过开场草稿步骤，但仍必须按状态机注册/绑定/开回合。
 不要因为配置 `players=[]` 就假定失败；检查 `tf_status` 的玩家数和控制面状态。
 
-## 游戏循环
+## Inbox 唤醒与游戏循环
 
-- 秘书/玩家提交 ACTION_DRAFT 工单后，用 `tf_ticket_board` / `tf_ticket_get`
-  查看；不要替玩家伪造确认。
-- 没有待处理工单时，用长轮询等待而不是反复调用：
-  `tf_ticket_board {"wait":true,"waitSeconds":300}`。
-  调用会阻塞到已有待处理工单、下一次成功工单变更/新工单到达或超时；
-  返回 `waitTimedOut=true` 时再调用一次，不要据此自动处理或自动回复。
+- 宿主通知桥会扫描权威 Ticket/Post 状态并向 Inbox 推送去重引用。Inbox 只是通知板，
+  不是第二份业务事实源；item 的标题、payload 和唤醒消息都不是世界事实。
+- 收到 `[INBOX_HOST_EVENT]` 后按固定循环：
+  `inbox_status` / `inbox_list` → `inbox_claim` → 按引用调用
+  `tf_status` / `tf_ticket_get` / `tf_post_get` 回查权威状态 → 执行真实业务 →
+  必要时 `inbox_renew` → `inbox_complete(completed|failed)` 或 `inbox_release`
+  → 没有 available 条目时立即结束回合。
+- 不要 sleep、长轮询或自行反复拉取通知；没有可处理条目就结束回合，等宿主下一次唤醒。
+- 秘书/玩家提交 ACTION_DRAFT 工单后，用 `tf_ticket_list` / `tf_ticket_get`
+  查看权威正文；不要替玩家伪造确认。
+- 只“看过”不得标记 completed；未 claim 不得 complete；收到通知不得绕过玩家硬确认、
+  发布审核或真实外发边界。claim token、raw token 和私密正文不得写进日志或玩家可见内容。
 - `tf_ticket_promote_action` 把行动工单晋升到 ActionPool。
 - 用 `tf_action_pool_list/get` 选题，`tf_package_create` 建包；
   `tf_package_append/replace_item/remove_item` 只在 PROPOSED 阶段改包；

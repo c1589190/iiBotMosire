@@ -181,18 +181,30 @@ tf_publication_opening
 - 要求玩家理解 MCP/workspace/draftId/ticketId；
 - 在报名时反复确认。
 
-## 六点四、工单板等待
+## 六点四、Inbox 唤醒
 
-当没有待处理工单时，不要高频轮询。调用：
+当前运行采用 InboxMosire Mode A。首次进入或 app 重启后：
+
+1. 调用 `tf_inbox_binding_descriptor`；
+2. 把返回的 `descriptor` 交给 DSH `inbox_adapter_bind`；
+3. 不要把 raw token 或 descriptor 文件路径写进对话、日志或玩家可见内容；
+4. 用 `inbox_adapter_status` 确认绑定/occupancy。
+
+收到 `[INBOX_HOST_EVENT]` 后：
 
 ```text
-tf_ticket_board {"wait":true,"waitSeconds":300}
+inbox_status / inbox_list
+  → inbox_claim
+  → tf_status / tf_ticket_get / tf_post_get 回查权威状态
+  → 执行真实业务
+  → 必要时 inbox_renew
+  → inbox_complete(completed|failed) 或 inbox_release
+  → available=0 时结束回合
 ```
 
-- 已有 OPEN/CLAIMED/CONFIRMED 工单时立即返回；
-- 否则阻塞到下一次成功工单变更/新工单到达或超时；
-- 超时返回 `waitTimedOut=true`，可再次调用；
-- `waitTimedOut` 不表示可以自动回复或自动处理，只表示本轮等待结束。
+不要 sleep、长轮询、反复 `inbox_list` 或调用 `tf_ticket_board`。没有 available item
+就结束本回合，等宿主下一次唤醒。item 标题/payload 只是引用，不是世界事实；只“看过”
+不得 completed，未 claim 不得 complete。
 
 ## 六点五、公屏玩家自主入团
 

@@ -42,7 +42,7 @@ public final class AppConfigLoader {
     private static final Set<String> ROOT_FIELDS = Set.of(
             "dataDir", "publicGroupId", "maxTurnMinutes", "napcat", "players", "directors",
             "world", "llm", "llmRoutes", "agentRoutes", "dispatcher", "outbox",
-            "scheduler", "control");
+            "scheduler", "control", "inbox");
     private static final Set<String> NAPCAT_FIELDS = Set.of(
             "eventWebSocketUri", "httpBaseUri", "accessTokenEnv", "accountId",
             "privateTempGroupId", "suppressSelfMessages", "requestTimeoutSeconds",
@@ -59,6 +59,9 @@ public final class AppConfigLoader {
     private static final Set<String> OUTBOX_FIELDS = Set.of(
             "sendTimeoutSeconds", "minSendIntervalMillis");
     private static final Set<String> SCHEDULER_FIELDS = Set.of("autoFreezeIntervalSeconds");
+    private static final Set<String> INBOX_FIELDS = Set.of(
+            "enabled", "dataDir", "inboxId", "bindingLabel", "channels",
+            "pollIntervalMillis", "bindingTtlHours");
     private static final Set<String> CONTROL_FIELDS = Set.of(
             "enabled", "host", "port", "path", "bearerTokenEnv", "maxRequestBytes", "platform");
     private static final Set<String> PLATFORM_FIELDS = Set.of(
@@ -133,9 +136,13 @@ public final class AppConfigLoader {
         ControlMcpConfig control = optionalObject(root, "control", "配置根")
                 .map(AppConfigLoader::parseControl)
                 .orElseGet(ControlMcpConfig::disabled);
+        AppConfig.Inbox inbox = optionalObject(root, "inbox", "配置根")
+                .map(node -> parseInbox(node, baseDir, dataDir))
+                .orElseGet(() -> AppConfig.Inbox.disabled(dataDir));
 
         return new AppConfig(dataDir, publicGroupId, maxTurnMinutes, napcat, players, directors,
-                world, llm, llmRoutes, agentRoutes, dispatcher, outbox, scheduler, control);
+                world, llm, llmRoutes, agentRoutes, dispatcher, outbox, scheduler, control,
+                inbox);
     }
 
     private static AppConfig.NapCat parseNapcat(JsonNode node) {
@@ -272,6 +279,64 @@ public final class AppConfigLoader {
         rejectUnknown(node, SCHEDULER_FIELDS, "scheduler");
         return new AppConfig.Scheduler(optionalInt(node, "autoFreezeIntervalSeconds", "scheduler",
                 AppConfig.Scheduler.defaults().autoFreezeIntervalSeconds()));
+    }
+
+    private static AppConfig.Inbox parseInbox(JsonNode node, Path baseDir, Path appDataDir) {
+        rejectUnknown(node, INBOX_FIELDS, "inbox");
+        boolean enabled = optionalBoolean(node, "enabled", "inbox", false);
+        Path defaultDataDir = appDataDir.resolve("inbox");
+        Path dataDir = optionalText(node, "dataDir", "inbox")
+                .map(raw -> resolvePath(baseDir, raw, "inbox.dataDir"))
+                .orElse(defaultDataDir);
+        String inboxId = optionalText(node, "inboxId", "inbox")
+                .orElse(AppConfig.Inbox.DEFAULT_INBOX_ID);
+        String bindingLabel = optionalText(node, "bindingLabel", "inbox")
+                .orElse(AppConfig.Inbox.DEFAULT_BINDING_LABEL);
+        Set<String> channels = optionalStringSet(node, "channels", "inbox",
+                AppConfig.Inbox.DEFAULT_CHANNELS);
+        long pollIntervalMillis = optionalLong(node, "pollIntervalMillis", "inbox",
+                AppConfig.Inbox.DEFAULT_POLL_INTERVAL_MILLIS);
+        long bindingTtlHours = optionalLong(node, "bindingTtlHours", "inbox",
+                AppConfig.Inbox.DEFAULT_BINDING_TTL_HOURS);
+        try {
+            return new AppConfig.Inbox(enabled, dataDir, inboxId, bindingLabel, channels,
+                    pollIntervalMillis, bindingTtlHours);
+        } catch (ConfigException invalid) {
+            throw invalid;
+        } catch (IllegalArgumentException invalid) {
+            throw new ConfigException("inbox 配置非法: " + invalid.getMessage());
+        }
+    }
+
+    private static Set<String> optionalStringSet(JsonNode parent, String field, String location,
+                                                 Set<String> defaultValue) {
+        JsonNode node = parent.get(field);
+        if (node == null || node.isNull()) {
+            return defaultValue;
+        }
+        if (!node.isArray()) {
+            throw new ConfigException(location + "." + field + " 必须是字符串数组");
+        }
+        Set<String> values = new java.util.LinkedHashSet<>();
+        for (JsonNode item : node) {
+            if (!item.isTextual() || item.asText().isBlank()) {
+                throw new ConfigException(location + "." + field + " 不能包含空值");
+            }
+            values.add(item.asText().strip());
+        }
+        return Set.copyOf(values);
+    }
+
+    private static long optionalLong(JsonNode parent, String field, String location,
+                                     long defaultValue) {
+        JsonNode node = parent.get(field);
+        if (node == null || node.isNull()) {
+            return defaultValue;
+        }
+        if (!node.isIntegralNumber() || !node.canConvertToLong()) {
+            throw new ConfigException(location + "." + field + " 必须是整数");
+        }
+        return node.asLong();
     }
 
     private static ControlMcpConfig parseControl(JsonNode node) {

@@ -50,6 +50,15 @@ control.update({
     "maxRequestBytes": 16777216,
 })
 sim["control"] = control
+sim["inbox"] = {
+    "enabled": True,
+    "dataDir": "../runtime/inbox",
+    "inboxId": "iibot-sim",
+    "bindingLabel": "dsh-simulator-agent",
+    "channels": ["ticket", "publication-review"],
+    "pollIntervalMillis": 1000,
+    "bindingTtlHours": 24,
+}
 
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(json.dumps(sim, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

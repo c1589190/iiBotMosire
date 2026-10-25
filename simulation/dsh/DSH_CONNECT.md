@@ -64,8 +64,9 @@ mcp_connector_session_tools preview-activate → activate
   `127.0.0.1:8766`；
 - DSH Connector 已连接，自定义连接 `connectorId=__custom__`、
   `connectionKey=custom-iibot`，健康检查 PASS；
-- 实际工具数 77，`mcp__iibot__tf_*` 可直接调用；
-- `tf_ticket_board wait=true` 的唤醒和超时均实测 PASS；
+- 当时实际工具数 77（旧 jar，未启用 Inbox Mode A）；
+- 旧 jar 的 `tf_ticket_board wait=true` 曾是主通知入口；Inbox 接入后该 Agent 长轮询
+  工作流已废弃，改由宿主通知桥 + DSH adapter 唤醒；
 - `tf_post_compose DRAFT` 实测 PASS，未真实外发；
 - 自主入团非报名消息安全拒绝 `OPT_IN_REQUIRED`，未注册、未发送；
 - 任意发送工具当前未注册，符合默认关闭策略。
@@ -97,11 +98,15 @@ simulation/scripts/06-mcp.sh --list | head
 
 ```text
 tf_status
-tf_ticket_board
+tf_ticket_list
+tf_ticket_get
 tf_qq_chat_list
 tf_qq_history_read
 tf_player_onboard_from_group
 tf_post_compose
+inbox_status
+inbox_list
+tf_inbox_binding_descriptor
 ```
 
 如果这里失败，先修 app/MCP，不要启动 DSH。`cordis.patch.yml` 设置了
@@ -162,12 +167,12 @@ test -n "$IIBOT_CONTROL_TOKEN" && echo TOKEN_READY
         url: http://127.0.0.1:8765/mcp/control
         headers:
           Authorization: !!js '`Bearer ${process.env.IIBOT_CONTROL_TOKEN}`'
-        toolCallTimeoutMs: 360000
+        toolCallTimeoutMs: 60000
         failOnStartupError: true
 ```
 
-`toolCallTimeoutMs` 设为 360 秒，是为了让 `tf_ticket_board {"wait":true,"waitSeconds":300}`
-能完整等待；默认 60 秒会在长轮询返回前被 DSH 截断。
+`toolCallTimeoutMs` 只约束普通 MCP 工具调用。Inbox Mode A 不靠长轮询：
+没有 available item 时结束回合，下一条通知由 DSH adapter 唤醒。
 
 ## 4A. headless 接入
 
@@ -228,7 +233,17 @@ MCP client 是启动期插入的，必须重启到带 patch 的会话。
 1. DSH 工具列表里应出现 `mcp__iibot__tf_status`；
 2. 调 `tf_status` 得到 `ok:true`；
 3. 调 `tf_qq_chat_list {"scope":"configured"}` 能看到当前推演群；
-4. 调 `tf_ticket_board {"wait":true,"waitSeconds":120}` 可等待工单。
+4. 调 `tf_inbox_binding_descriptor`，把 descriptor 交给 `inbox_adapter_bind`
+   （或先运行 `simulation/scripts/08-inbox-descriptor.sh` 生成 0600 descriptor 文件）；
+5. 用 `inbox_adapter_status` 确认绑定；创建测试工单/待审推文后，宿主通知桥应 push；
+6. 收到唤醒后 `inbox_status/list → claim → tf_ticket_get/post_get → complete/release`，
+   `available=0` 即结束回合，不轮询。
+
+最简可粘贴给隔壁会话的接入提示词：
+
+```text
+simulation/dsh/INBOX_NEIGHBOR_HANDOFF_PROMPT.md
+```
 
 若工具没出现，按顺序查：
 
@@ -256,7 +271,7 @@ test -n "$IIBOT_CONTROL_TOKEN" && echo TOKEN_READY
 - 因此现在直接启动 DSH 不会得到新工具，必须先完成“部署新 jar → 启动 app/MCP →
   安装 MCP client 插件 → 用带 patch 的 DSH 会话启动”这一整条顺序。
 
-## 7. 新功能 smoke 结果（2026-10-24 22:31）
+## 7. 历史 smoke 结果（2026-10-24 22:31，旧 tf_ticket_board 工作流）
 
 已通过 DSH MCP Connector 直接调用新 jar 的工具：
 
@@ -266,9 +281,9 @@ test -n "$IIBOT_CONTROL_TOKEN" && echo TOKEN_READY
 - `tf_qq_group_members`：PASS，返回群成员目录。
 - `tf_qq_message_get`：近期消息 PASS；历史较早的一条返回 `MESSAGE_UNAVAILABLE`，
   属于 NapCat 可访问范围差异，尚未判定为代码缺陷。
-- `tf_ticket_board wait=true waitSeconds=10`：PASS，超时语义正确。
-- 长轮询唤醒：后台创建 GM_NOTE 后，等待中的 board 调用以
-  `wokeByChange=true` 返回，PASS；测试工单随后关闭。
+- 旧工作流中的 `tf_ticket_board wait=true waitSeconds=10` 超时语义当时 PASS；
+  该入口在 Inbox Mode A 下已不再暴露。Inbox 唤醒的当前证据见
+  `docs/agents/STATUS.md`。
 - `tf_post_compose mode=DRAFT`：PASS；草稿可读取，未发送 QQ。
 - `tf_player_onboard_from_group`：使用非报名来源消息时返回
   `OPT_IN_REQUIRED`，未注册、未发送，PASS（安全拒绝路径）。

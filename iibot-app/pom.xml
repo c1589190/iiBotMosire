@@ -22,6 +22,25 @@
       <artifactId>iibot-connect-agent</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <dependency>
+      <groupId>io.mosire</groupId>
+      <artifactId>inbox-embedded</artifactId>
+      <exclusions>
+        <!-- 组合根统一使用 log4j-slf4j2-impl，避免与 embedded 的 slf4j-simple 双 provider。 -->
+        <exclusion>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-simple</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>io.mosire</groupId>
+      <artifactId>inbox-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.mosire</groupId>
+      <artifactId>inbox-mcp-tools-client</artifactId>
+    </dependency>
     <!-- Taskflow 快照持久化需要 Instant 的 ISO-8601 支持；版本由根 Jackson BOM 管理。 -->
     <dependency>
       <groupId>com.fasterxml.jackson.datatype</groupId>

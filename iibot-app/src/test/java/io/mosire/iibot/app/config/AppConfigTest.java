@@ -449,6 +449,76 @@ class AppConfigTest {
                 .hasMessageContaining("重复字段");
     }
 
+    @Test
+    void inboxConfigDefaultsDisabledAndUsesPersistentAppDataSubdirectory() {
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("inbox-default.json"),
+                TestSupport.validConfigNode(tempDir.resolve("data"), tempDir.resolve("facts.json")));
+
+        AppConfig config = TestSupport.loadConfig(configFile);
+
+        assertThat(config.inbox().enabled()).isFalse();
+        assertThat(config.inbox().dataDir()).isEqualTo(
+                tempDir.resolve("data").toAbsolutePath().resolve("inbox"));
+        assertThat(config.inbox().inboxId()).isEqualTo(AppConfig.Inbox.DEFAULT_INBOX_ID);
+        assertThat(config.inbox().bindingLabel())
+                .isEqualTo(AppConfig.Inbox.DEFAULT_BINDING_LABEL);
+        assertThat(config.inbox().channels())
+                .containsExactlyInAnyOrder("ticket", "publication-review");
+        assertThat(config.inbox().pollIntervalMillis())
+                .isEqualTo(AppConfig.Inbox.DEFAULT_POLL_INTERVAL_MILLIS);
+        assertThat(config.inbox().bindingTtlHours())
+                .isEqualTo(AppConfig.Inbox.DEFAULT_BINDING_TTL_HOURS);
+    }
+
+    @Test
+    void inboxConfigParsesExplicitPersistentBlock() {
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("inbox-enabled.json"),
+                TestSupport.validConfigNode(tempDir.resolve("data"), tempDir.resolve("facts.json")));
+        ObjectNode root = readNode(configFile);
+        ObjectNode inbox = root.putObject("inbox");
+        inbox.put("enabled", true);
+        inbox.put("dataDir", "inbox-state");
+        inbox.put("inboxId", "app-a");
+        inbox.put("bindingLabel", "dsh-session-S1");
+        inbox.putArray("channels").add("ticket");
+        inbox.put("pollIntervalMillis", 250);
+        inbox.put("bindingTtlHours", 12);
+        TestSupport.writeJson(configFile, root);
+
+        AppConfig config = TestSupport.loadConfig(configFile);
+
+        assertThat(config.inbox().enabled()).isTrue();
+        assertThat(config.inbox().dataDir())
+                .isEqualTo(tempDir.resolve("inbox-state").toAbsolutePath());
+        assertThat(config.inbox().inboxId()).isEqualTo("app-a");
+        assertThat(config.inbox().bindingLabel()).isEqualTo("dsh-session-S1");
+        assertThat(config.inbox().channels()).containsExactly("ticket");
+        assertThat(config.inbox().pollIntervalMillis()).isEqualTo(250);
+        assertThat(config.inbox().bindingTtlHours()).isEqualTo(12);
+    }
+
+    @Test
+    void inboxConfigRejectsInvalidPollIntervalAndChannelWithoutLeakingInput() {
+        Path configFile = TestSupport.writeConfig(tempDir.resolve("inbox-invalid.json"),
+                TestSupport.validConfigNode(tempDir.resolve("data"), tempDir.resolve("facts.json")));
+        ObjectNode root = readNode(configFile);
+        ObjectNode inbox = root.putObject("inbox");
+        inbox.put("enabled", true);
+        inbox.put("pollIntervalMillis", 0);
+        TestSupport.writeJson(configFile, root);
+        assertThatThrownBy(() -> TestSupport.loadConfig(configFile))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("pollIntervalMillis");
+
+        inbox.put("pollIntervalMillis", 1000);
+        inbox.putArray("channels").add("bad channel/token-value");
+        TestSupport.writeJson(configFile, root);
+        assertThatThrownBy(() -> TestSupport.loadConfig(configFile))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("inbox.channels")
+                .hasMessageNotContaining("token-value");
+    }
+
     private static ObjectNode llmNode(String baseUrl, String model, String apiKeyEnv) {
         ObjectNode node = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
         node.put("baseUrl", baseUrl);

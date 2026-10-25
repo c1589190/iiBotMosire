@@ -13,10 +13,21 @@ require_env IIBOT_CONTROL_TOKEN
 mkdir -p "$LOGS" "$RUNTIME"
 chmod 700 "$LOGS" "$RUNTIME"
 
+print_inbox_handoff() {
+    if "$SCRIPT_DIR/08-inbox-descriptor.sh"; then
+        echo "INBOX_HANDOFF_PROMPT=$INBOX_HANDOFF_PROMPT"
+        echo "NEXT: 把 $INBOX_DESCRIPTOR_FILE 中的 descriptor 交给 DSH inbox_adapter_bind"
+        echo "NOTE: app 重启后必须重新执行 $SCRIPT_DIR/08-inbox-descriptor.sh 并重新 bind"
+    else
+        echo "WARN: inbox descriptor 获取失败；检查 config/inbox 与 app 日志" >&2
+    fi
+}
+
 if [ -f "$LOGS/app.pid" ]; then
     old="$(cat "$LOGS/app.pid" 2>/dev/null || true)"
     if [ -n "$old" ] && kill -0 "$old" 2>/dev/null; then
         echo "app already running pid=$old"
+        print_inbox_handoff
         exit 0
     fi
     rm -f "$LOGS/app.pid"
@@ -40,3 +51,5 @@ if ! wait_for_mcp; then
 fi
 echo "APP_STARTED pid=$pid"
 tail -20 "$LOGS/app.log" || true
+echo
+print_inbox_handoff

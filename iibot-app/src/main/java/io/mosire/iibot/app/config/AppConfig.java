@@ -42,6 +42,7 @@ import java.util.regex.Pattern;
  * @param outbox         发送等待上限配置
  * @param scheduler      自动冻结调度配置
  * @param control       外部控制 MCP 配置；缺省关闭，token 只保存环境变量名
+ * @param inbox          InboxMosire Mode A 配置；缺省关闭，启用时数据目录显式持久化
  */
 public record AppConfig(
         Path dataDir,
@@ -57,7 +58,8 @@ public record AppConfig(
         Dispatcher dispatcher,
         Outbox outbox,
         Scheduler scheduler,
-        ControlMcpConfig control) {
+        ControlMcpConfig control,
+        Inbox inbox) {
 
     /** 现有 {@code llm} 配置对应的保留默认路由名。 */
     public static final String DEFAULT_LLM_ROUTE = "default";
@@ -67,6 +69,7 @@ public record AppConfig(
     public static final String AGENT_GM_AIDE = "gmAide";
 
     private static final Pattern ROUTE_NAME = Pattern.compile("[A-Za-z0-9_.-]+");
+    private static final Pattern INBOX_ID = Pattern.compile("[A-Za-z0-9._-]{1,64}");
 
     public AppConfig {
         dataDir = requireAbsolutePath(dataDir, "dataDir");
@@ -89,6 +92,7 @@ public record AppConfig(
         outbox = outbox == null ? Outbox.defaults() : outbox;
         scheduler = scheduler == null ? Scheduler.defaults() : scheduler;
         control = control == null ? ControlMcpConfig.disabled() : control;
+        inbox = inbox == null ? Inbox.disabled(dataDir) : inbox;
         validateUniqueIdentities(players, directors);
     }
 
@@ -238,6 +242,66 @@ public record AppConfig(
         }
     }
 
+    /**
+     * InboxMosire Mode A 配置。
+     *
+     * <p>整个配置块缺省时关闭。启用后 embedded server 使用显式持久 {@code dataDir}
+     * （缺省为 app {@code dataDir/inbox}）；程序 token、wake token 与不含 raw token
+     * 的 BindingDescriptor 都写入该目录。{@code channels} 为空集表示订阅全部 channel。</p>
+     */
+    public record Inbox(
+            boolean enabled,
+            Path dataDir,
+            String inboxId,
+            String bindingLabel,
+            Set<String> channels,
+            long pollIntervalMillis,
+            long bindingTtlHours) {
+
+        public static final String DEFAULT_INBOX_ID = "iibot-app";
+        public static final String DEFAULT_BINDING_LABEL = "dsh-simulator-agent";
+        public static final long DEFAULT_POLL_INTERVAL_MILLIS = 1_000L;
+        public static final long DEFAULT_BINDING_TTL_HOURS = 24L;
+        public static final Set<String> DEFAULT_CHANNELS =
+                Set.of("ticket", "publication-review");
+
+        public Inbox {
+            dataDir = requireAbsolutePath(dataDir, "inbox.dataDir");
+            inboxId = requireInboxId(inboxId, "inbox.inboxId");
+            bindingLabel = requireBoundedText(bindingLabel, "inbox.bindingLabel", 200);
+            channels = channels == null
+                    ? DEFAULT_CHANNELS : Set.copyOf(new java.util.LinkedHashSet<>(channels));
+            if (channels.stream().anyMatch(value -> value == null || !INBOX_ID.matcher(value).matches())) {
+                throw new ConfigException(
+                        "inbox.channels 每项必须为 1..64 位 [A-Za-z0-9._-]");
+            }
+            if (pollIntervalMillis <= 0 || pollIntervalMillis > 3_600_000L) {
+                throw new ConfigException(
+                        "inbox.pollIntervalMillis 必须在 1..3600000 范围内");
+            }
+            if (bindingTtlHours <= 0 || bindingTtlHours > 8_760L) {
+                throw new ConfigException("inbox.bindingTtlHours 必须在 1..8760 范围内");
+            }
+        }
+
+        public static Inbox disabled(Path appDataDir) {
+            return new Inbox(false, appDataDir.resolve("inbox"), DEFAULT_INBOX_ID,
+                    DEFAULT_BINDING_LABEL, DEFAULT_CHANNELS,
+                    DEFAULT_POLL_INTERVAL_MILLIS, DEFAULT_BINDING_TTL_HOURS);
+        }
+
+        @Override
+        public String toString() {
+            return "Inbox{enabled=" + enabled
+                    + ", dataDir=" + dataDir
+                    + ", inboxId=" + inboxId
+                    + ", bindingLabel=" + bindingLabel
+                    + ", channels=" + channels
+                    + ", pollIntervalMillis=" + pollIntervalMillis
+                    + ", bindingTtlHours=" + bindingTtlHours + '}';
+        }
+    }
+
     /** 入站 mailbox 配置；队列有界，满时记录并拒绝，不悄悄积压。 */
     public record Dispatcher(int maxConcurrentSessions, int maxPendingPerUser, int dedupeCapacity) {
         public Dispatcher {
@@ -347,7 +411,8 @@ public record AppConfig(
                 + ", dispatcher=" + dispatcher
                 + ", outbox=" + outbox
                 + ", scheduler=" + scheduler
-                + ", control=" + control + '}';
+                + ", control=" + control
+                + ", inbox=" + inbox + '}';
     }
 
     private static Optional<Map<String, Llm>> normalizeLlmRoutes(
@@ -434,6 +499,24 @@ public record AppConfig(
         all.addAll(first);
         all.addAll(second);
         return all;
+    }
+
+    private static String requireInboxId(String value, String field) {
+        if (value == null || !INBOX_ID.matcher(value).matches()) {
+            throw new ConfigException(field + " 必须为 1..64 位 [A-Za-z0-9._-]");
+        }
+        return value;
+    }
+
+    private static String requireBoundedText(String value, String field, int maxLength) {
+        String normalized = requireText(value, field);
+        if (normalized.length() > maxLength) {
+            throw new ConfigException(field + " 超过长度上限 " + maxLength);
+        }
+        if (normalized.chars().anyMatch(Character::isISOControl)) {
+            throw new ConfigException(field + " 不得含控制字符");
+        }
+        return normalized;
     }
 
     private static String requireText(String value, String field) {

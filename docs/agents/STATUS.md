@@ -1,18 +1,52 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-25 01:45（Asia/Shanghai）
+> **更新时间**：2026-10-25 22:18（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
-## 0. 最新更新（2026-10-25 01:45）
+## 0. 最新更新（2026-10-25 22:18）
 
-- **D-017 平台级 QQ 能力与受控自主入团已实现代码与自动化测试**：
+- **模拟区 Inbox Mode A 已部署并启动**：
+  `simulation/dist` jar 已替换为 `a1b171...`（旧 jar 备份
+  `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-221343-pre-inbox`）；
+  模拟 local config 已加入 Inbox 块（备份
+  `simulation/config/iibot.sim.local.json.backup-20261025-221343-pre-inbox`）。
+  app 当前运行 PID `78464`，控制 MCP `127.0.0.1:8765/mcp/control`，
+  embedded Inbox API `127.0.0.1:45253`，实际 `tools/list=88`，无
+  `tf_ticket_board`；`inbox_status` 已从权威工单产生 `available=1`，尚未绑定 DSH 会话。
+- 启动脚本 `02-start.sh` 现在会自动调用新增的 `08-inbox-descriptor.sh`，
+  写出 `simulation/runtime/inbox-binding-descriptor.json`；给隔壁会话的引导词为
+  `simulation/dsh/INBOX_NEIGHBOR_HANDOFF_PROMPT.md`。
+- **InboxMosire Mode A 通知工作流已实现代码与自动化测试**：
+  `iibot-app` 内嵌 `EmbeddedInboxServer`，签发 program MCP token 与 DSH wake token
+  到 `0600` 文件，持久化不含 raw token 的 `BindingDescriptor`；
+  控制 MCP 增加 11 个 `inbox_*` + `tf_inbox_binding_descriptor`，启用时隐藏
+  `tf_ticket_board` 长轮询入口但保留 `tf_ticket_list/get`；
+  宿主通知桥按 revision 去重推送 ticket 与 publication-review 引用。
+- `tools/gate.sh focused iibot-app test` **PASS**：app 312 tests / 0 failures /
+  0 errors / 0 skipped；结论为 `FOCUSED TEST PASSED (NOT a full gate)`。
+- `tools/gate.sh full` **PASS**：全仓 **626 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 38、connect-agent 21、taskflow 255、app 312）；shaded jar 已重建，
+  sha256 `a1b1711a998806d76cf2a39862e84f0b3dfde302bd1be97498d49b3c1f24adfb`。
+- `tools/gate.sh docs` **PASS**：modules=4 files=486 links=174，active skills=1。
+- 隔离 smoke（Fake LLM/Fake QQ adapter，非真实外发）：新工单 + 待审推文产生
+  `revision=2, available=2`；当前项目 MCP `tools/list=83` 且无 `tf_ticket_board`（隔离 Fake 装配；真实模拟装配 `NOT_RUN`）；
+  经当前项目 MCP 手工完成 push→list→claim→complete（push revision 3，
+  complete 后 available 回到 2）；DSH adapter v2 bind 后 occupancy=true，
+  unbind 后 occupied=false；两个 token 文件 0600、descriptor 无 raw token；
+  进程停止后 control/embedded 端口关闭，显式 inbox dataDir 与 `inbox.db` 保留。
+  证据：[`../superpowers/status/2026-10-25-inbox-mode-a-notification-workflow.md`](../superpowers/status/2026-10-25-inbox-mode-a-notification-workflow.md)。
+- **当前运行态（2026-10-25 22:18）**：模拟 app 正在运行 PID `78464`，
+  使用 `simulation/dist` 的 `a1b171...` jar；控制 MCP `127.0.0.1:8765/mcp/control`。
+  该进程仅供用户/隔壁会话测试 Inbox 接入，未执行真实 QQ 外发；停止使用
+  `simulation/scripts/03-stop.sh`。
+- **此前（01:45 快照）**：D-017 平台级 QQ 能力与受控自主入团已实现代码与自动化测试：
   connectlib `QqPlatformCapability`、NapCat 目录/历史/消息定位/临时私聊发送；
   MCP `tf_qq_chat_list`、`tf_qq_history_read`（任意 Bot 可访问目标）、
   `tf_qq_group_members`、`tf_qq_message_get`、`tf_post_compose`、
   `tf_player_onboard_from_group`；显式开启后 `tf_qq_send_private/group`。
-- D-018 工单板 `wait` 长轮询已实现：`tf_ticket_board {"wait":true,"waitSeconds":300}`；
-  已有待处理工单立即返回，否则阻塞到下一次成功工单变更/新工单或超时。
+- D-018 历史：未启用 Inbox 时装配曾有 `tf_ticket_board {"wait":true,"waitSeconds":300}`
+  长轮询；Inbox Mode A 下该 Agent 入口不再暴露（代码仍保留为兼容/诊断工具类）。
 - `tools/gate.sh full` **PASS**：全仓 **614 tests / 0 failures / 0 errors / 0 skipped**
   （connect 36、connect-agent 21、taskflow 252、app 305）；源码 target jar 已重建，
   sha256 `256944e469859f5bf84cb35a7850d5377a277cbbaef4c024a98c6effeeba8d52`。
@@ -29,19 +63,23 @@
   生产范围 100..200ms；ACK 与正式回复也串行拉开。
 - 追加 D-020 秘书预算：玩家秘书与 GM 推演秘书默认 **128 轮 / 5 分钟 / 单响应 8 工具**；
   中央裁定 Agent 保持 8 轮/120 秒。预算耗尽回执会报告草案/查询/世界状态和是否需重发。
-- D-020 / LLBot 临时会话修复后 full gate：**619 tests / 0 failures / 0 errors / 0 skipped**
+- 此前 D-020 / LLBot 临时会话修复后 full gate：**619 tests / 0 failures / 0 errors / 0 skipped**
   （connect 38、connect-agent 21、taskflow 255、app 305）；
-  最新 target jar `f9f2e44885fbb65c9ab3a53fc739eaf137b0dfed7e8c8b2a98e984228bf69960` 尚未替换 simulation/dist。
-- 默认模拟 MCP 工具面 **77**；`control.platform.allowArbitrarySend=true` 后 **79**。
+  当时 target jar `f9f2e44885fbb65c9ab3a53fc739eaf137b0dfed7e8c8b2a98e984228bf69960`
+  未替换 simulation/dist（2026-10-25 01:45 历史事实）。
+- 01:45 时未启用 Inbox 的模拟 MCP 工具面 **77**；
+  `control.platform.allowArbitrarySend=true` 后 **79**（历史事实）。
 - **QQ 后端迁移**：LLOneBot 8.3.2 / OneBot v11，WS 3001、HTTP 3000；
   HTTP Bearer/query 与 WS 握手均验证；`get_recent_contact` 缺失时自动回退群目录；
   `tf_qq_chat_list` / `tf_qq_history_read` / `tf_qq_message_get` 已通过 LLBot 实测。
-- **simulation/dist jar**：已替换为 `484bebc2d486353c9cf9367838a9b415b7f0c60d7e486dd90da2c087c913d3cb`；
-  旧 jar 备份为 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-010828`；
-  替换前 runtime 备份：`simulation/runtime.backup-20261025-010828-pre-llbot-compat`。
-- **当前运行态**：隔壁会话已启动 app（PID 30737）、回环代理（PID 13152）
-  与两个 watcher（PID 13149/13150）；LLBot 3000/3001 运行；
-  运行中的是 `484beb...`；最新 target jar `f9f2e448...` 未替换，避免打断当前活动局。
+- **simulation/dist jar**：当前已替换为
+  `a1b1711a998806d76cf2a39862e84f0b3dfde302bd1be97498d49b3c1f24adfb`；
+  替换前 jar 备份为
+  `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261025-221343-pre-inbox`。
+  01:45 历史备份仍保留：`...backup-20261025-010828`；runtime 备份
+  `simulation/runtime.backup-20261025-010828-pre-llbot-compat`。
+- **01:45 时运行态**：当时隔壁会话启动过 app（PID 30737）、回环代理与 watcher；
+  该进程在 2026-10-25 22:10 收工核对时已不存在。LLBot 3000/3001 仍监听。
 - **2026-10-25 群临时会话事故**：LLBot 不支持主动临时会话；
   `send_private_msg {user_id, group_id}` 在无 `temp_chat_info` 时降级为普通 C2C，
   返回 `ONEBOT_RETCODE_200` / code 16“请先添加对方为好友”；
@@ -92,13 +130,18 @@
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
 | 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.3`（Pages 固定版） |
 | 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`，约 21 MB |
-| Git/提交 | 本轮代码提交 `da0b8d7`，已推送 `origin/main`；随后仅追加本状态文档更新。P8-A 历史 feature `1480c55` |
+| Git/提交 | HEAD `35062c6`（本轮未提交）；工作树含 Inbox Mode A 改动及既有 Skill 改动。P8-A 历史 feature `1480c55` |
 | 本机工作树 | 代码/文档/模拟区资产已提交；`target/`、`simulation/dist/`、`simulation/runtime/` 按 gitignore 不入库 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
+| **本轮 Inbox Mode A focused** | **PASS**：`tools/gate.sh focused iibot-app test`；app 312 tests / 0 failures / 0 errors / 0 skipped；日志 `.work/inbox-gate-focused-final.log` |
+| **本轮 Inbox Mode A full** | **PASS**：`tools/gate.sh full`；全仓 626 tests / 0 failures / 0 errors / 0 skipped（connect 38、connect-agent 21、taskflow 255、app 312）；日志 `.work/inbox-gate-full-final.log` |
+| **本轮 docs** | **PASS**：`tools/gate.sh docs`；modules=4 files=486 links=174，active skills=1；日志 `.work/inbox-gate-docs-final.log` |
+| **本轮 Inbox live smoke** | **PARTIAL（隔离环境）**：Fake LLM/Fake adapter；MCP 83 工具、available=2、DSH bind/unbind occupancy PASS、端口关闭/dataDir 保留 PASS；真实 QQ/LLM 外发 `NOT_RUN`；证据 `.work/inbox-smoke/run-live-2/` |
+| **本轮模拟区真实启动 smoke** | **PASS（启动/工具面）**：新 dist jar 实际启动，recovery=true，`tools/list=88`、11 个 `inbox_*` + descriptor、无 `tf_ticket_board`；`08-inbox-descriptor.sh` 生成 0600 descriptor；`inbox_status` available=1；未执行真实外发。日志 `.work/inbox-sim-start.log`、`.work/inbox-sim-tools-list.txt`、`.work/inbox-sim-descriptor.out` |
 | 最近 full clean（D-014 cache/history） | **549 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 33、connect-agent 21、taskflow 236、app 259），`tools/gate.sh full` PASS；日志 `.work/cache-full-final3.log` |
 | 最近 full clean（D-015 玩家体验运行时） | **568 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 33、connect-agent 21、taskflow 248、app 266），`tools/gate.sh full` PASS；日志 `/tmp/pe-final-gate-full-d016.log`。门禁后按同一源码重建并部署，当前 `simulation/dist` jar sha256 `ba7c617039a57370e89de32b547be6de8772e6af1e700a6406e78207c7099cc6`（`sha256sum -c` OK）。 |
 | 前次 full clean（P8-A） | **526 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS**（connect 29、connect-agent 21、taskflow 230、app 246），`tools/gate.sh full` PASS；日志 `.work/p8a-full.log` |
@@ -183,29 +226,46 @@
 
 ## 6. 未验证 / 风险 / blocker
 
-1. **第二轮真实行动/公共推文未跑**：ACK/工作区/GM aide/私人推文/共享 Skill/投诉真实闭环已验证；第二轮决策与公共推文尚未跑。
-2. **真实 DSH 外部会话未接入**：当前由本地 Java MCP client 驱动；DSH host 会话尚未实际连接。
-3. **真实多玩家/多回合/长跑未运行**：当前仅 1 名真实玩家、1 个已发布回合。
-4. **模型热切换未实现**：当前按 `agentRoutes` 配置切换模型并重启；无运行时 admin 工具。
-5. **跨进程并发 ledger 未验**：`JsonDeliveryLedger` 保证同 JVM 多实例与重启场景；多进程同时写同一 ledger 未验。
-6. **投诉状态有限**：当前只有 SUBMITTED→RESPONDED，无关闭/升级/多次回复。
-7. **逐事件回放未实现，重启恢复依赖完整快照**：`taskflow-state.json` 原子持久化并在启动时恢复，事件库 seq 只做一致性锚点；快照与事件 seq 不一致时 fail-closed。Secretary 的 ContextWindow 在装配 `SecretaryCacheStore` 后已可从 cache 恢复，且 `AppRestartRecoveryTest` 有离线重启回归；cache 摘要/压缩、跨进程并发写与真实 app 重启仍未验证。
-8. **公共群目前只作为公开广播边界**：群内玩家对话、@ 触发、群内决策未接入。
-9. **外部 MCP 仅本地单 supervisor**：远程 TLS/多租户/长期 SSE/Last-Event-ID 重放未验；不要把端口暴露公网。
-10. **events.db 尚未成为完整领域事实源**：P2 已接 Post/Complaint/ActionPool 和 Taskflow 完整快照；P3 控制/审计事件与 P4 Ticket 快照已写；P5 包/批次命令事件已写并从 events.db 恢复。事件回放仍未覆盖全部领域，AgentLibEventSink 仍为旧读取端口兼容双写 payload/payload_json。
-11. **P4/P5/P6/P8-A 边界与残留**：旧 ComplaintService 的 GmAide 只读工具与 ComplaintDistributor 仍兼容旧投诉，完整 MCP 旧 complaint 写面已隐藏，但旧投诉与新 COMPLAINT ticket 仍分裂；Ticket 全量快照/包命令事件未来可能触 4MB 上限，需归档/分页策略；APPLIED 写失败发生在包内存变更后，只 fail-stop，不宣称跨域原子；BATCH_COMPLETED 缺失时恢复只从 APPLIED 重建 batch，不主动补写缺失事件；跨实例并发 publication generate 仍可能因同确定性 ID/不同 createdAt 冲突而 fail-closed（当前单实例组合根）；终态/无 turn 的 COMMITTED batch 生成 publication 时 turnId=null，不会进入 turn 投影，语义待明确；已有 publication drafts 但 LLM 重试本身失败时仍返回 LLM/OUTPUT 错误。P8-A：空 players + control 关闭只 WARN，仍可启动但没有运行期加人入口；opening 只允许 PUBLIC，不允许 GM 任意创建私密推文；独立评审未完成，不能把 focused/full gate 当作 P8-A 阶段评审 PASS。
-12. **P2/P3 迁移/控制残留**：旧 JSON 迁移使用 exact reconciled 完成标记并校验目标事件 seq/type/contentHash；运行期 taskflow-state.json 与 TASKFLOW_SNAPSHOT 双写为 best-effort，启动 ensureRecorded 追平 stale/missing；JSON 保存失败而 snapshot event 成功时，重启仍会在 anchor mismatch 处 fail-closed。P3 控制注册在 session 创建前先发布 route，session 创建失败可能短暂半状态；GM 文档写幂等仍是进程内，chmod 失败与 parent fsync 未硬化；旧 engine 全局 idempotency namespace 仍可能让旧写工具用其他命令的 key 返回假成功。事件查询面的 per-player visibility scope 尚未实现。
-13. **配置侧删除身份不撤销 engine 身份**：按当前非目标“不删除玩家/推演”，从启动配置移除身份不会删除已恢复/动态注册身份；需在后续控制面明确撤销语义。
-14. **P1 非阻断硬化点**：极端自重叠 secret 的掩码填充复杂度未做基准；chmod 故障注入、并发 close/append 压力、真实历史 events.db 迁移演练未跑。
-15. **依赖/静态质量门禁有限**：当前 `verify` 主要有 enforcer + tests + shade，尚未接入 Spotless/Checkstyle/SpotBugs；不要把它等同于完整质量门禁。
-16. **上游编译 warning**：AgentLib 注解在 javac 编译期有 `SuppressFBWarnings` 缺失 warning，不影响当前构建，但说明注解仅编译期处理。
-17. **D-014 未验证边界**：真实 NapCat `get_friend_msg_history/get_group_msg_history` 尚未调用；群临时会话的来源群歧义、短 `message_seq` LRU、历史清理、真实 QQ 发送副作用均未验证。`simulation/dist` 仍是旧 jar，实际工具面仍为 67；新源码构建为 72（含 `tf_qq_history_read`）。cache 只做 raw append，不做摘要压缩。
-18. **文档门禁外部阻塞**：`tools/gate.sh docs` 因 `.agents/skills/iibot-live-simulation-gm` 未登记而失败；该 Skill 不属于本轮改动，未删除/改写。
+1. **Inbox Mode A 真实外发未跑**：自动化与隔离 smoke 已过，但真实 DSH LLM +
+   真实 NapCat/QQ + 真实发布链路 `NOT_RUN`。真实 smoke 需用户明确目标与授权。
+2. **Inbox 重启去重未做跨进程 smoke**：服务端持久 dedupeKey、桥本地成功集合与
+   SQLite 已实现，单进程周期扫描已测；app 重启后同 revision 不重复产 item 未实测。
+3. **Inbox credential 生命周期**：每次 app 启动签发新 program/wake credential，
+   旧 credential 留到 TTL 或手动 revoke；自动清理/轮换未实现。
+4. **Mode A 端口随机**：app 重启后必须重新 `inbox_adapter_bind`；跨机器固定 daemon、
+   TLS、远程绑定不在本切片范围。
+5. **通知桥通道范围有限**：首版只推 ticket OPEN/CLAIMED/CONFIRMED 与
+   publication-review PENDING_APPROVAL；COMMITTED batch、delivery FAILED/UNKNOWN
+   等独立通道未覆盖。
+6. **第二轮真实行动/公共推文未跑**：ACK/工作区/GM aide/私人推文/共享 Skill/投诉真实闭环已验证；第二轮决策与公共推文尚未跑。
+7. **真实 DSH 完整 Agent 会话未回归**：本轮已实际通过 DSH adapter v2 完成
+   bind/unbind 与 occupancy smoke，并验证当前项目 MCP；但真实 DSH LLM Agent
+   在 app MCP 上完成一轮业务处理尚未运行。
+8. **真实多玩家/多回合/长跑未运行**：当前仅 1 名真实玩家、1 个已发布回合。
+9. **模型热切换未实现**：当前按 `agentRoutes` 配置切换模型并重启；无运行时 admin 工具。
+10. **跨进程并发 ledger 未验**：`JsonDeliveryLedger` 保证同 JVM 多实例与重启场景；多进程同时写同一 ledger 未验。
+11. **投诉状态有限**：当前只有 SUBMITTED→RESPONDED，无关闭/升级/多次回复。
+12. **逐事件回放未实现，重启恢复依赖完整快照**：`taskflow-state.json` 原子持久化并在启动时恢复，事件库 seq 只做一致性锚点；快照与事件 seq 不一致时 fail-closed。Secretary 的 ContextWindow 在装配 `SecretaryCacheStore` 后已可从 cache 恢复，且 `AppRestartRecoveryTest` 有离线重启回归；cache 摘要/压缩、跨进程并发写与真实 app 重启仍未验证。
+13. **公共群目前只作为公开广播边界**：群内玩家对话、@ 触发、群内决策未接入。
+14. **外部 MCP 仅本地单 supervisor**：远程 TLS/多租户/长期 SSE/Last-Event-ID 重放未验；不要把端口暴露公网。
+15. **events.db 尚未成为完整领域事实源**：P2 已接 Post/Complaint/ActionPool 和 Taskflow 完整快照；P3 控制/审计事件与 P4 Ticket 快照已写；P5 包/批次命令事件已写并从 events.db 恢复。事件回放仍未覆盖全部领域，AgentLibEventSink 仍为旧读取端口兼容双写 payload/payload_json。
+16. **P4/P5/P6/P8-A 边界与残留**：旧 ComplaintService 的 GmAide 只读工具与 ComplaintDistributor 仍兼容旧投诉，完整 MCP 旧 complaint 写面已隐藏，但旧投诉与新 COMPLAINT ticket 仍分裂；Ticket 全量快照/包命令事件未来可能触 4MB 上限，需归档/分页策略；APPLIED 写失败发生在包内存变更后，只 fail-stop，不宣称跨域原子；BATCH_COMPLETED 缺失时恢复只从 APPLIED 重建 batch，不主动补写缺失事件；跨实例并发 publication generate 仍可能因同确定性 ID/不同 createdAt 冲突而 fail-closed（当前单实例组合根）；终态/无 turn 的 COMMITTED batch 生成 publication 时 turnId=null，不会进入 turn 投影，语义待明确；已有 publication drafts 但 LLM 重试本身失败时仍返回 LLM/OUTPUT 错误。P8-A：空 players + control 关闭只 WARN，仍可启动但没有运行期加人入口；opening 只允许 PUBLIC，不允许 GM 任意创建私密推文；独立评审未完成，不能把 focused/full gate 当作 P8-A 阶段评审 PASS。
+17. **P2/P3 迁移/控制残留**：旧 JSON 迁移使用 exact reconciled 完成标记并校验目标事件 seq/type/contentHash；运行期 taskflow-state.json 与 TASKFLOW_SNAPSHOT 双写为 best-effort，启动 ensureRecorded 追平 stale/missing；JSON 保存失败而 snapshot event 成功时，重启仍会在 anchor mismatch 处 fail-closed。P3 控制注册在 session 创建前先发布 route，session 创建失败可能短暂半状态；GM 文档写幂等仍是进程内，chmod 失败与 parent fsync 未硬化；旧 engine 全局 idempotency namespace 仍可能让旧写工具用其他命令的 key 返回假成功。事件查询面的 per-player visibility scope 尚未实现。
+18. **配置侧删除身份不撤销 engine 身份**：按当前非目标“不删除玩家/推演”，从启动配置移除身份不会删除已恢复/动态注册身份；需在后续控制面明确撤销语义。
+19. **P1 非阻断硬化点**：极端自重叠 secret 的掩码填充复杂度未做基准；chmod 故障注入、并发 close/append 压力、真实历史 events.db 迁移演练未跑。
+20. **依赖/静态质量门禁有限**：当前 `verify` 主要有 enforcer + tests + shade，尚未接入 Spotless/Checkstyle/SpotBugs；不要把它等同于完整质量门禁。
+21. **上游编译 warning**：AgentLib 注解在 javac 编译期有 `SuppressFBWarnings` 缺失 warning，不影响当前构建，但说明注解仅编译期处理。
+22. **D-014 未验证边界**：真实 NapCat `get_friend_msg_history/get_group_msg_history` 尚未调用；群临时会话的来源群歧义、短 `message_seq` LRU、历史清理、真实 QQ 发送副作用均未验证。`simulation/dist` 仍是旧 jar；本轮 626-tests target jar 尚未部署。cache 只做 raw append，不做摘要压缩。
+23. **文档门禁当前通过**：`tools/gate.sh docs` 本轮 PASS（modules=4 files=486 links=174）；
+   仍需保持新增 Skill/文档与登记一致。
 
 ## 7. 下一步
 
-1. **玩家体验真实 playtest**：先用新 target jar 在干净 runtime 上按 `simulation/player-experience/09-playtest-and-acceptance.md` 做 5 人 playtest；未通过前不进入多玩家长跑。下列 D-014/P8 项仍有效。
-2. **D-014 收口**：在用户明确授权后，用新构建 jar 替换 `simulation/dist` 前先停/备份并按用户确认执行；不要在本轮自动重启 app。
-3. **真实 NapCat 历史验证**：只对用户指定/已注册 QQ 和当前公共群调用 `tf_qq_history_read`，记录真实游标、临时会话、超时/1200 结果；未跑前保持 `NOT_RUN`。
-4. **P8 真实模拟**：真实 DSH/Hermes MCP、真实 LLM/NapCat/QQ，零玩家公共开场→审核发布→动态注册玩家→多玩家/多工单/多批次/发布/记录全链路；真实外部发送按 M-004 先与用户确认。
-5. P7 已跳过；P8-A 独立评审未完成，需在真实模拟前决定是否补评审；未跑项继续标 `NOT_RUN`，不得用 Mock/loopback 代替真实联调结论。
+1. **Inbox Mode A 真实联调**：先停/备份当前运行面，再把本轮 target jar 以用户确认的方式
+   部署到 `simulation/dist`；启动后用 `tf_inbox_binding_descriptor` → `inbox_adapter_bind`
+   重建绑定，验证真实 DSH 唤醒、occupancy、宿主桥 item 与真实审核/外发边界。
+2. **玩家体验真实 playtest**：先用新 target jar 在干净 runtime 上按 `simulation/player-experience/09-playtest-and-acceptance.md` 做 5 人 playtest；未通过前不进入多玩家长跑。下列 D-014/P8 项仍有效。
+3. **D-014 收口**：在用户明确授权后，用新构建 jar 替换 `simulation/dist` 前先停/备份并按用户确认执行；不要在本轮自动重启 app。
+4. **真实 NapCat 历史验证**：只对用户指定/已注册 QQ 和当前公共群调用 `tf_qq_history_read`，记录真实游标、临时会话、超时/1200 结果；未跑前保持 `NOT_RUN`。
+5. **P8 真实模拟**：真实 DSH/Hermes MCP、真实 LLM/NapCat/QQ，零玩家公共开场→审核发布→动态注册玩家→多玩家/多工单/多批次/发布/记录全链路；真实外部发送按 M-004 先与用户确认。
+6. P7 已跳过；P8-A 独立评审未完成，需在真实模拟前决定是否补评审；未跑项继续标 `NOT_RUN`，不得用 Mock/loopback 代替真实联调结论。

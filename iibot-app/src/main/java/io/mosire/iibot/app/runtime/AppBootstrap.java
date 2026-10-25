@@ -23,6 +23,7 @@ import io.mosire.iibot.app.event.TaskflowSnapshotEventRecorder;
 import io.mosire.iibot.app.event.TaskflowSnapshotStore;
 import io.mosire.iibot.app.event.content.EventContentStore;
 import io.mosire.iibot.app.event.migration.LegacyEventMigrator;
+import io.mosire.iibot.app.inbox.InboxHostRuntime;
 import io.mosire.iibot.app.decision.ActionPackageRecoveryService;
 import io.mosire.iibot.app.decision.LlmActionBatchExecutor;
 import io.mosire.iibot.app.mcp.ControlMcpServer;
@@ -149,6 +150,7 @@ public final class AppBootstrap {
         SqliteSecretaryCacheStore cacheStore = null;
         WorldDocs worldDocs = null;
         InboundDispatcher dispatcher = null;
+        InboxHostRuntime inboxHost = null;
         AppRuntime runtime = null;
         try {
             ensureDirectory(dataDir);
@@ -382,6 +384,19 @@ public final class AppBootstrap {
                     WorldDocs.publicSummary(factsForDocs), factsForDocs);
             worldDocsRef.set(worldDocs);
 
+            if (config.inbox().enabled()) {
+                if (!config.control().enabled()
+                        && options.controlPlane() instanceof NoopControlPlane) {
+                    throw new IllegalStateException(
+                            "inbox.enabled=true 时必须启用 control MCP："
+                                    + "Mode A 只通过当前项目自己的 MCP 暴露 inbox_* 工具");
+                }
+                inboxHost = InboxHostRuntime.start(config.inbox(), ticketService, postService);
+                LOG.info("Inbox Mode A 已装配 inbox={} dataDir={} channels={} pollIntervalMillis={}",
+                        config.inbox().inboxId(), config.inbox().dataDir(),
+                        config.inbox().channels(), config.inbox().pollIntervalMillis());
+            }
+
             ControlPlane controlPlane = resolveControlPlane(
                     options, config, engine, eventReadPort, secrets, clock,
                     adjudicationService, gmAideAgent, resultDistributor, postDistributor,
@@ -392,11 +407,11 @@ public final class AppBootstrap {
                     actionPoolService, actionPackageService, actionBatchExecutor,
                     publicationOrchestrator, recordQueryService,
                     controlBootstrapService, gmPrivateDocs, ticketService,
-                    ticketActionPromotionService, turnRecordProjector);
+                    ticketActionPromotionService, turnRecordProjector, inboxHost);
             runtime = new AppRuntime(config, engine, interactionService, adapter, dispatcher,
                     outbox, scheduler, eventSink, eventReadPort, eventContentStore,
                     snapshotStore, worldDocs, controlPlane, controlBootstrapService,
-                    activeCacheStore);
+                    inboxHost, activeCacheStore);
             LOG.info("组合根装配完成 dataDir={} recovered={} players={} directors={} "
                             + "worldFacts={} worldVersion={}",
                     dataDir, recovered, engine.status().playerCount(),
@@ -404,6 +419,7 @@ public final class AppBootstrap {
                     engine.status().worldVersion());
             return runtime;
         } catch (RuntimeException failure) {
+            closeQuietly("inboxHost", inboxHost);
             closeQuietly("dispatcher", dispatcher);
             closeQuietly("secretaryCache", cacheStore);
             closeQuietly("worldDocs", worldDocs);
@@ -575,7 +591,8 @@ public final class AppBootstrap {
                                                     TicketActionPromotionService
                                                             ticketActionPromotionService,
                                                     TurnRecordProjector
-                                                            turnRecordProjector) {
+                                                            turnRecordProjector,
+                                                    InboxHostRuntime inboxHost) {
         if (!(options.controlPlane() instanceof NoopControlPlane)) {
             return options.controlPlane();
         }
@@ -613,6 +630,7 @@ public final class AppBootstrap {
                 .recordQueryService(recordQueryService)
                 .controlBootstrapService(controlBootstrapService)
                 .gmPrivateDocs(gmPrivateDocs)
+                .inboxTools(inboxHost == null ? List.of() : inboxHost.mcpTools())
                 .afterMutation(() -> {
                     runAfterMutationSafely("turn-result-distributor",
                             resultDistributor::distributeIfReady);

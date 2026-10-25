@@ -8,6 +8,7 @@ import io.mosire.iibot.app.event.AgentLibEventSink;
 import io.mosire.iibot.app.event.SqliteEventReadPort;
 import io.mosire.iibot.app.event.TaskflowSnapshotStore;
 import io.mosire.iibot.app.event.content.EventContentStore;
+import io.mosire.iibot.app.inbox.InboxHostRuntime;
 import io.mosire.iibot.app.world.WorldDocs;
 import io.mosire.iibot.connect.core.InboundMessage;
 import io.mosire.iibot.connect.core.MessagingAdapter;
@@ -51,6 +52,7 @@ public final class AppRuntime implements AutoCloseable {
     private final WorldDocs worldDocs;
     private final ControlPlane controlPlane;
     private final ControlBootstrapService controlBootstrapService;
+    private final InboxHostRuntime inboxHost;
     private final AutoCloseable conversationCacheStore;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -65,7 +67,7 @@ public final class AppRuntime implements AutoCloseable {
                ControlBootstrapService controlBootstrapService) {
         this(config, engine, interactionService, adapter, dispatcher, outboxSender, scheduler,
                 eventSink, eventReadPort, eventContentStore, snapshotStore, worldDocs,
-                controlPlane, controlBootstrapService, null);
+                controlPlane, controlBootstrapService, null, null);
     }
 
     AppRuntime(AppConfig config, TaskflowEngine engine,
@@ -76,6 +78,7 @@ public final class AppRuntime implements AutoCloseable {
                TaskflowSnapshotStore snapshotStore,
                WorldDocs worldDocs, ControlPlane controlPlane,
                ControlBootstrapService controlBootstrapService,
+               InboxHostRuntime inboxHost,
                AutoCloseable conversationCacheStore) {
         this.config = Objects.requireNonNull(config, "config");
         this.engine = Objects.requireNonNull(engine, "engine");
@@ -92,6 +95,7 @@ public final class AppRuntime implements AutoCloseable {
         this.controlPlane = Objects.requireNonNull(controlPlane, "controlPlane");
         this.controlBootstrapService = Objects.requireNonNull(
                 controlBootstrapService, "controlBootstrapService");
+        this.inboxHost = inboxHost;
         this.conversationCacheStore = conversationCacheStore;
     }
 
@@ -106,6 +110,9 @@ public final class AppRuntime implements AutoCloseable {
         adapter.start(dispatcher);
         scheduler.start();
         controlPlane.start();
+        if (inboxHost != null) {
+            inboxHost.start();
+        }
         LOG.info("应用运行时已启动 players={} directors={} worldVersion={}",
                 engine.status().playerCount(), engine.status().directorCount(),
                 engine.status().worldVersion());
@@ -183,6 +190,9 @@ public final class AppRuntime implements AutoCloseable {
         closeSafely("scheduler", scheduler::close);
         closeSafely("worldDocs", worldDocs::close);
         closeSafely("controlPlane", controlPlane::close);
+        if (inboxHost != null) {
+            closeSafely("inboxHost", inboxHost::close);
+        }
         if (conversationCacheStore != null) {
             try {
                 conversationCacheStore.close();

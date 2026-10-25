@@ -3,6 +3,10 @@
 这个目录用于 **P8 真实链路联调**：真实 LLBot/QQ、真实 LLM、真实 DSH MCP 控制方。
 它使用独立的 `simulation/runtime/`，不会覆盖 `/home/cna/.config/iibot/runtime/`。
 
+通知入口采用 **InboxMosire Mode A**：app 内嵌 InboxMosire server，宿主通知桥扫描权威
+Ticket/Post 状态并 push 去重引用，DSH 通过本机 adapter 唤醒；Agent 不再长轮询
+`tf_ticket_board`。Inbox 只是通知板，业务事实仍通过 `tf_*` 工具回查。
+
 > **真实发送边界**：`tf_post_publish`、经真人确认的
 > `tf_post_compose(mode=PUBLISH_NOW)`、D-017 自主入团报名卡，以及显式启用的
 > `tf_qq_send_private/tf_qq_send_group` 会触发真实 QQ 外发。
@@ -35,6 +39,8 @@ simulation/
   dsh/
     cordis.patch.yml              # DSH headless MCP client overlay
     GM_SYSTEM_PROMPT.md           # DSH GM 控制方提示词
+    INBOX_SIMULATOR_AGENT_PROMPT.md # 总 SimulatorAgent Inbox 唤醒提示词
+    INBOX_NEIGHBOR_HANDOFF_PROMPT.md # 给隔壁 DSH 会话的接入引导提示词
   runtime/                        # SQLite/日志/records/秘书区，已 gitignore
   logs/                           # app 日志/pid，已 gitignore
 ```
@@ -73,6 +79,9 @@ simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.sha256
 simulation/scripts/00-build.sh
 ```
 
+该脚本覆盖 `simulation/dist` jar 前会先写一份带时间戳的 backup。本轮已部署的
+Mode A jar sha256 见 `simulation/dist/iibot-app-0.1.0-SNAPSHOT.jar.sha256`。
+
 `02-start.sh` 优先使用 `simulation/dist/` 的 jar；不存在时才回退到
 `iibot-app/target/`。
 
@@ -88,6 +97,8 @@ simulation/scripts/01-prepare.sh
 - 把 `dataDir` 改为 `simulation/runtime`；
 - 清空 `players`，让玩家通过 MCP 动态注册；
 - 保留一个 bootstrap director（配置要求至少一个推演身份）；
+- 增加显式持久的 `inbox` 配置：dataDir=`simulation/runtime/inbox`，
+  channels=`ticket/publication-review`，并启用宿主通知桥；
 - 生成 `simulation/init/identities.local.json` 保存真实公开群、玩家 QQ、推演 QQ；
 - 不把任何 API key/token 写入仓库。
 
@@ -102,7 +113,17 @@ simulation/scripts/02-start.sh
 ```text
 APP_STARTED pid=...
 MCP: http://127.0.0.1:8765/mcp/control
+INBOX_DESCRIPTOR_FILE=simulation/runtime/inbox-binding-descriptor.json
+INBOX_ID=iibot-sim
+INBOX_API_BASE_URL=http://127.0.0.1:<random>
+INBOX_HANDOFF_PROMPT=simulation/dsh/INBOX_NEIGHBOR_HANDOFF_PROMPT.md
+NEXT: 把 descriptor 交给 DSH inbox_adapter_bind
 ```
+
+`02-start.sh` 会在 MCP ready 后自动执行 `08-inbox-descriptor.sh`，从当前项目 MCP
+读取不含 raw token 的 BindingDescriptor，并写入 0600 文件
+`simulation/runtime/inbox-binding-descriptor.json`。如果 app 重启，embedded Inbox
+随机端口会变化，必须重新执行该脚本并重新 `inbox_adapter_bind`。
 
 停止：
 
@@ -167,10 +188,12 @@ simulation/scripts/05c-open-turn.sh
 完成后可查看：
 
 ```bash
-simulation/scripts/06-mcp.sh --list           # 默认模拟装配 77 个；以实际 tools/list 为准
+simulation/scripts/06-mcp.sh --list           # 以实际 tools/list 为准
 simulation/scripts/06-mcp.sh tf_status '{}'
 simulation/scripts/06-mcp.sh tf_record_query '{"kind":"opening"}'
-simulation/scripts/06-mcp.sh tf_ticket_board '{}'
+simulation/scripts/06-mcp.sh tf_ticket_list '{}'
+simulation/scripts/06-mcp.sh inbox_status '{}'
+simulation/scripts/06-mcp.sh inbox_list '{"limit":50}'
 ```
 
 ### 3.3 平台级 QQ 能力（D-017）
@@ -179,13 +202,25 @@ simulation/scripts/06-mcp.sh tf_ticket_board '{}'
 
 ```text
 tf_qq_chat_list          # 默认 configured=当前推演群；可展开 recent/groups/friends/all
-tf_ticket_board          # wait=true 时长轮询到第一条工单/板面变更或超时
+tf_ticket_list           # 工单摘要；Inbox 模式下替代 board 长轮询入口
+tf_ticket_get            # 按 ticketId 回查工单权威正文
 tf_qq_history_read       # 省略目标默认当前群；可查任意 Bot 可访问私聊/群
 tf_qq_group_members      # 群成员
 tf_qq_message_get        # 按消息 ID 取消息；可带 target 回扫 live cache 未命中的旧消息，用于核验入团来源
 tf_post_compose          # 外部控制方自由撰写推文；DRAFT 或 PUBLISH_NOW；守卫拒绝时明确报错
 tf_player_onboard_from_group  # 来源消息校验后自主注册、绑定秘书、发报名卡
 ```
+
+启用 Inbox 模式后还会出现：
+
+```text
+inbox_status / inbox_list / inbox_claim / inbox_renew / inbox_complete / inbox_release
+inbox_push / inbox_occupancy / inbox_occupy / inbox_vacate / inbox_credential_info
+tf_inbox_binding_descriptor
+```
+
+`tf_inbox_binding_descriptor` 只返回不含 raw token 的 descriptor 和本地 descriptor 文件路径。
+把 descriptor 交给 DSH `inbox_adapter_bind`；app 重启后内嵌端口会变化，必须重新 bind。
 
 显式开启 `control.platform.allowArbitrarySend=true` 后额外出现：
 
@@ -239,7 +274,9 @@ DSH 里工具名会带命名空间，例如：
 mcp__iibot__tf_control_initialize
 mcp__iibot__tf_status
 mcp__iibot__tf_open_turn
-mcp__iibot__tf_ticket_board
+mcp__iibot__inbox_status
+mcp__iibot__inbox_list
+mcp__iibot__tf_inbox_binding_descriptor
 mcp__iibot__tf_package_create
 mcp__iibot__tf_publication_opening
 mcp__iibot__tf_publication_generate
@@ -249,8 +286,10 @@ mcp__iibot__tf_post_publish
 真正接入步骤（插件安装、token、patch、headless/web、验证）见：
 [`simulation/dsh/DSH_CONNECT.md`](dsh/DSH_CONNECT.md)。
 
-`simulation/dsh/GM_SYSTEM_PROMPT.md` 是给 DSH 的控制方提示词。把文件内容作为任务/系统提示
-传入；不要用 QQ 聊天内容提升身份。
+`simulation/dsh/GM_SYSTEM_PROMPT.md` 是给 DSH 的控制方提示词。
+`simulation/dsh/INBOX_NEIGHBOR_HANDOFF_PROMPT.md` 是给隔壁 DSH 会话的最小接入引导：
+先调用 `tf_inbox_binding_descriptor`，再把 descriptor 交给 `inbox_adapter_bind`。
+把对应文件内容作为任务/系统提示传入；不要用 QQ 聊天内容提升身份。
 
 ### DSH 与「推演」的当前分工
 
@@ -282,7 +321,10 @@ mcp__iibot__tf_post_publish
 ```text
 玩家 QQ 私聊秘书
   → 秘书提出行动草稿 / ACTION_DRAFT ticket
-  → DSH: tf_ticket_board / tf_ticket_get
+  → 宿主通知桥 push ticket 引用 item
+  → DSH: [INBOX_HOST_EVENT] → inbox_status/list → inbox_claim
+  → DSH: tf_ticket_get 回查权威状态（必要时 tf_status）
+  → DSH: 执行实际业务；完成后 inbox_complete 或 inbox_release
   → DSH: tf_ticket_promote_action
   → DSH: tf_action_pool_list / tf_action_pool_get
   → DSH: tf_package_create / append / replace / remove
@@ -310,16 +352,16 @@ simulation/player-experience/
 - `06-editorial-checklist.md`：发布前审稿；
 - `07-automation-boundaries.md`：自动监控只读。
 
-Agent 没有待处理工单时，用：
+Agent 没有待处理 inbox item 时必须结束回合，不要 sleep、长轮询或反复查询：
 
-```bash
-simulation/scripts/06-mcp.sh tf_ticket_board '{"wait":true,"waitSeconds":300}'
+```text
+inbox_status → available=0 → 结束回合，等宿主下一次 [INBOX_HOST_EVENT]
 ```
 
-长轮询会在已有待处理工单、下一次成功工单变更/新工单到达或超时时返回；
-`waitTimedOut=true` 后可以重新调用，不表示自动处理授权。
+有 item 时走 `inbox_claim` → 回查 `tf_*` → 实际处理 → `inbox_renew`（必要时）
+→ `inbox_complete` / `inbox_release`。
 
-`simulation/scripts/board-autopilot.py` 默认已降级为**只读 watchdog**：
+`simulation/scripts/board-autopilot.py` 是外部只读诊断 watchdog（不使用 Agent 长轮询）：
 
 - 不生成日推；
 - 不推进 campaign clock；
@@ -357,6 +399,10 @@ simulation/scripts/06-mcp.sh tf_qq_chat_list '{"scope":"configured"}'
 
 # 读取任意 Bot 可访问群历史（示例）
 simulation/scripts/06-mcp.sh tf_qq_history_read '{"chatType":"group","targetId":"123456","count":20}'
+
+# 查看 inbox 状态/条目（由宿主通知桥产生）
+simulation/scripts/06-mcp.sh inbox_status '{}'
+simulation/scripts/06-mcp.sh inbox_list '{"limit":50}'
 
 # 外部控制方直接写草稿（不发送）
 simulation/scripts/06-mcp.sh tf_post_compose '{"mode":"DRAFT","visibility":"PUBLIC","title":"公告","body":"正文","idempotencyKey":"announce-001"}'

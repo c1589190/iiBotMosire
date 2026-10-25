@@ -11,6 +11,7 @@ import io.mosire.agentlib.permission.AgentPermissionSet;
 import io.mosire.agentlib.permission.ResourceScope;
 import io.mosire.agentlib.permission.ResourceScopeMap;
 import io.mosire.agentlib.permission.RoleSet;
+import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolCallAuthorizer;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolRegistry;
@@ -151,6 +152,7 @@ public final class ControlMcpServer implements ControlPlane {
     private final RecordQueryService recordQueryService;
     private final ControlBootstrapService controlBootstrapService;
     private final GmPrivateDocs gmPrivateDocs;
+    private final List<AgentTool> inboxTools;
     private final Runnable afterMutation;
     private final HttpClient upstreamClient;
     private final Object lifecycleLock = new Object();
@@ -195,6 +197,7 @@ public final class ControlMcpServer implements ControlPlane {
         this.recordQueryService = builder.recordQueryService;
         this.controlBootstrapService = builder.controlBootstrapService;
         this.gmPrivateDocs = builder.gmPrivateDocs;
+        this.inboxTools = List.copyOf(builder.inboxTools);
         this.afterMutation = builder.afterMutation;
         this.upstreamClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -316,11 +319,20 @@ public final class ControlMcpServer implements ControlPlane {
                 }
                 if (ticketService != null) {
                     // 完整 Ticket 装配取代旧 complaint MCP 三工具，避免双重状态主路径。
-                    List<io.mosire.agentlib.tool.AgentTool> ticketTools =
-                            ticketActionPromotionService == null
-                                    ? GmTicketMcpTools.all(ticketService, supervisor)
-                                    : GmTicketMcpTools.all(ticketService,
-                                            ticketActionPromotionService, supervisor);
+                    // Inbox 模式不暴露 tf_ticket_board 长轮询入口；摘要/详情仍走 tf_ticket_list/get。
+                    boolean inboxEnabled = !inboxTools.isEmpty();
+                    List<AgentTool> ticketTools;
+                    if (ticketActionPromotionService == null) {
+                        ticketTools = inboxEnabled
+                                ? GmTicketMcpTools.allWithoutBoard(ticketService, supervisor)
+                                : GmTicketMcpTools.all(ticketService, supervisor);
+                    } else {
+                        ticketTools = inboxEnabled
+                                ? GmTicketMcpTools.allWithoutBoard(ticketService,
+                                        ticketActionPromotionService, supervisor)
+                                : GmTicketMcpTools.all(ticketService,
+                                        ticketActionPromotionService, supervisor);
+                    }
                     for (var tool : ticketTools) {
                         registry.register(tool);
                     }
@@ -353,6 +365,9 @@ public final class ControlMcpServer implements ControlPlane {
                     for (var tool : GmPrivateDocsMcpTools.all(gmPrivateDocs)) {
                         registry.register(tool);
                     }
+                }
+                for (AgentTool tool : inboxTools) {
+                    registry.register(tool);
                 }
 
                 internal = AgentToMcpServer.startHttp(
@@ -733,7 +748,11 @@ public final class ControlMcpServer implements ControlPlane {
             allTools.addAll(GmSharedSkillMcpTools.NAMES);
         }
         if (ticketService != null) {
-            allTools.addAll(GmTicketMcpTools.BASE_NAMES);
+            if (inboxTools.isEmpty()) {
+                allTools.addAll(GmTicketMcpTools.BASE_NAMES);
+            } else {
+                allTools.addAll(GmTicketMcpTools.NAMES_WITHOUT_BOARD);
+            }
             if (ticketActionPromotionService != null) {
                 allTools.add(GmTicketPromoteActionTool.NAME);
             }
@@ -755,6 +774,9 @@ public final class ControlMcpServer implements ControlPlane {
         }
         if (gmPrivateDocs != null) {
             allTools.addAll(GmPrivateDocsMcpTools.NAMES);
+        }
+        for (AgentTool tool : inboxTools) {
+            allTools.add(tool.name());
         }
 
         Map<String, ResourceScope> scopes = new java.util.LinkedHashMap<>();
@@ -905,6 +927,7 @@ public final class ControlMcpServer implements ControlPlane {
         private RecordQueryService recordQueryService;
         private ControlBootstrapService controlBootstrapService;
         private GmPrivateDocs gmPrivateDocs;
+        private List<AgentTool> inboxTools = List.of();
         private Runnable afterMutation;
 
         private Builder(
@@ -1131,6 +1154,25 @@ public final class ControlMcpServer implements ControlPlane {
         /** {@link #gmPrivateDocs(GmPrivateDocs)} 的短别名。 */
         public Builder gmPrivateDocsStore(GmPrivateDocs gmPrivateDocs) {
             return gmPrivateDocs(gmPrivateDocs);
+        }
+
+        /**
+         * 注册程序自有 InboxMosire MCP 工具面。非空时还会隐藏
+         * {@code tf_ticket_board} 长轮询入口；空列表保持未启用 inbox 的旧工具面。
+         */
+        public Builder inboxTools(List<AgentTool> inboxTools) {
+            Objects.requireNonNull(inboxTools, "inboxTools");
+            List<AgentTool> copy = new java.util.ArrayList<>(inboxTools.size());
+            Set<String> names = new LinkedHashSet<>();
+            for (AgentTool tool : inboxTools) {
+                Objects.requireNonNull(tool, "inboxTools item");
+                if (!names.add(tool.name())) {
+                    throw new IllegalArgumentException("重复的 inbox tool: " + tool.name());
+                }
+                copy.add(tool);
+            }
+            this.inboxTools = List.copyOf(copy);
+            return this;
         }
 
         /**

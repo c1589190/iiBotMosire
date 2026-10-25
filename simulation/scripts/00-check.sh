@@ -10,6 +10,24 @@ java -version 2>&1 | head -1
 [ -f "$JAR" ] && echo "jar: present $JAR" || { echo "ERROR: 先运行 tools/gate.sh full 或 ./mvnw package" >&2; exit 1; }
 [ -f "$CONFIG" ] && echo "config: present" || echo "WARN: 尚未生成 $CONFIG（运行 01-prepare.sh）"
 [ -f "$IDENTITIES" ] && echo "identities: present" || echo "WARN: 尚未生成 $IDENTITIES"
+if [ -f "$DIST_JAR.sha256" ]; then
+    (cd "$SIM_ROOT/dist" && sha256sum -c "$(basename "$DIST_JAR").sha256")
+fi
+if [ -f "$CONFIG" ]; then
+    python3 - "$CONFIG" <<'PYCHECK'
+import json, sys
+cfg = json.load(open(sys.argv[1], encoding='utf-8'))
+inbox = cfg.get('inbox') or {}
+print('inbox:', json.dumps({
+    'enabled': bool(inbox.get('enabled')),
+    'inboxId': inbox.get('inboxId'),
+    'dataDir': inbox.get('dataDir'),
+    'channels': inbox.get('channels'),
+}, ensure_ascii=False))
+if not inbox.get('enabled'):
+    raise SystemExit('ERROR: simulation config 未启用 inbox')
+PYCHECK
+fi
 
 source_iibot_env
 for name in IIBOT_LLM_API_KEY IIBOT_NAPCAT_ACCESS_TOKEN IIBOT_CONTROL_TOKEN; do
