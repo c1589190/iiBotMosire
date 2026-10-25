@@ -98,13 +98,13 @@ simulation/scripts/05a-init-control-plane.sh
 从源文件读取：
 
 ```text
-simulation/campaign/palatinia/07-secretary-skill.md
+simulation/.agents/skills/iibot-secretary-behavior/SKILL.md
 ```
 
 通过 MCP `tf_shared_skill_write` 写入：
 
 ```text
-skills/palatinia-secretary.md
+skills/iibot-secretary-behavior.md
 ```
 
 要求：
@@ -115,7 +115,7 @@ skills/palatinia-secretary.md
 
 ## 四、创建公共开场草稿
 
-根据当前帕拉丁世界设定、`simulation/campaign/palatinia/03-opening-post.md` 与 `simulation/campaign/palatinia/08-personal-opening.md`，写一条**世界内**公共开场。个人本只固定时代与宏观局势，不得在开场里替玩家锁定职位、关系、秘密或第一项行动。
+根据当前世界设定、`simulation/docs/world/public/03-opening-post.md` 与 `simulation/docs/world/secret/08-personal-opening.md`，写一条**世界内**公共开场。个人本只固定时代与宏观局势，不得在开场里替玩家锁定职位、关系、秘密或第一项行动。
 
 调用：
 

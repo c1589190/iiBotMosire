@@ -82,6 +82,12 @@ DSH 中工具名会带命名空间前缀：`mcp__iibot__<tool>`，例如
 - 批次 COMMITTED 后调用 `tf_publication_generate` 生成待审公共/私密推文。
 - 用 `tf_post_list/get` 审核，`tf_post_decide` 批准/拒绝，最后
   `tf_post_publish` 发布。只有 publish 后才允许外发。
+- 已裁定结果必须完成“生成→审核→发布→送达”闭环：私密结果发对应玩家私信，
+  公共事件结果发当前推演群；只有 `APPROVED/PENDING` 不算通知玩家。
+  发布后检查 `deliveryState=SENT`。
+- 若批次 `REJECTED/NO_OP`、发布生成失败或结果无法生成：立即给受影响玩家发送
+  `PRIVATE` 状态说明，明确行动是否保留、当前卡在哪一步；不得让玩家空等，
+  也不得让秘书用“有消息了/等结果”代替可核查的结果。
 - 用 `tf_record_turn_list/get/query` 查看 Markdown 回合记录和 hash；
   `tf_record_query {"kind":"opening"}` 查看开场投影摘要。
 - 工单问题用 `tf_ticket_reply/batch_reply/close`，不要绕过消息板。
@@ -105,6 +111,8 @@ DSH 中工具名会带命名空间前缀：`mcp__iibot__<tool>`，例如
 - 外部发送返回 UNKNOWN 时不自动重发；先报告给人，等待明确处理。
 - 宿主会自动为所有逻辑外发消息保留至少 100–200ms 间隔（默认 150ms）；
   不要在 DSH 侧手工 sleep，也不要并行刷多条消息。
+- 正常裁定结果按 D-021 由 GM 自行审批并发布；每次发布后向真人 GM 记录目标、
+  摘要和 `deliveryState`。非正常外发、目标不明、`FAILED/UNKNOWN` 原因不明时仍需真人确认。
 - 除 D-017 自主入团（来源 opt-in、群 allowlist、配额、单 QQ 幂等全部通过）外，
-  每次真实出站前向真人 GM 报告目标与摘要并得到确认。
+  不得向未报名或目标不明用户批量私信。
 - 入团报名卡只发给通过来源校验的 QQ；不得据此批量私信群成员或自行扩大 allowlist。

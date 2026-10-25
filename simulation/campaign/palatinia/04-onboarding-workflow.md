@@ -133,9 +133,9 @@ GM 可以提供世界内压力与机会，但不得把“你一定会卷入某�
 
 1. 确认角色基本信息与职位。
 2. 把 `10-secretary-AGENTS.md` 写入秘书工作区 `AGENTS.md`。
-3. 将 `07-secretary-skill.md` 发布到共享 Skill 区，并让秘书读取。
+3. 运行 `../../scripts/09-load-secretary-skill.sh`，把 `.agents/skills/iibot-secretary-behavior/SKILL.md` 发布到共享 Skill 区，并让秘书读取。
 4. 只向秘书工作区写入该玩家可见的世界资料与角色资料；玩家需要知道的内容由秘书在聊天中直接转述。
-5. 由 GM 准备 `08-personal-opening.md` 中的开局卡；开局卡可以按角色职位裁剪。
+5. 由 GM 准备 `../../docs/world/secret/08-personal-opening.md` 中的开局卡；开局卡可以按角色职位裁剪。
 6. 玩家确认“可以开始”或直接说出第一项行动后，再进入正式回合。
 
 这里不要求玩家确认角色卡版本，也不要求玩家理解回合编号。

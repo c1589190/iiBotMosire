@@ -16,10 +16,23 @@ Ticket/Post 状态并 push 去重引用，DSH 通过本机 adapter 唤醒；Agen
 
 ```text
 simulation/
+  AGENTS.md                       # 本工作区局部规则与路由
+  docs/
+    AGENTS.md                     # 文档目录规则
+    STATUS.md                     # 当前运行事实摘要
+    agents/SKILLS.md              # active Skill 目录
+    world/
+      AGENTS.md                   # 世界文档规则
+      public/                     # 所有秘书可读
+      secret/                     # GM-only
+  .agents/skills/
+    iibot-referee-behavior/SKILL.md    # 通用推演/GM 行为
+    iibot-secretary-behavior/SKILL.md  # 通用秘书行为
+    iibot-live-simulation-gm/SKILL.md  # 真实联调工程操作
   config/
     iibot.sim.example.json        # 手工配置模板
     iibot.sim.local.json          # 01-prepare 生成，含本机非密钥配置，已 gitignore
-    world-facts.sim.json          # 雾灯港模拟世界
+    world-facts.sim.json          # 启动时装载的初始世界事实
   init/
     identities.local.json         # 从现有真实配置抽取的群/玩家/推演，已 gitignore
   dist/                           # 模拟用 shaded jar + sha256，已 gitignore
@@ -36,6 +49,7 @@ simulation/
     05c-open-turn.sh              # 当前无活动回合时开回合
     06-mcp.sh                     # 本地 MCP smoke 客户端
     07-opening.sh                 # 创建零玩家 PUBLIC 开场草稿（不审核/不发送）
+    09-load-secretary-skill.sh    # 把通用秘书 Skill 加载到 iibot 共享 Skill 区
   dsh/
     cordis.patch.yml              # DSH headless MCP client overlay
     GM_SYSTEM_PROMPT.md           # DSH GM 控制方提示词

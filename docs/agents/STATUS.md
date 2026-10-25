@@ -1,11 +1,17 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-25 22:43（Asia/Shanghai）
+> **更新时间**：2026-10-25 23:31（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
-## 0. 最新更新（2026-10-25 22:43）
+## 0. 最新更新（2026-10-25 23:31）
 
+- **模拟区文档系统已归档并清理项目级残留副本**：
+  `simulation/docs/` 成为模拟区文档入口，`simulation/docs/world/` 收纳公开/秘密世界设定，
+  `simulation/.agents/skills/` 收纳可复用推演/秘书/工程操作 Skill；
+  原项目级 `.agents/skills/iibot-live-simulation-gm/` 旧副本已删除，
+  项目级 active Skill 当前为 0，模拟区 Skill 由
+  [`../../simulation/docs/agents/SKILLS.md`](../../simulation/docs/agents/SKILLS.md) 登记。
 - **秘书单响应工具调用上限已从 8 改为 128**：
   `AgentRunner.DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE=128`；
   `SecretarySession` 与 `GmAideAgent` 默认均使用 128。
@@ -143,7 +149,7 @@
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
 | 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.3`（Pages 固定版） |
 | 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`，约 21 MB |
-| Git/提交 | `origin/main` 已同步；秘书工具调用上限 128 主提交 `b41d30b`，Inbox Mode A 主提交 `0b4d585`，后续状态/部署文档均已推送。工作树仅余开工前既有的 `simulation/.agents/skills/iibot-live-simulation-gm/SKILL.md` 改动。P8-A 历史 feature `1480c55` |
+| Git/提交 | `origin/main` 已同步；历史关键提交：Inbox Mode A `0b4d585`、秘书工具调用上限 128 `b41d30b`。模拟区文档迁移提交见当前 `HEAD`。P8-A 历史 feature `1480c55` |
 | 本机工作树 | 代码/文档/模拟区资产已提交；`target/`、`simulation/dist/`、`simulation/runtime/` 按 gitignore 不入库 |
 
 ## 3. 最近功能门禁
@@ -164,7 +170,7 @@
 | P8-A MCP 工具面 | `tf_publication_opening` 接入；`players=[]` 启动、GM 公共开场草稿、records/openings、动态注册后开回合已测 |
 | 当前门禁状态 | D-014 源码/focused/full gate 已过；P8 真实模拟仍未完成；真实 NapCat 历史读取未跑，写 `NOT_RUN` |
 | Shade | 产出可运行 `iibot-app-0.1.0-SNAPSHOT.jar`（约 21 MB），Main-Class 已核 |
-| 文档/工具链 | `tools/gate.sh full` PASS；`tools/gate.sh docs` 当前有 1 个与外部 Skill 相关的既有失败（`.agents/skills/iibot-live-simulation-gm` 未登记），本轮未改该 Skill |
+| 文档/工具链 | `tools/gate.sh docs` **PASS**（modules=4 files=505 links=185；项目级 active Skill=0）；`python3 tools/skills-lint.py --root simulation` **PASS**（模拟区 active Skill=3）。`09-load-secretary-skill.sh` 已 `bash -n` 通过；app 停止状态下未实际加载。 |
 | 文档 selftest | 当前受上述外部 Skill 失败影响，`tools/gate.sh docs` 未 PASS；不能写成全绿 |
 | `./mvnw -v` | Apache Maven 3.9.16 + Java 21，rc=0 |
 | `java -jar ... --help` | rc=0，输出用法 |

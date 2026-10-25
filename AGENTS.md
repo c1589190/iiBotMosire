@@ -67,6 +67,8 @@
 | 文档系统规则 | [`docs/AGENTS.md`](docs/AGENTS.md) |
 | 项目维护裁定 | [`docs/agents/MAINTENANCE_RULINGS.md`](docs/agents/MAINTENANCE_RULINGS.md) |
 | 工作流 / 验证 / 环境 / Skill | [`docs/agents/WORKFLOW.md`](docs/agents/WORKFLOW.md)、[`VERIFICATION.md`](docs/agents/VERIFICATION.md)、[`ENVIRONMENT.md`](docs/agents/ENVIRONMENT.md)、[`SKILLS.md`](docs/agents/SKILLS.md) |
+| 模拟区文档/状态/世界设定 | [`simulation/AGENTS.md`](simulation/AGENTS.md)、[`simulation/docs/STATUS.md`](simulation/docs/STATUS.md)、[`simulation/docs/world/README.md`](simulation/docs/world/README.md) |
+| 模拟区可复用 Agent Skill | [`simulation/docs/agents/SKILLS.md`](simulation/docs/agents/SKILLS.md) |
 | 项目设计索引 | [`docs/superpowers/AGENTS.md`](docs/superpowers/AGENTS.md) |
 | 设计裁定索引 | [`docs/superpowers/DESIGN_RULINGS.md`](docs/superpowers/DESIGN_RULINGS.md) |
 | 用户需求原话 | [`docs/superpowers/specs/2026-10-24-user-requirements-source.md`](docs/superpowers/specs/2026-10-24-user-requirements-source.md) |
