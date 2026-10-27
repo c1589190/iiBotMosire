@@ -9,6 +9,10 @@ import io.mosire.iibot.connect.core.ChatHistoryPage;
 import io.mosire.iibot.connect.core.ChatHistoryQuery;
 import io.mosire.iibot.connect.core.ChatMessageDetail;
 import io.mosire.iibot.connect.core.GroupMember;
+import io.mosire.iibot.connect.core.MediaAsset;
+import io.mosire.iibot.connect.core.MessageSegment;
+import io.mosire.iibot.connect.core.SendReceipt;
+import io.mosire.iibot.connect.core.ForwardPage;
 import io.mosire.iibot.connect.core.InboundMessage.SessionType;
 import io.mosire.iibot.connect.core.SendReceipt;
 import org.junit.jupiter.api.Test;
@@ -135,15 +139,84 @@ class NapCatAdapterPlatformTest {
     }
 
     @Test
-    void historyCountsSkippedNonTextSegments() throws Exception {
+    void resolvesLegacyImageSegmentThroughGetMessage() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(config(server))) {
+            List<MessageSegment> images = adapter.imageSegmentsForMessage("1472304806")
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(images).singleElement().satisfies(segment -> {
+                assertThat(segment.type()).isEqualTo(MessageSegment.Type.IMAGE);
+                assertThat(segment.fileId()).isEqualTo("old.jpg");
+                assertThat(segment.url()).contains("example.invalid/old.jpg");
+                assertThat(segment.byteSize()).isEqualTo(21561L);
+            });
+            assertThat(server.lastPayload("/get_msg").path("message_id").asText())
+                    .isEqualTo("1472304806");
+        }
+    }
+
+    @Test
+    void downloadsImageFromSegmentUrlWithSizeLimit() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(config(server))) {
+            MessageSegment image = MessageSegment.image(
+                    0, "x.png", server.baseUri().resolve("image").toString(),
+                    "image/png", 3L);
+
+            MediaAsset asset = adapter.image(image)
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(asset.mediaType()).isEqualTo("image/png");
+            assertThat(asset.bytes()).containsExactly(1, 2, 3);
+        }
+    }
+
+    @Test
+    void decidesIncomingFriendRequestThroughStandardAction() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(config(server))) {
+            SendReceipt receipt = adapter.decideFriendRequest("flag-1", true, "备注")
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(receipt.state()).isEqualTo(SendReceipt.State.SENT);
+            JsonNode payload = server.lastPayload("/set_friend_add_request");
+            assertThat(payload.path("flag").asText()).isEqualTo("flag-1");
+            assertThat(payload.path("approve").asBoolean()).isTrue();
+            assertThat(payload.path("remark").asText()).isEqualTo("备注");
+        }
+    }
+
+    @Test
+    void readsForwardNodesFromContentArray() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(config(server))) {
+            ForwardPage page = adapter.forward("forward-1", 10)
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(page.truncated()).isFalse();
+            assertThat(page.messages()).singleElement().satisfies(message -> {
+                assertThat(message.senderId()).isEqualTo("20002");
+                assertThat(message.senderName()).isEqualTo("成员");
+                assertThat(message.text()).isEqualTo("转发文本");
+                assertThat(message.segments()).extracting(segment -> segment.type().name())
+                        .containsExactly("TEXT", "IMAGE");
+            });
+        }
+    }
+
+    @Test
+    void historyPreservesNonTextSegments() throws Exception {
         try (MockHttpServer server = new MockHttpServer();
              NapCatAdapter adapter = new NapCatAdapter(config(server))) {
             ChatHistoryPage page = adapter.history(new ChatHistoryQuery(
                             SessionType.PRIVATE, "20002", null, 2, true))
                     .toCompletableFuture().get(2, TimeUnit.SECONDS);
-            assertThat(page.messages()).hasSize(1);
+            assertThat(page.messages()).hasSize(2);
             assertThat(page.messages().getFirst().text()).isEqualTo("历史文本");
-            assertThat(page.nonTextSkipped()).isEqualTo(1);
+            assertThat(page.messages().get(1).segments()).singleElement()
+                    .extracting(segment -> segment.type().name()).isEqualTo("IMAGE");
+            assertThat(page.nonTextSkipped()).isZero();
         }
     }
 
@@ -193,6 +266,9 @@ class NapCatAdapterPlatformTest {
             server.createContext("/get_group_member_list", this::members);
             server.createContext("/get_msg", this::message);
             server.createContext("/get_friend_msg_history", this::history);
+            server.createContext("/get_forward_msg", this::forward);
+            server.createContext("/set_friend_add_request", this::friendDecision);
+            server.createContext("/image", this::imageData);
             server.createContext("/send_private_msg", exchange ->
                     send(exchange, "/send_private_msg", "1"));
             server.createContext("/send_group_msg", exchange ->
@@ -265,7 +341,20 @@ class NapCatAdapterPlatformTest {
 
         private void message(HttpExchange exchange) throws IOException {
             paths.add(exchange.getRequestURI().getPath());
-            payloads.put(exchange.getRequestURI().getPath(), read(exchange));
+            JsonNode payload = read(exchange);
+            payloads.put(exchange.getRequestURI().getPath(), payload);
+            if ("1472304806".equals(payload.path("message_id").asText())) {
+                respond(exchange, """
+                        {"status":"ok","retcode":0,"data":{
+                          "message_id":"1472304806","group_id":"1104560326",
+                          "sender":{"user_id":"20002","nickname":"Alice"},
+                          "message":[{"type":"image","data":{
+                            "file":"old.jpg","url":"https://example.invalid/old.jpg",
+                            "file_size":"21561"}}]
+                        }}
+                        """);
+                return;
+            }
             respond(exchange, """
                     {"status":"ok","retcode":0,"data":{
                       "message_id":"777","group_id":30003,"user_id":20002,"time":1700000000,
@@ -286,6 +375,37 @@ class NapCatAdapterPlatformTest {
                        "message":[{"type":"image","data":{}}]}
                     ]}}
                     """);
+        }
+
+        private void forward(HttpExchange exchange) throws IOException {
+            paths.add(exchange.getRequestURI().getPath());
+            read(exchange);
+            respond(exchange, """
+                    {"status":"ok","retcode":0,"data":{"messages":[
+                      {"sender":{"user_id":20002,"nickname":"成员"},"time":1700000000,
+                       "message_type":"group",
+                       "content":[
+                         {"type":"text","data":{"text":"转发文本"}},
+                         {"type":"image","data":{"file":"x.png","url":"https://example.invalid/x.png","file_size":"3"}}
+                       ]}
+                    ]}}
+                    """);
+        }
+
+        private void imageData(HttpExchange exchange) throws IOException {
+            paths.add(exchange.getRequestURI().getPath());
+            byte[] bytes = new byte[]{1, 2, 3};
+            exchange.getResponseHeaders().set("Content-Type", "image/png");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(bytes);
+            }
+        }
+
+        private void friendDecision(HttpExchange exchange) throws IOException {
+            paths.add(exchange.getRequestURI().getPath());
+            payloads.put(exchange.getRequestURI().getPath(), read(exchange));
+            respond(exchange, "{\"status\":\"ok\",\"retcode\":0,\"data\":null}");
         }
 
         private void send(HttpExchange exchange, String path, String messageId)

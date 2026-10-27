@@ -1,18 +1,22 @@
 # iiBotMosire
 
-面向 QQ 的**回合制世界观推演 Bot**：QQ 账号经可替换 Adapter（首期 NapCat / OneBot 11）接入；
-配置中的 QQ 用户被指定为“玩家”或“推演”；每名玩家拥有自己的**秘书 Agent**，在私聊中与玩家交流、
-经 GM 过滤信息并形成结构化决策草案；玩家必须用私聊硬命令确认后，决策才进入回合；回合冻结后由中央
-GM/推演 Agent 审核与推演，输出公开及玩家私密信息。
+面向 QQ 的 **bot-first** 消息接入与外部主 Agent 桥：QQ 账号经可替换 Adapter（当前 LLBot，后续 NapCat，统一 OneBot 11）接入；
+`iibot-bot` 把私聊/群聊消息写入来源消息板，按来源生成 bounded 摘要并投递到 Inbox，供一个受信任的外部主 Agent
+读取摘要、恢复正文和回复。纯文游语义正在退出默认核心，改为外部 Agent Skill；旧文游模块在迁移期保留为 legacy。
 
-> **当前阶段**：v2 纵向切片已实现，345 个自动化测试通过；真实 NapCat + 真实 LLM + 本地 MCP 单人回合已验证。
-> 多模型路由、秘书独立工作区、GM 推文审核/发布、GM 专用推演秘书已落地；真实 DSH 外部会话与真实 v2 多玩家回归尚未验证。当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
+> **当前阶段**：bot-first 重构与依赖升级进行中。AgentLib 已升到 `0.2.4`，Inbox 已切到 `summary/content` 与 15 工具面；
+> 新 `iibot-bot` 通用核心已开始落地。当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
 
 ## 已实现能力
 
 - **可替换接入 Lib** `iibot-connect`：OneBot 11 事件 WS + HTTP Action、鉴权、重连、心跳、去重、限速、文本分段、三态发送回执。
 - **Agent 工具扩展层** `iibot-connect-agent`：依赖 connect + AgentLib，提供 `qq_*` AgentTool、`ToolSpec`/角色/资源权限与统一授权；含通用 `qq_get_login_info`（AccountInfoProvider）。
-- **交互-推演任务流** `iibot-taskflow`：
+- **Bot-first 核心** `iibot-bot`：通用 QQ 来源/thread、消息板端口、用户备注/标签、bounded 摘要与 Inbox digest 模型；不依赖旧 taskflow。
+- **OneBot 11 富消息**：text/at/reply 出站段、入站图片/转发元数据、引用链与合并转发树。
+- **历史与上下文**：`bot_thread_history`、`bot_qq_recent`、`bot_qq_history`；Inbox `inbox_view.content.context` 默认带最近 6 条 IN/OUT 摘要。
+- **图片阅读**：`bot_media_get` 按需取图，通过 MCP `ImageContent` 交给支持识图的模型；不暴露 raw URL。
+- **入站好友申请审批**：`bot_friend_request_list/decide`；标准 OneBot 11/LLBot 不支持主动发起好友申请，因此不提供主动加好友。
+- **legacy 交互-推演任务流** `iibot-taskflow`：
   - 玩家/推演运行期设定提案与推演审核（批准后成为新世界事实）；
   - 玩家私聊秘书 Agent；
   - GM brief 审查与可见性过滤；
@@ -23,39 +27,65 @@ GM/推演 Agent 审核与推演，输出公开及玩家私密信息。
 - **秘书独立工作区**：`dataDir/secretaries/<playerId>/{public,player,gm,notes}`，基于 Workspace/Docs；秘书只读允许资料并可记笔记，GM 可列出/读取/下发资料并直接与秘书对话。
 - **推文权限与 GM 最终发布**：秘书只能创建/读取自己可见的草稿；GM/DIRECTOR/SUPERVISOR 审核，只有 GM 侧 `tf_post_publish` 才进入 outbox 公共群/私聊发送；`posts.json` 原子持久化。
 - **多模型路由**：`llm` 默认路由 + `llmRoutes` 覆盖 + `agentRoutes(secretary/adjudicator/gmAide)`；另有只读 GM 推演秘书 `GmAideAgent`，可读世界/回合/brief/事件/所有秘书工作区/所有推文，只返回 MCP/GM 会话。
-- **组合根** `iibot-app`：严格配置、世界事实装载、Workspace/Docs 世界文档、SQLite 事件审计、**完整状态快照的原子持久化与重启恢复**、入站回复与回合结果 outbox、逐用户 mailbox、自动冻结调度、可运行 Main。
-- **外部 MCP 控制面**：34 个全游戏事件流控制工具（含 `tf_run_adjudication_agent`）；默认关闭、只绑回环、Bearer 鉴权、独立 ToolRegistry、经 `ToolCallAuthorizer` 执行。
+- **legacy 组合根** `iibot-app`：旧文游配置、世界事实装载、Workspace/Docs、SQLite 审计、快照恢复、Outbox、MCP 传输与 Main；迁移期保留回滚。
+- **外部 MCP 控制面**：旧文游工具面仍保留在 legacy app；bot-first 新工具面将收敛为消息板/恢复/回复/用户备注。
 - **全局共享 Skill 区**：`dataDir/shared-skills/{public,skills}`，所有秘书只读，GM 通过 MCP 写入；无需逐玩家复制公共文档。
 - **投诉闭环**：秘书可随时提交玩家投诉，GM 通过 MCP 列表/查看/回应；回应可私聊发回玩家，`complaints.json` 原子持久化。
 - **重启不重复投递**：回合结果使用 `delivery-ledger.json` 逐消息持久化声明；重启恢复不会重发已投递的公共/私聊结果，UNKNOWN 不自动重试。
-- **可运行包**：`java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar --config <path>`。
+- **可运行包**：`java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`；默认 bot 模式，无 `--mode`。
 
 ## 快速开始
+
+Bot 是默认运行模式，不需要 `--mode bot`。
 
 ```bash
 ./mvnw -B -ntp package
 
-# 1. 复制配置与世界事实样例并改成你的 QQ/群/模型配置
-cp iibot-app/config/iibot.example.json iibot-app/config/iibot.json
-cp iibot-app/config/world-facts.example.json iibot-app/config/world-facts.json
-# 编辑 iibot-app/config/iibot.json：players/directors/publicGroupId/napcat/llm
+# 1. 第一次启动：没有 config/bot/*.json 时自动生成模板并退出（exit 2）
+java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar
 
-# 2. 密钥只放环境变量
+# 2. 编辑生成的配置
+#    config/bot/00-base.json            accountId / dataDir
+#    config/bot/10-napcat.json          WS/HTTP 地址和 env 名称
+#    config/bot/20-control-inbox.json   MCP 端口/path 和 Inbox id
+#    config/bot/30-policy.json          通知策略
+
+# 3. 密钥只放环境变量
 export IIBOT_NAPCAT_ACCESS_TOKEN='...'
-export IIBOT_LLM_API_KEY='...'
-export IIBOT_CONTROL_TOKEN='...'   # 仅 control.enabled=true 时需要
+export IIBOT_CONTROL_TOKEN='...'
 
-# 3. 启动
-java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar \
-  --config iibot-app/config/iibot.json
+# 4. 再次启动；默认读取 config/bot/ 中全部 *.json
+java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar
 ```
 
-MCP 控制面示例（外部 Agent 侧）：
+首次生成只发生在默认 `config/bot/` 完全没有任何 `*.json` 时；已有配置绝不覆盖。
+显式传 `--config` 时不会自动生成，缺失路径按配置错误处理。
+
+显式指定多个配置源：
+
+```bash
+java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar \
+  --config config/bot/00-base.json \
+  --config config/bot/10-napcat.json
+```
+
+legacy 文游必须显式选择：
+
+```bash
+java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar \
+  --mode legacy --config iibot-app/config/iibot.json
+```
+
+`config/README.md` 记录多文件合并、目录顺序和相对路径规则。
+
+Bot 程序 MCP 示例（外部 Agent 侧）：
 
 ```text
-URL:  http://127.0.0.1:8765/mcp/control
+URL:  http://127.0.0.1:8765/mcp/bot
 Header: Authorization: Bearer <IIBOT_CONTROL_TOKEN>
 ```
+
+legacy 控制面路径仍是 `/mcp/control`。
 
 仅允许回环地址；不要把该端口直接暴露公网。远程/多用户 TLS 与认证代理尚未实现。
 
@@ -83,13 +113,15 @@ iibot-connect        独立外部接入 Lib（不依赖 AgentLib/业务域）
       ▲
 iibot-connect-agent  connect → AgentLib AgentTool/权限扩展层
       ▲
-iibot-taskflow       领域、秘书/GM Agent、回合与外部控制工具
+iibot-bot            bot-first：消息板/thread/用户备注/摘要/Inbox 模型
       ▲
-iibot-app            组合根、配置、SQLite 审计、Docs、Outbox、MCP 传输、Main
+iibot-taskflow       legacy：旧文游领域、秘书/GM、回合与控制工具
+      ▲
+iibot-app            legacy：旧文游组合根与可运行 Main
 ```
 
-- 技术栈：Java 21、Maven Wrapper 3.9.16、AgentLib/Workspace/Docs `0.2.3`、Jackson、SQLite、官方 MCP Java SDK 2.0.1。
-- 当前 345 个自动化测试以进程内/本地 Fake 为主；真实 NapCat + LLM + 本地 MCP 单人回合另有独立证据。
+- 技术栈：Java 21、Maven Wrapper 3.9.16、AgentLib/Workspace/Docs `0.2.4`、Jackson、SQLite、官方 MCP Java SDK 2.0.1。
+- 当前数字以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准；旧 345/627 等数字是历史基线，不冒充 bot-first 全量验收。
 
 ## 已知边界
 

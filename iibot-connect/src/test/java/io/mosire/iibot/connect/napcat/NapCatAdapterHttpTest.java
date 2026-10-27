@@ -12,6 +12,7 @@ import io.mosire.iibot.connect.core.ChatHistoryPage;
 import io.mosire.iibot.connect.core.ChatHistoryQuery;
 import io.mosire.iibot.connect.core.InboundMessage.SessionType;
 import io.mosire.iibot.connect.core.OutboundMessage;
+import io.mosire.iibot.connect.core.OutboundSegment;
 import io.mosire.iibot.connect.core.SendReceipt;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -98,7 +99,7 @@ class NapCatAdapterHttpTest {
     }
 
     @Test
-    void readsFriendHistoryAsNeutralTextAndSkipsNonTextParts() throws Exception {
+    void readsFriendHistoryWithSegmentsAndUsesMessageSeqCursor() throws Exception {
         try (MockHttpServer server = new MockHttpServer();
              NapCatAdapter adapter = new NapCatAdapter(config(server, Duration.ofSeconds(2), 100))) {
             server.historyMessages = 1;
@@ -111,16 +112,18 @@ class NapCatAdapterHttpTest {
             assertThat(payload.path("user_id").asText()).isEqualTo("20002");
             assertThat(payload.path("count").asInt()).isEqualTo(2);
             assertThat(payload.path("reverse_order").asBoolean()).isTrue();
-            assertThat(payload.path("parse_mult_msg").asBoolean()).isFalse();
-            assertThat(payload.path("disable_get_url").asBoolean()).isTrue();
+            assertThat(payload.path("parse_mult_msg").asBoolean()).isTrue();
+            assertThat(payload.path("disable_get_url").asBoolean()).isFalse();
 
-            assertThat(page.messages()).hasSize(1);
+            assertThat(page.messages()).hasSize(2);
             assertThat(page.messages().getFirst().messageId()).isEqualTo("101");
             assertThat(page.messages().getFirst().senderId()).isEqualTo("20002");
             assertThat(page.messages().getFirst().senderName()).isEqualTo("测试玩家");
             assertThat(page.messages().getFirst().text()).isEqualTo("历史文本");
+            assertThat(page.messages().get(1).segments()).singleElement()
+                    .extracting(segment -> segment.type().name()).isEqualTo("IMAGE");
             assertThat(page.exhausted()).isFalse();
-            assertThat(page.nextCursor()).isEqualTo("101");
+            assertThat(page.nextCursor()).isEqualTo("100");
         }
     }
 
@@ -138,7 +141,7 @@ class NapCatAdapterHttpTest {
                     .isEqualTo("30003");
             assertThat(page.messages()).hasSize(2);
             assertThat(page.exhausted()).isFalse();
-            assertThat(page.nextCursor()).isEqualTo("101");
+            assertThat(page.nextCursor()).isEqualTo("100");
         }
     }
 
@@ -254,6 +257,31 @@ class NapCatAdapterHttpTest {
             assertThat(server.texts).containsExactly("abcde", "fghij");
             assertThat(server.sendPayloads.get(0).path("message_type").asText()).isEqualTo("group");
             assertThat(server.sendPayloads.get(0).path("group_id").asText()).isEqualTo("30003");
+        }
+    }
+
+    @Test
+    void sendsRichReplyMentionAndTextSegmentsInOrder() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(
+                     config(server, Duration.ofSeconds(2), 100))) {
+            SendReceipt receipt = adapter.send(OutboundMessage.richGroupMessage(
+                            "30003",
+                            List.of(new OutboundSegment.Reply("m-1"),
+                                    new OutboundSegment.Mention("20002"),
+                                    new OutboundSegment.Text("收到")),
+                            "idem-rich"))
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(receipt.state()).isEqualTo(SendReceipt.State.SENT);
+            JsonNode message = server.sendPayloads.getFirst().path("message");
+            assertThat(message).hasSize(3);
+            assertThat(message.get(0).path("type").asText()).isEqualTo("reply");
+            assertThat(message.get(0).path("data").path("id").asText()).isEqualTo("m-1");
+            assertThat(message.get(1).path("type").asText()).isEqualTo("at");
+            assertThat(message.get(1).path("data").path("qq").asText()).isEqualTo("20002");
+            assertThat(message.get(2).path("type").asText()).isEqualTo("text");
+            assertThat(message.get(2).path("data").path("text").asText()).isEqualTo("收到");
         }
     }
 
@@ -436,10 +464,10 @@ class NapCatAdapterHttpTest {
             historyPayloads.add(MAPPER.readTree(requestBody));
             historyCalls.incrementAndGet();
             String messages = historyMessages >= 2
-                    ? "[{\"message_id\":101,\"time\":1700000000,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"text\",\"data\":{\"text\":\"历史文本\"}}]},"
-                    + "{\"message_id\":102,\"time\":1700000001,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"text\",\"data\":{\"text\":\"第二条\"}}]}]"
-                    : "[{\"message_id\":101,\"time\":1700000000,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"text\",\"data\":{\"text\":\"历史文本\"}}]},"
-                    + "{\"message_id\":102,\"time\":1700000001,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"image\",\"data\":{}}]}]";
+                    ? "[{\"message_id\":101,\"message_seq\":101,\"time\":1700000000,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"text\",\"data\":{\"text\":\"历史文本\"}}]},"
+                    + "{\"message_id\":102,\"message_seq\":102,\"time\":1700000001,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"text\",\"data\":{\"text\":\"第二条\"}}]}]"
+                    : "[{\"message_id\":101,\"message_seq\":101,\"time\":1700000000,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"text\",\"data\":{\"text\":\"历史文本\"}}]},"
+                    + "{\"message_id\":102,\"message_seq\":102,\"time\":1700000001,\"sender\":{\"user_id\":20002,\"nickname\":\"测试玩家\"},\"message\":[{\"type\":\"image\",\"data\":{}}]}]";
             respond(exchange, 200,
                     "{\"status\":\"ok\",\"retcode\":" + historyRetcode
                             + ",\"data\":{\"messages\":" + messages + "}}");

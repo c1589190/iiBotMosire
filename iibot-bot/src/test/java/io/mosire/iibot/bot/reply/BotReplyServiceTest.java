@@ -1,0 +1,55 @@
+package io.mosire.iibot.bot.reply;
+
+import io.mosire.iibot.bot.chat.ChatMessage;
+import io.mosire.iibot.bot.chat.ChatSourceKey;
+import io.mosire.iibot.bot.chat.DeliveryState;
+import io.mosire.iibot.bot.store.InMemoryMessageBoardStore;
+import io.mosire.iibot.connect.core.MessageSegment;
+import org.junit.jupiter.api.Test;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class BotReplyServiceTest {
+
+    private static final Instant T0 = Instant.parse("2026-10-27T00:00:00Z");
+    private static final Clock CLOCK = Clock.fixed(T0, ZoneOffset.UTC);
+    private static final ChatSourceKey GROUP = ChatSourceKey.groupChat("bot-1", "group-9");
+
+    @Test
+    void normalizesBeforePersistingAndSendingSoLocalTextMatchesExternalText() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, "原消息", "", ""));
+        CapturingPort port = new CapturingPort();
+        BotReplyService service = new BotReplyService(board, port, CLOCK,
+                (text, chatType) -> text.contains("MCP") ? "安全 fallback" : text);
+
+        BotReplyResult result = service.reply(GROUP.threadId(),
+                "这是包含 MCP 的原文", null, "reply-normalized");
+
+        assertThat(result.message().text()).isEqualTo("安全 fallback");
+        assertThat(port.sentText).isEqualTo("安全 fallback");
+        ChatMessage stored = board.find(result.message().messageKey()).orElseThrow();
+        assertThat(stored.text()).isEqualTo("安全 fallback");
+        assertThat(board.segments(stored.messageKey())).singleElement().satisfies(segment -> {
+            assertThat(segment.type()).isEqualTo(MessageSegment.Type.TEXT);
+            assertThat(segment.text()).isEqualTo("安全 fallback");
+        });
+    }
+
+    private static final class CapturingPort implements BotReplyPort {
+        private String sentText;
+
+        @Override
+        public BotReplySendResult send(ChatSourceKey source, String text,
+                                       String replyToMessageId, String idempotencyKey) {
+            sentText = text;
+            return new BotReplySendResult(DeliveryState.SENT, List.of("qq-1"), "");
+        }
+    }
+}

@@ -1,0 +1,12 @@
+{
+  "napcat": {
+    "eventWebSocketUri": "ws://127.0.0.1:3001/",
+    "httpBaseUri": "http://127.0.0.1:3000/",
+    "accessTokenEnv": "IIBOT_NAPCAT_ACCESS_TOKEN",
+    "accountId": "REPLACE_WITH_BOT_QQ",
+    "privateTempGroupId": "",
+    "suppressSelfMessages": true,
+    "requestTimeoutSeconds": 10,
+    "maxTextLength": 2000
+  }
+}

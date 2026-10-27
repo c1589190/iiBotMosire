@@ -173,7 +173,7 @@ public final class InboxHostRuntime implements AutoCloseable {
         return notificationBridge.scanOnce();
     }
 
-    /** 当前项目控制 MCP 注册的 11 个 inbox_* 工具 + descriptor 工具。 */
+    /** 当前项目控制 MCP 注册的 15 个 inbox_* 工具 + descriptor 工具。 */
     public List<AgentTool> mcpTools() {
         return mcpTools;
     }

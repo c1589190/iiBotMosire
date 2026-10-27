@@ -3,6 +3,7 @@ package io.mosire.iibot.app.delivery;
 import io.mosire.iibot.connect.core.InboundMessage;
 import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.core.OutboundMessage;
+import io.mosire.iibot.connect.core.OutboundSegment;
 import io.mosire.iibot.connect.core.SendReceipt;
 import io.mosire.iibot.taskflow.agent.InteractionReply;
 import io.mosire.iibot.taskflow.agent.PlayerFacingTextGuard;
@@ -116,6 +117,76 @@ public final class OutboxSender {
             outcomes.add(send(index, idempotencyKey, outbound));
         }
         return List.copyOf(outcomes);
+    }
+
+    /** 使用配置的临时会话来源群发送富文本私聊回复。 */
+    public List<SendOutcome> sendRichPrivateToUser(
+            String userId, List<OutboundSegment> segments, String correlationKey) {
+        return sendRichPrivateToUser(userId, privateTempGroupId, segments, correlationKey);
+    }
+
+    /**
+     * 发送带 at/reply 段的富文本私聊回复。
+     */
+    public List<SendOutcome> sendRichPrivateToUser(
+            String userId, String temporaryGroupId, List<OutboundSegment> segments,
+            String correlationKey) {
+        if (userId == null || userId.isBlank()) {
+            throw new IllegalArgumentException("userId 不能为空");
+        }
+        Objects.requireNonNull(segments, "segments");
+        Objects.requireNonNull(correlationKey, "correlationKey");
+        String key = "private:" + correlationKey + ":reply:0";
+        List<OutboundSegment> normalized = normalizeRichSegments(segments, true);
+        if (normalized.isEmpty()) {
+            return List.of(new SendOutcome(0, key, SendReceipt.State.FAILED_BEFORE_SEND,
+                    List.of(), "OUTBOX_BLANK_TEXT", "空白正文被拒绝（未发送）"));
+        }
+        OutboundMessage outbound = temporaryGroupId == null || temporaryGroupId.isBlank()
+                ? OutboundMessage.richPrivateMessage(userId, normalized, key)
+                : OutboundMessage.richPrivateTemporaryMessage(
+                        userId, temporaryGroupId, normalized, key);
+        return List.of(send(0, key, outbound));
+    }
+
+    /**
+     * 发送带 at/reply 段的富文本群回复。
+     */
+    public List<SendOutcome> sendRichGroup(
+            String groupId, List<OutboundSegment> segments, String correlationKey) {
+        if (groupId == null || groupId.isBlank()) {
+            throw new IllegalArgumentException("groupId 不能为空");
+        }
+        Objects.requireNonNull(segments, "segments");
+        Objects.requireNonNull(correlationKey, "correlationKey");
+        String key = "public:" + correlationKey + ":reply:0";
+        List<OutboundSegment> normalized = normalizeRichSegments(segments, false);
+        if (normalized.isEmpty()) {
+            return List.of(new SendOutcome(0, key, SendReceipt.State.FAILED_BEFORE_SEND,
+                    List.of(), "OUTBOX_BLANK_TEXT", "空白正文被拒绝（未发送）"));
+        }
+        OutboundMessage outbound = OutboundMessage.richGroupMessage(groupId, normalized, key);
+        return List.of(send(0, key, outbound));
+    }
+
+    private static List<OutboundSegment> normalizeRichSegments(
+            List<OutboundSegment> segments, boolean privateChat) {
+        List<OutboundSegment> normalized = new ArrayList<>(segments.size());
+        for (OutboundSegment segment : segments) {
+            if (segment instanceof OutboundSegment.Text text) {
+                String value = privateChat
+                        ? PlayerFacingTextGuard.normalizeForChat(text.text())
+                        : PlayerFacingTextGuard.normalizeForPost(text.text());
+                if (value != null && !value.isBlank()) {
+                    normalized.add(new OutboundSegment.Text(value));
+                }
+            } else {
+                normalized.add(segment);
+            }
+        }
+        boolean hasText = normalized.stream()
+                .anyMatch(segment -> segment instanceof OutboundSegment.Text);
+        return hasText ? List.copyOf(normalized) : List.of();
     }
 
     /**

@@ -78,25 +78,25 @@ class InboxNotificationBridgeTest {
 
             InboxModels.PushItem ticketItem = attempted.get(2);
             assertThat(ticketItem.channel()).isEqualTo("ticket");
-            assertThat(ticketItem.title()).isEqualTo("ACTION_DRAFT");
-            assertThat(ticketItem.title()).doesNotContain("SECRET_TICKET");
-            assertThat(ticketItem.payload()).isInstanceOf(Map.class);
+            assertThat(ticketItem.summary()).isEqualTo("ACTION_DRAFT");
+            assertThat(ticketItem.summary()).doesNotContain("SECRET_TICKET");
+            assertThat(ticketItem.content()).isInstanceOf(Map.class);
             @SuppressWarnings("unchecked")
-            Map<String, Object> ticketPayload = (Map<String, Object>) ticketItem.payload();
-            assertThat(ticketPayload).containsOnlyKeys(
+            Map<String, Object> ticketContent = (Map<String, Object>) ticketItem.content();
+            assertThat(ticketContent).containsOnlyKeys(
                     "ticketId", "type", "status", "revision");
-            assertThat(ticketPayload.toString()).doesNotContain(
+            assertThat(ticketContent.toString()).doesNotContain(
                     "SECRET_TICKET_TITLE", "SECRET_TICKET_BODY", "player-1");
 
             InboxModels.PushItem postItem = attempted.get(1);
             assertThat(postItem.channel()).isEqualTo("publication-review");
-            assertThat(postItem.title()).isEqualTo("PUBLIC");
-            assertThat(postItem.title()).doesNotContain("SECRET_POST");
-            assertThat(postItem.payload()).isInstanceOf(Map.class);
+            assertThat(postItem.summary()).isEqualTo("PUBLIC");
+            assertThat(postItem.summary()).doesNotContain("SECRET_POST");
+            assertThat(postItem.content()).isInstanceOf(Map.class);
             @SuppressWarnings("unchecked")
-            Map<String, Object> postPayload = (Map<String, Object>) postItem.payload();
-            assertThat(postPayload).containsOnlyKeys("postId", "visibility", "revision");
-            assertThat(postPayload.toString()).doesNotContain("SECRET_POST_TITLE",
+            Map<String, Object> postContent = (Map<String, Object>) postItem.content();
+            assertThat(postContent).containsOnlyKeys("postId", "visibility", "revision");
+            assertThat(postContent.toString()).doesNotContain("SECRET_POST_TITLE",
                     "SECRET_POST_BODY", "player-1");
         } finally {
             bridge.close();

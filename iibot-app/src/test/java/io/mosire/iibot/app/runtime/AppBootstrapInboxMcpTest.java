@@ -47,7 +47,8 @@ class AppBootstrapInboxMcpTest {
     private static final String CONTROL_PATH = "/inbox/mcp";
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final List<String> INBOX_TOOL_NAMES = List.of(
-            "inbox_status", "inbox_list", "inbox_claim", "inbox_renew",
+            "inbox_status", "inbox_rest", "inbox_list", "inbox_view", "inbox_update",
+            "inbox_append", "inbox_delete", "inbox_claim", "inbox_renew",
             "inbox_complete", "inbox_release", "inbox_push", "inbox_occupancy",
             "inbox_occupy", "inbox_vacate", "inbox_credential_info",
             InboxBindingDescriptorTool.NAME);
@@ -97,6 +98,9 @@ class AppBootstrapInboxMcpTest {
             List<String> names = client.listTools().tools().stream()
                     .map(McpSchema.Tool::name).toList();
             assertThat(names).containsAll(INBOX_TOOL_NAMES);
+            assertThat(names.stream().filter(name -> name.startsWith("inbox_")).count())
+                    .as("Inbox 客户端工具面必须恰为 16 个")
+                    .isEqualTo(16L);
             assertThat(names).doesNotContain("tf_ticket_board");
             assertThat(names).contains("tf_ticket_list", "tf_ticket_get");
 
@@ -139,8 +143,8 @@ class AppBootstrapInboxMcpTest {
             JsonNode pushed = callJson(client, "inbox_push", Map.of(
                     "channel", "ticket",
                     "kind", "manual",
-                    "title", "manual notification",
-                    "payload", Map.of("ticketId", "manual-ticket-ref"),
+                    "summary", "manual notification",
+                    "content", Map.of("ticketId", "manual-ticket-ref"),
                     "dedupeKey", "manual:mcp:1",
                     "priority", 0));
             String firstItemId = pushed.path("itemId").asText();
@@ -150,14 +154,18 @@ class AppBootstrapInboxMcpTest {
             assertThat(firstList.path("items")).anySatisfy(item -> {
                 assertThat(item.path("itemId").asText()).isEqualTo(firstItemId);
                 assertThat(item.path("channel").asText()).isEqualTo("ticket");
+                assertThat(item.path("summary").asText()).isEqualTo("manual notification");
+                assertThat(item.has("content")).isFalse();
                 assertThat(item.has("payload")).isFalse();
             });
             JsonNode claimed = callJson(client, "inbox_claim", Map.of(
                     "itemIds", List.of(firstItemId), "leaseSeconds", 60));
             JsonNode firstClaim = claimed.path("claimed").get(0);
             String firstClaimToken = firstClaim.path("claimToken").asText();
-            assertThat(firstClaim.path("payload").path("ticketId").asText())
+            assertThat(firstClaim.path("content").path("ticketId").asText())
                     .isEqualTo("manual-ticket-ref");
+            assertThat(firstClaim.path("summary").asText())
+                    .isEqualTo("manual notification");
             assertThat(claimed.toString()).doesNotContain(programToken).doesNotContain(wakeToken);
             JsonNode renewed = callJson(client, "inbox_renew", Map.of(
                     "claimTokens", List.of(firstClaimToken), "leaseSeconds", 120));
@@ -175,8 +183,8 @@ class AppBootstrapInboxMcpTest {
 
             JsonNode secondPush = callJson(client, "inbox_push", Map.of(
                     "channel", "ticket",
-                    "title", "release notification",
-                    "payload", Map.of("ticketId", "manual-ticket-release"),
+                    "summary", "release notification",
+                    "content", Map.of("ticketId", "manual-ticket-release"),
                     "dedupeKey", "manual:mcp:release"));
             String secondItemId = secondPush.path("itemId").asText();
             JsonNode secondClaim = callJson(client, "inbox_claim", Map.of(
@@ -237,19 +245,19 @@ class AppBootstrapInboxMcpTest {
             List<String> bridgedClaimTokens = new ArrayList<>();
             for (JsonNode item : bridgedClaims.path("claimed")) {
                 String channel = item.path("channel").asText();
-                JsonNode payload = item.path("payload");
+                JsonNode content = item.path("content");
                 if ("ticket".equals(channel)) {
                     List<String> keys = new ArrayList<>();
-                    payload.fieldNames().forEachRemaining(keys::add);
+                    content.fieldNames().forEachRemaining(keys::add);
                     assertThat(keys).containsExactlyInAnyOrder(
                             "ticketId", "type", "status", "revision");
                 } else {
                     List<String> keys = new ArrayList<>();
-                    payload.fieldNames().forEachRemaining(keys::add);
+                    content.fieldNames().forEachRemaining(keys::add);
                     assertThat(keys).containsExactlyInAnyOrder(
                             "postId", "visibility", "revision");
                 }
-                assertThat(payload.toString()).doesNotContain("HIDDEN_TICKET_TITLE",
+                assertThat(content.toString()).doesNotContain("HIDDEN_TICKET_TITLE",
                         "HIDDEN_TICKET_BODY", "HIDDEN_POST_TITLE", "HIDDEN_POST_BODY",
                         "player-1", programToken, wakeToken);
                 bridgedClaimTokens.add(item.path("claimToken").asText());

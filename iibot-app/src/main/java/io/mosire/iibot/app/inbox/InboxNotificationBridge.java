@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * 宿主侧 Inbox 通知桥。
  *
- * <p>桥按固定周期扫描权威 Ticket/Post 状态，只推送索引引用与稳定 dedupeKey。
+ * <p>桥按固定周期扫描权威 Ticket/Post 状态，只推送 bounded summary 与索引引用。
  * 它不是 Agent 轮询，不读取或传输工单/推文正文。push 失败只记录稳定错误类型，
  * 不抛回领域操作；下一次扫描仍使用同一 dedupeKey 重试。</p>
  */
@@ -145,16 +145,16 @@ public final class InboxNotificationBridge implements AutoCloseable {
             if (successfulDedupeKeys.contains(dedupeKey)) {
                 continue;
             }
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("ticketId", ticket.ticketId());
-            payload.put("type", ticket.type().name());
-            payload.put("status", ticket.status().name());
-            payload.put("revision", ticket.revision());
+            Map<String, Object> content = new LinkedHashMap<>();
+            content.put("ticketId", ticket.ticketId());
+            content.put("type", ticket.type().name());
+            content.put("status", ticket.status().name());
+            content.put("revision", ticket.revision());
             InboxModels.PushItem item = InboxModels.PushItem
                     .builder(CHANNEL_TICKET)
                     .kind("ticket")
-                    .title(ticket.type().name())
-                    .payload(payload)
+                    .summary(ticket.type().name())
+                    .content(content)
                     .dedupeKey(dedupeKey)
                     .build();
             if (push(dedupeKey, item)) {
@@ -184,15 +184,15 @@ public final class InboxNotificationBridge implements AutoCloseable {
             if (successfulDedupeKeys.contains(dedupeKey)) {
                 continue;
             }
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("postId", post.postId());
-            payload.put("visibility", post.visibility().name());
-            payload.put("revision", post.revision());
+            Map<String, Object> content = new LinkedHashMap<>();
+            content.put("postId", post.postId());
+            content.put("visibility", post.visibility().name());
+            content.put("revision", post.revision());
             InboxModels.PushItem item = InboxModels.PushItem
                     .builder(CHANNEL_PUBLICATION_REVIEW)
                     .kind("review")
-                    .title(post.visibility().name())
-                    .payload(payload)
+                    .summary(post.visibility().name())
+                    .content(content)
                     .dedupeKey(dedupeKey)
                     .build();
             if (push(dedupeKey, item)) {

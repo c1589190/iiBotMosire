@@ -1,0 +1,28 @@
+{
+  "summary": {
+    "debounceMillis": 2000,
+    "maxMessagesPerDigest": 100
+  },
+  "outbox": {
+    "sendTimeoutSeconds": 15,
+    "minSendIntervalMillis": 150
+  },
+  "weighting": {
+    "defaultPrivateSourceWeight": 300,
+    "defaultGroupSourceWeight": 0,
+    "defaultNotifyThreshold": 100,
+    "signalWeights": {
+      "DM": 200,
+      "MENTION": 200,
+      "REPLY_TO_BOT": 180,
+      "NAME": 120,
+      "COMMAND": 250
+    },
+    "keywordWeights": {},
+    "aliases": [],
+    "commandPrefixes": ["/", "!"],
+    "maxMessagesPerDigest": 20,
+    "quietMillis": 180000,
+    "cooldownMillis": 60000
+  }
+}

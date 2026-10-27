@@ -1,0 +1,10 @@
+runtime/
+logs/
+dist/
+config/*.local.json
+config/*.backup-*
+tools/classes/
+runtime.backup*/
+runtime.partial*/
+.claim-tokens.json
+**/*.token

@@ -10,11 +10,16 @@
   </parent>
   <artifactId>iibot-app</artifactId>
   <name>iibot-app</name>
-  <description>Composition root and runnable QQ interaction-simulation bot.</description>
+  <description>Legacy composition root; bot-first runtime migration in progress.</description>
   <dependencies>
     <dependency>
       <groupId>io.mosire.iibot</groupId>
       <artifactId>iibot-taskflow</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.mosire.iibot</groupId>
+      <artifactId>iibot-bot</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>

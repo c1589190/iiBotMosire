@@ -11,16 +11,18 @@ import java.util.Objects;
  *
  * @param targetType     私聊或群聊
  * @param targetId       私聊用户标识或群标识
- * @param textSegments   非空文本片段列表
+ * @param textSegments   兼容用文本片段列表；富消息时由 Text 段派生
  * @param idempotencyKey 调用方提供的稳定幂等键；相同键至多触发一次逻辑发送
  * @param temporaryGroupId 私聊临时会话的来源群；null 表示普通私聊
+ * @param richSegments   可选的富消息段；为空时走 textSegments 兼容路径
  */
 public record OutboundMessage(
         TargetType targetType,
         String targetId,
         List<String> textSegments,
         String idempotencyKey,
-        String temporaryGroupId) {
+        String temporaryGroupId,
+        List<OutboundSegment> richSegments) {
 
     /** 发送目标类型。 */
     public enum TargetType {
@@ -31,16 +33,38 @@ public record OutboundMessage(
     public OutboundMessage {
         targetType = Objects.requireNonNull(targetType, "targetType");
         targetId = requireText(targetId, "targetId");
-        Objects.requireNonNull(textSegments, "textSegments");
-        if (textSegments.isEmpty()) {
-            throw new IllegalArgumentException("textSegments 不能为空");
+        richSegments = richSegments == null ? List.of() : List.copyOf(richSegments);
+        if (richSegments.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException("richSegments 不能包含 null");
         }
-        textSegments = List.copyOf(textSegments);
+        textSegments = textSegments == null ? List.of() : List.copyOf(textSegments);
         if (textSegments.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("textSegments 不能包含 null");
         }
-        if (textSegments.stream().allMatch(String::isBlank)) {
-            throw new IllegalArgumentException("空文本被拒绝");
+        if (richSegments.isEmpty()) {
+            if (textSegments.isEmpty()) {
+                throw new IllegalArgumentException("textSegments 不能为空");
+            }
+            if (textSegments.stream().allMatch(String::isBlank)) {
+                throw new IllegalArgumentException("空文本被拒绝");
+            }
+        } else {
+            if (textSegments.isEmpty()) {
+                textSegments = richSegments.stream()
+                        .filter(OutboundSegment.Text.class::isInstance)
+                        .map(OutboundSegment.Text.class::cast)
+                        .map(OutboundSegment.Text::text)
+                        .toList();
+            }
+            boolean hasContent = richSegments.stream().anyMatch(segment ->
+                    segment instanceof OutboundSegment.Text text && !text.text().isBlank());
+            if (!hasContent) {
+                throw new IllegalArgumentException("richSegments 至少需要一个非空 Text 段");
+            }
+            if (targetType != TargetType.GROUP && richSegments.stream()
+                    .anyMatch(OutboundSegment.Mention.class::isInstance)) {
+                throw new IllegalArgumentException("Mention 段只适用于群聊");
+            }
         }
         idempotencyKey = requireText(idempotencyKey, "idempotencyKey");
         if (temporaryGroupId != null && temporaryGroupId.isBlank()) {
@@ -51,10 +75,17 @@ public record OutboundMessage(
         }
     }
 
+    /** 兼容文本消息 5 参构造。 */
+    public OutboundMessage(TargetType targetType, String targetId,
+                           List<String> textSegments, String idempotencyKey,
+                           String temporaryGroupId) {
+        this(targetType, targetId, textSegments, idempotencyKey, temporaryGroupId, List.of());
+    }
+
     /** 兼容旧 4 参构造：普通私聊/群聊。 */
     public OutboundMessage(TargetType targetType, String targetId,
                            List<String> textSegments, String idempotencyKey) {
-        this(targetType, targetId, textSegments, idempotencyKey, null);
+        this(targetType, targetId, textSegments, idempotencyKey, null, List.of());
     }
 
     /** 构造普通私聊消息。 */
@@ -75,6 +106,28 @@ public record OutboundMessage(
     public static OutboundMessage groupMessage(
             String groupId, List<String> textSegments, String idempotencyKey) {
         return new OutboundMessage(TargetType.GROUP, groupId, textSegments, idempotencyKey);
+    }
+
+    /** 构造富文本群消息。 */
+    public static OutboundMessage richGroupMessage(
+            String groupId, List<OutboundSegment> segments, String idempotencyKey) {
+        return new OutboundMessage(TargetType.GROUP, groupId, List.of(), idempotencyKey,
+                null, segments);
+    }
+
+    /** 构造富文本普通私聊消息。 */
+    public static OutboundMessage richPrivateMessage(
+            String userId, List<OutboundSegment> segments, String idempotencyKey) {
+        return new OutboundMessage(TargetType.PRIVATE, userId, List.of(), idempotencyKey,
+                null, segments);
+    }
+
+    /** 构造富文本群临时私聊消息。 */
+    public static OutboundMessage richPrivateTemporaryMessage(
+            String userId, String groupId, List<OutboundSegment> segments,
+            String idempotencyKey) {
+        return new OutboundMessage(TargetType.PRIVATE, userId, List.of(), idempotencyKey,
+                requireText(groupId, "temporaryGroupId"), segments);
     }
 
     private static String requireText(String value, String name) {

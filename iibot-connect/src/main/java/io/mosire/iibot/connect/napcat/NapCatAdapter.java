@@ -13,16 +13,28 @@ import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.connect.core.ChatHistoryQuery;
 import io.mosire.iibot.connect.core.ChatConversation;
 import io.mosire.iibot.connect.core.ChatMessageDetail;
+import io.mosire.iibot.connect.core.FriendRequestCapability;
+import io.mosire.iibot.connect.core.FriendRequestEvent;
+import io.mosire.iibot.connect.core.FriendRequestHandler;
+import io.mosire.iibot.connect.core.ForwardCapability;
+import io.mosire.iibot.connect.core.ForwardMessage;
+import io.mosire.iibot.connect.core.ForwardPage;
 import io.mosire.iibot.connect.core.GroupMember;
 import io.mosire.iibot.connect.core.QqPlatformCapability;
+import io.mosire.iibot.connect.core.RecentQqMessage;
+import io.mosire.iibot.connect.core.RecentQqProvider;
 import io.mosire.iibot.connect.core.AdapterEvent;
 import io.mosire.iibot.connect.core.AdapterEventListener;
 import io.mosire.iibot.connect.core.AdapterStatus;
 import io.mosire.iibot.connect.core.AdapterStatus.ConnectionState;
 import io.mosire.iibot.connect.core.InboundHandler;
 import io.mosire.iibot.connect.core.InboundMessage;
+import io.mosire.iibot.connect.core.MediaAsset;
+import io.mosire.iibot.connect.core.MediaCapability;
+import io.mosire.iibot.connect.core.MessageSegment;
 import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.core.OutboundMessage;
+import io.mosire.iibot.connect.core.OutboundSegment;
 import io.mosire.iibot.connect.core.SendReceipt;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -65,10 +77,12 @@ import org.slf4j.LoggerFactory;
  * {@link #close()} 幂等，并会完成所有未完成的发送 future。</p>
  */
 public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvider,
-        ChatHistoryProvider, QqPlatformCapability {
+        ChatHistoryProvider, QqPlatformCapability, ForwardCapability, MediaCapability,
+        RecentQqProvider, FriendRequestCapability {
 
     private static final Logger LOG = LoggerFactory.getLogger(NapCatAdapter.class);
     private static final Pattern SAFE_EVENT_NAME = Pattern.compile("[A-Za-z0-9_.-]{1,64}");
+    private static final int MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 
     private final NapCatConfig config;
     private final String adapterId;
@@ -79,6 +93,8 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
     private final TargetRateLimiter rateLimiter;
 
     private final AtomicReference<InboundHandler> inboundHandler = new AtomicReference<>();
+    private final AtomicReference<FriendRequestHandler> friendRequestHandler =
+            new AtomicReference<>();
     private final AtomicReference<WebSocket> webSocket = new AtomicReference<>();
     private final AtomicReference<AdapterStatus> status = new AtomicReference<>(AdapterStatus.stopped());
     private final AtomicBoolean started = new AtomicBoolean();
@@ -140,8 +156,9 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
             return CompletableFuture.completedFuture(
                     SendReceipt.failed("INVALID_MESSAGE", "发送消息不能为 null"));
         }
-        if (message.textSegments().isEmpty()
-                || message.textSegments().stream().allMatch(String::isBlank)) {
+        boolean textOnly = message.richSegments().isEmpty();
+        if (textOnly && (message.textSegments().isEmpty()
+                || message.textSegments().stream().allMatch(String::isBlank))) {
             return CompletableFuture.completedFuture(
                     SendReceipt.failed("EMPTY_TEXT", "空文本被拒绝"));
         }
@@ -234,8 +251,8 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
         }
         payload.put("count", query.count());
         payload.put("reverse_order", query.reverseOrder());
-        payload.put("parse_mult_msg", false);
-        payload.put("disable_get_url", true);
+        payload.put("parse_mult_msg", true);
+        payload.put("disable_get_url", false);
 
         return postAction(action, payload).handle((root, error) -> {
             if (error != null) {
@@ -253,12 +270,12 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
                         "历史响应缺少 messages 数组"));
             }
             List<ChatHistoryMessage> messages = new ArrayList<>();
-            List<String> rawMessageIds = new ArrayList<>();
+            List<String> rawSequences = new ArrayList<>();
             int nonTextSkipped = 0;
             for (JsonNode messageNode : messagesNode) {
-                String rawMessageId = scalarText(messageNode.get("message_id"));
-                if (rawMessageId != null) {
-                    rawMessageIds.add(rawMessageId);
+                String sequence = scalarText(messageNode.get("message_seq"));
+                if (sequence != null) {
+                    rawSequences.add(sequence);
                 }
                 ChatHistoryMessage message = parseHistoryMessage(messageNode);
                 if (message != null) {
@@ -269,12 +286,249 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
             }
             boolean exhausted = messagesNode.size() < query.count();
             String nextCursor = null;
-            if (!exhausted && !rawMessageIds.isEmpty()) {
+            if (!exhausted && !rawSequences.isEmpty()) {
+                String first = rawSequences.getFirst();
+                String last = rawSequences.getLast();
                 nextCursor = query.reverseOrder()
-                        ? rawMessageIds.getFirst()
-                        : rawMessageIds.getLast();
+                        ? previousSequence(first)
+                        : nextSequence(last);
             }
             return new ChatHistoryPage(messages, nextCursor, exhausted, nonTextSkipped);
+        });
+    }
+
+    @Override
+    public void setFriendRequestHandler(FriendRequestHandler handler) {
+        friendRequestHandler.set(handler);
+    }
+
+    @Override
+    public CompletionStage<SendReceipt> decideFriendRequest(
+            String flag, boolean approve, String remark) {
+        if (closed.get()) {
+            return CompletableFuture.completedFuture(
+                    SendReceipt.failed("ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (flag == null || flag.isBlank()) {
+            return CompletableFuture.completedFuture(
+                    SendReceipt.failed("INVALID_FLAG", "好友申请 flag 为空"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("flag", flag.trim());
+        payload.put("approve", approve);
+        if (remark != null && !remark.isBlank()) {
+            payload.put("remark", remark.trim());
+        }
+        return postAction("set_friend_add_request", payload)
+                .thenApply(root -> SendReceipt.sent(List.of("friend-request")))
+                .exceptionally(error -> SendReceipt.unknown(
+                        "FRIEND_REQUEST_UNKNOWN",
+                        "好友申请处理结果未知，禁止自动重试"));
+    }
+
+    @Override
+    public CompletionStage<List<RecentQqMessage>> recentMessages(int limit) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (limit < 1 || limit > 50) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("limit 必须在 1..50"));
+        }
+        CompletionStage<List<ChatConversation>> groups = joinedGroups();
+        CompletionStage<List<ChatConversation>> friends = friends(false);
+        return groups.thenCombine(friends, (groupList, friendList) -> {
+                    List<ChatConversation> all = new ArrayList<>(groupList);
+                    all.addAll(friendList);
+                    return all.stream().limit(50).toList();
+                })
+                .thenCompose(conversations -> {
+                    List<CompletableFuture<RecentQqMessage>> futures = new ArrayList<>();
+                    for (ChatConversation conversation : conversations) {
+                        futures.add(history(ChatHistoryQuery.latest(
+                                conversation.sessionType(), conversation.targetId(), 1))
+                                .toCompletableFuture()
+                                .thenApply(page -> page.messages().isEmpty() ? null
+                                        : new RecentQqMessage(conversation.sessionType(),
+                                                conversation.targetId(),
+                                                conversation.displayName(),
+                                                page.messages().getFirst()))
+                                .exceptionally(ignored -> null));
+                    }
+                    return CompletableFuture.allOf(
+                                    futures.toArray(CompletableFuture[]::new))
+                            .thenApply(ignored -> futures.stream()
+                                    .map(CompletableFuture::join)
+                                    .filter(Objects::nonNull)
+                                    .sorted(java.util.Comparator.comparing(
+                                            (RecentQqMessage message) -> message.lastMessage().sentAt(),
+                                            java.util.Comparator.nullsLast(
+                                                    java.util.Comparator.reverseOrder())))
+                                    .limit(limit)
+                                    .toList());
+                });
+    }
+
+    @Override
+    public CompletionStage<List<MessageSegment>> imageSegmentsForMessage(String messageId) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (messageId == null || messageId.isBlank()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("messageId 不能为空"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("message_id", messageId.trim());
+        return postAction("get_msg", payload).thenApply(root -> {
+            JsonNode data = root.path("data");
+            if (!data.isObject()) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "INVALID_MESSAGE_RESPONSE",
+                        "消息响应缺少 data 对象"));
+            }
+            return OneBot11Codec.extractSegments(data.get("message")).stream()
+                    .filter(segment -> segment.type() == MessageSegment.Type.IMAGE)
+                    .toList();
+        });
+    }
+
+    @Override
+    public CompletionStage<MediaAsset> image(MessageSegment segment) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (segment == null || segment.type() != MessageSegment.Type.IMAGE) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("segment 必须是 image 段"));
+        }
+        if (!segment.url().isBlank()) {
+            return downloadImage(segment.url(), segment.fileId());
+        }
+        if (segment.fileId().isBlank()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("图片缺少 file/url"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("file", segment.fileId());
+        return postAction("get_image", payload).thenCompose(root -> {
+            String url = scalarText(root.path("data").get("url"));
+            if (url == null || url.isBlank()) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "IMAGE_URL_MISSING",
+                        "get_image 未返回 url"));
+            }
+            return downloadImage(url, segment.fileId());
+        });
+    }
+
+    private CompletionStage<MediaAsset> downloadImage(String rawUrl, String fileName) {
+        final URI uri;
+        try {
+            uri = URI.create(rawUrl.trim());
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("图片 URL 非法"));
+        }
+        String scheme = uri.getScheme();
+        if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("图片 URL scheme 不允许"));
+        }
+        HttpRequest request;
+        try {
+            request = HttpRequest.newBuilder(uri)
+                    .GET()
+                    .timeout(config.requestTimeout())
+                    .build();
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("图片 URL 非法"));
+        }
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
+                .thenApply(response -> {
+                    int status = response.statusCode();
+                    if (status < 200 || status >= 300) {
+                        throw new CompletionException(new OneBotActionException(
+                                FailureKind.HTTP_STATUS, "IMAGE_HTTP_" + status,
+                                "图片下载失败"));
+                    }
+                    byte[] bytes = response.body();
+                    if (bytes.length == 0 || bytes.length > MAX_MEDIA_BYTES) {
+                        throw new CompletionException(new OneBotActionException(
+                                FailureKind.INVALID_RESPONSE, "IMAGE_SIZE_INVALID",
+                                "图片大小超出限制"));
+                    }
+                    String type = response.headers().firstValue("content-type")
+                            .orElseGet(() -> mediaTypeFromName(fileName));
+                    int semi = type.indexOf(';');
+                    if (semi >= 0) {
+                        type = type.substring(0, semi);
+                    }
+                    return new MediaAsset(
+                            fileName == null || fileName.isBlank() ? "image" : fileName,
+                            type, bytes);
+                });
+    }
+
+    private static String mediaTypeFromName(String fileName) {
+        String lower = fileName == null ? "" : fileName.toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".bmp")) return "image/bmp";
+        return "image/jpeg";
+    }
+
+    @Override
+    public CompletionStage<ForwardPage> forward(String forwardId, int limit) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (forwardId == null || forwardId.isBlank()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("forwardId 不能为空"));
+        }
+        if (limit < 1 || limit > 200) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("limit 必须在 1..200"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("id", forwardId.trim());
+        return postAction("get_forward_msg", payload).thenApply(root -> {
+            JsonNode messagesNode = root.path("data").path("messages");
+            if (!messagesNode.isArray()) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "INVALID_FORWARD_RESPONSE",
+                        "转发响应缺少 messages 数组"));
+            }
+            List<ForwardMessage> messages = new ArrayList<>();
+            boolean truncated = false;
+            for (JsonNode node : messagesNode) {
+                if (messages.size() >= limit) {
+                    truncated = true;
+                    break;
+                }
+                JsonNode content = node.get("content");
+                String text = OneBot11Codec.extractText(content);
+                List<io.mosire.iibot.connect.core.MessageSegment> segments =
+                        OneBot11Codec.extractSegments(content);
+                if (text.isBlank() && segments.isEmpty()) {
+                    continue;
+                }
+                JsonNode sender = node.path("sender");
+                String senderId = scalarText(sender.get("user_id"));
+                String senderName = scalarText(sender.get("nickname"));
+                if (senderId == null) {
+                    senderId = "";
+                }
+                messages.add(new ForwardMessage(senderId,
+                        senderName == null ? "" : senderName,
+                        parseEpoch(scalarText(node.get("time"))), text, segments));
+            }
+            return new ForwardPage(messages, truncated);
         });
     }
 
@@ -573,6 +827,23 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
         return count;
     }
 
+    private static String previousSequence(String value) {
+        try {
+            long sequence = Long.parseLong(value);
+            return sequence <= 1L ? null : Long.toString(sequence - 1L);
+        } catch (NumberFormatException ignored) {
+            return value;
+        }
+    }
+
+    private static String nextSequence(String value) {
+        try {
+            return Long.toString(Math.addExact(Long.parseLong(value), 1L));
+        } catch (RuntimeException ignored) {
+            return value;
+        }
+    }
+
     private static ChatHistoryMessage parseHistoryMessage(JsonNode node) {
         if (node == null || !node.isObject()) {
             return null;
@@ -594,7 +865,9 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
             senderName = senderId;
         }
         String text = OneBot11Codec.extractText(node.get("message"));
-        if (text.isBlank()) {
+        List<io.mosire.iibot.connect.core.MessageSegment> segments =
+                OneBot11Codec.extractSegments(node.get("message"));
+        if (text.isBlank() && segments.isEmpty()) {
             return null;
         }
         Instant sentAt = null;
@@ -609,7 +882,7 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
                 }
             }
         }
-        return new ChatHistoryMessage(messageId, senderId, senderName, text, sentAt);
+        return new ChatHistoryMessage(messageId, senderId, senderName, text, sentAt, segments);
     }
 
     @Override
@@ -631,15 +904,20 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
         }
         failPendingSends();
         inboundHandler.set(null);
+        friendRequestHandler.set(null);
         updateStatus(ConnectionState.CLOSED, null, null);
         emit(AdapterEvent.Type.DISCONNECTED, "adapter closed");
         scheduler.shutdownNow();
     }
 
     private CompletableFuture<SendReceipt> executeSend(OutboundMessage message) {
-        List<String> chunks;
+        List<List<OutboundSegment>> chunks;
         try {
-            chunks = TextSplitter.split(message.textSegments(), config.maxTextLength());
+            chunks = message.richSegments().isEmpty()
+                    ? TextSplitter.split(message.textSegments(), config.maxTextLength()).stream()
+                            .map(text -> List.<OutboundSegment>of(new OutboundSegment.Text(text)))
+                            .toList()
+                    : RichMessageSplitter.split(message.richSegments(), config.maxTextLength());
         } catch (RuntimeException exception) {
             return CompletableFuture.completedFuture(SendReceipt.failed(
                     "INVALID_TEXT",
@@ -772,7 +1050,8 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
         }
     }
 
-    private PreparedSendAction prepareSendAction(OutboundMessage message, String text) {
+    private PreparedSendAction prepareSendAction(
+            OutboundMessage message, List<OutboundSegment> segments) {
         boolean privateTarget = message.targetType() == OutboundMessage.TargetType.PRIVATE;
         boolean temporaryPrivate = privateTarget && message.temporaryGroupId() != null;
         String action;
@@ -789,11 +1068,23 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
         if (temporaryPrivate) {
             payload.put("group_id", message.temporaryGroupId());
         }
-        ObjectNode segment = objectMapper.createObjectNode();
-        segment.put("type", "text");
-        segment.putObject("data").put("text", text);
         ArrayNode content = objectMapper.createArrayNode();
-        content.add(segment);
+        for (OutboundSegment source : segments) {
+            ObjectNode segment = objectMapper.createObjectNode();
+            if (source instanceof OutboundSegment.Text text) {
+                segment.put("type", "text");
+                segment.putObject("data").put("text", text.text());
+            } else if (source instanceof OutboundSegment.Mention mention) {
+                segment.put("type", "at");
+                segment.putObject("data").put("qq", mention.qqId());
+            } else if (source instanceof OutboundSegment.Reply reply) {
+                segment.put("type", "reply");
+                segment.putObject("data").put("id", reply.messageId());
+            } else {
+                throw new IllegalStateException("不支持的出站消息段: " + source.getClass());
+            }
+            content.add(segment);
+        }
         payload.set("message", content);
         return new PreparedSendAction(action, payload);
     }
@@ -1035,6 +1326,24 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
             handleMessageEvent(event);
             return;
         }
+        if ("request".equals(postType)) {
+            Optional<FriendRequestEvent> request = new OneBot11Codec()
+                    .decodeFriendRequest(event, Instant.now());
+            if (request.isPresent()) {
+                FriendRequestHandler handler = friendRequestHandler.get();
+                if (handler != null) {
+                    try {
+                        handler.onFriendRequest(request.orElseThrow());
+                    } catch (RuntimeException exception) {
+                        emit(AdapterEvent.Type.ERROR, "FRIEND_REQUEST_HANDLER_FAILED");
+                    }
+                }
+            } else {
+                emit(AdapterEvent.Type.IGNORED_EVENT, "request_type="
+                        + safeEventName(event.path("request_type").asText("")));
+            }
+            return;
+        }
         if ("meta_event".equals(postType)) {
             String metaType = safeEventName(event.path("meta_event_type").asText(""));
             if ("heartbeat".equals(metaType)) {
@@ -1191,13 +1500,13 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
 
     private static final class SendOperation {
         private final OutboundMessage message;
-        private final List<String> chunks;
+        private final List<List<OutboundSegment>> chunks;
         private final List<String> messageIds = new CopyOnWriteArrayList<>();
         private final AtomicBoolean requestEverStarted = new AtomicBoolean();
         private final AtomicBoolean finished = new AtomicBoolean();
         private final CompletableFuture<SendReceipt> result = new CompletableFuture<>();
 
-        private SendOperation(OutboundMessage message, List<String> chunks) {
+        private SendOperation(OutboundMessage message, List<List<OutboundSegment>> chunks) {
             this.message = message;
             this.chunks = List.copyOf(chunks);
         }

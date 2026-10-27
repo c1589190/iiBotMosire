@@ -330,6 +330,69 @@
   `DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE=8` 拦截为 `TOOL_CALL_LIMIT`，导致读取全部未执行。
 - **状态**：本轮改为 128，并增加“单响应 10 个工具调用全部执行”的回归测试。
 
+### 5.10 补充裁定（2026-10-26，Bot-first 与外部主 Agent）
+
+#### D-021 Bot-first 核心、外部主 Agent 全量可见与用户备注
+
+- **用户原话（逐字）**：
+  > 「1 我不是用户？以前的我管用还是现在的我管用」
+  > 「2 是的，所以是大修改，让一个外部Agent能看清所有东西」
+  > 「3 是全部消息写摘要入inbox给大Agent看，大Agent挑选恢复」
+  > 「4 搞个用户备注机制得了，可以像加标签一样给用户加备注优先从inbox看， 纯文游语义直接取缔；」
+  > 「Agentlib、Inbox包都更新了，你应该先规划新的架构实现，然后先更新依赖再写代码」
+  > 「开始规划吧，有裁定和我说」
+- **裁定**：
+  1. **当前用户优先**：本条裁定覆盖此前与新指令冲突的秘书、文游默认运行与信息隔离口径。
+     D-011 的每玩家秘书、D-012 的宿主侧文游硬确认、D-014 的秘书 cache、D-016 的秘书提示词，
+     在 **bot core / 默认运行** 中不再有效；旧文档保留为历史，不反向约束新实现。
+  2. **Bot-first**：项目默认核心是 QQ Bot，不是文游引擎。Bot core 只承担 QQ 接入、消息板、
+     来源线程、摘要、Inbox 唤醒、用户备注与回复；玩家/推演/秘书/回合/行动/裁定/发布等
+     纯文游语义不进入 bot core 默认路径，改由外部主 Agent 的 Skill 维护。
+  3. **一个外部主 Agent 全量可见**：一个受信任的外部主 Agent（DSH）通过本项目 MCP
+     读取全部 Bot 可访问的私聊、群聊、摘要、来源 thread 和用户备注；不再提供每玩家独立的
+     模型上下文隔离保证。私聊只保证投递目标隔离，不等于模型不知道其他私聊。
+  4. **Inbox 摘要 + 恢复**：所有入站消息都进入消息板；每条消息生成有界摘要，
+     同一来源汇总为 Inbox 的一个来源大框；主 Agent 先从 Inbox 看摘要，再按需恢复完整正文。
+  5. **用户备注/标签**：用通用备注机制替代文游角色语义；可按 QQ 用户添加标签、备注和优先级，
+     并在 Inbox 摘要/排序中呈现。标签没有宿主内置权限含义。
+  6. **依赖先行**：先把 `agentlib-mosire` 与 InboxMosire 依赖升级并验证，再写 bot core 代码。
+- **当前正本**：
+  [`2026-10-26-bot-first-main-agent-architecture.md`](2026-10-26-bot-first-main-agent-architecture.md)、
+  [`../plans/2026-10-26-bot-first-main-agent-implementation-plan.md`](../plans/2026-10-26-bot-first-main-agent-implementation-plan.md)。
+- **状态**：方向有效；根红线重写、旧模块物理处置、摘要粒度和群聊唤醒策略待用户最终确认。
+
+### 5.11 补充裁定（2026-10-27，默认 bot 与多文件配置）
+
+#### D-022 Bot 为默认启动模式，配置支持多文件合并
+
+- **用户原话（逐字）**：
+  > 「首先，让bot模式位居默认启动模式，不许用额外--mode bot」
+  > 「其次，做个config文件夹，允许多配置文件」
+  > 「接下来我不知道咋办了，最好你给隔壁inbox包出个需求提示词，我让隔壁支持传参初始化」
+- **裁定**：
+  1. `iibot-app` 无 `--mode` 时默认使用 **bot-first** 运行；legacy 运行必须显式传
+     `--mode legacy`。不再要求或宣传 `--mode bot`，但为兼容可保留显式值。
+  2. 仓库根提供 `config/` 目录，支持多个配置文件按顺序合并；目录源按文件名排序读取
+     `*.json`，重复 key 由后文件覆盖前文件，对象递归合并、数组整体替换。
+  3. 多文件必须位于同一配置目录；配置中的相对路径统一相对于该配置目录解析。
+  4. 默认 bot 配置目录为 `config/bot/`；也可显式传一个文件、一个目录或重复传多个
+     `--config`。无配置且默认目录无 JSON 时 fail-closed，并给出可操作提示。
+  5. 配置继续只保存 secret 的环境变量名；raw token、QQ 凭据和 Inbox token 不进入
+     配置文件、模型上下文或日志。
+  6. InboxMosire `inbox-embedded` 参数化初始化已于 2026-10-27 完成
+     （`6013cde` / `f93e7e2`，37 tests，artifact 已安装）；本仓已接入
+     `apiHost/apiPort/mcpHost/mcpPort/mcpPath/heartbeatMillis/
+     claimSweepIntervalMillis`，默认仍为随机回环端口、`/mcp`、15 秒 heartbeat、
+     5 秒 claim sweeper。
+  7. 默认 `config/bot/` 完全没有 `*.json` 时，首次 `java -jar` 只生成
+     `00-base.json` / `10-napcat.json` / `20-control-inbox.json` /
+     `30-policy.json` 四个模板并以 exit 2 退出，不启动 QQ/Inbox/MCP；
+     编辑配置并设置环境变量后再次执行同一命令启动。已有配置绝不覆盖。
+     显式传 `--config` 时不触发模板生成。
+- **状态**：本仓默认启动模式、多文件合并、首次模板生成与 Inbox embedded 参数化
+  接入均已实现并通过 full gate；尚未做真实启动/DSH 绑定 smoke，也未部署
+  `simulation2/dist`。
+
 ## 六、待补问题
 
 - Q5：LLM provider / 模型路由；

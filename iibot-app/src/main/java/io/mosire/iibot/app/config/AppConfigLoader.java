@@ -1,16 +1,10 @@
 package io.mosire.iibot.app.config;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.mosire.iibot.app.mcp.ControlMcpConfig;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -28,16 +22,10 @@ import java.util.Set;
  * {@link ConfigException}。这是有意的 fail-closed：拼错的 {@code baseUrl} 不应该悄悄变成
  * 空值或默认值。顶层 JSON 必须是对象，不能是数组或标量。</p>
  *
- * <p><b>路径语义</b>：相对路径按配置文件所在目录解析，然后绝对化并归一；绝对路径原样保留。
+ * <p><b>路径语义</b>：多文件合并时按它们共同所在目录解析相对路径；然后绝对化并归一。
  * {@code events.db}、{@code world/} 都由 {@code dataDir} 派生。</p>
  */
 public final class AppConfigLoader {
-
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-            // JSON 对象里重复键不能静默“后者覆盖前者”；route 名与其它配置键都要求唯一。
-            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
 
     private static final Set<String> ROOT_FIELDS = Set.of(
             "dataDir", "publicGroupId", "maxTurnMinutes", "napcat", "players", "directors",
@@ -72,7 +60,7 @@ public final class AppConfigLoader {
     }
 
     /**
-     * 读取并校验配置文件。
+     * 读取并校验单个配置文件。
      *
      * @param configFile 配置文件路径；可为相对路径，按进程工作目录解析
      * @return 已验证、路径已绝对化的配置
@@ -82,29 +70,19 @@ public final class AppConfigLoader {
         if (configFile == null) {
             throw new ConfigException("--config 不能为空");
         }
-        Path file = configFile.toAbsolutePath().normalize();
-        if (!Files.isRegularFile(file)) {
-            throw new ConfigException("配置文件不存在或不是普通文件: " + file);
-        }
-        JsonNode root;
-        try {
-            root = MAPPER.readTree(Files.readString(file));
-        } catch (JsonProcessingException e) {
-            // 不回显解析器片段：配置文件可能含敏感值；只给稳定的可操作错误。
-            String detail = e.getOriginalMessage();
-            if (detail != null && detail.contains("Duplicate field")) {
-                throw new ConfigException("配置文件包含重复字段（route 名必须唯一）: " + file);
-            }
-            throw new ConfigException("配置文件不是合法 JSON: " + file);
-        } catch (IOException e) {
-            throw new ConfigException("读取配置文件失败: " + file);
-        }
+        return load(List.of(configFile));
+    }
+
+    /**
+     * 按顺序合并一个或多个配置源（文件或目录）后装载配置。
+     * 目录会读取直接子级的 *.json 文件并按文件名升序合并。
+     */
+    public static AppConfig load(List<Path> configSources) {
+        JsonConfigBundle.Bundle bundle = JsonConfigBundle.load(configSources);
+        JsonNode root = bundle.root();
         requireObject(root, "配置根");
         rejectUnknown(root, ROOT_FIELDS, "配置根");
-
-        Path baseDir = file.getParent() == null
-                ? Path.of("").toAbsolutePath().normalize()
-                : file.getParent().toAbsolutePath().normalize();
+        Path baseDir = bundle.baseDir();
 
         Path dataDir = resolvePath(baseDir, requiredText(root, "dataDir", "配置根"), "dataDir");
         String publicGroupId = requiredText(root, "publicGroupId", "配置根");

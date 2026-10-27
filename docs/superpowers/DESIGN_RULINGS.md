@@ -16,25 +16,27 @@
 | 编号 | 主题 | 当前状态 | 正本 |
 |---|---|---|---|
 | `D-001` | QQ 接入与可替换 Adapter；首期 NapCat | 有效 | 需求原稿 |
-| `D-002` | QQ 用户角色 = 玩家 / 推演，角色由服务端配置决定 | 有效 | 需求原稿 |
-| `D-003` | 固定提示词 + 玩家/推演设定载入 | 有效 | 需求原稿 |
-| `D-004` | 自由对话 + 回合循环 + 格式化决策 | 有效；格式待 Q3 | 需求原稿 |
-| `D-005` | 中央 Agent 审核/推演全部玩家决策并出信息 | 有效；签核模式待 Q2 | 需求原稿 |
+| `D-002` | QQ 用户角色 = 玩家 / 推演，角色由服务端配置决定 | legacy 文游；bot core 改为通用 QQ 用户 + 备注/标签 | 需求原稿 |
+| `D-003` | 固定提示词 + 玩家/推演设定载入 | legacy 文游；由外部主 Agent 的文游 Skill 维护 | 需求原稿 |
+| `D-004` | 自由对话 + 回合循环 + 格式化决策 | legacy 文游；由外部主 Agent 的文游 Skill 维护 | 需求原稿 |
+| `D-005` | 中央 Agent 审核/推演全部玩家决策并出信息 | legacy 文游；由外部主 Agent 的文游 Skill 维护 | 需求原稿 |
 | `D-006` | Java + Maven | 有效 | 需求原稿 |
 | `D-007` | 优先复用 ProjectMosire 三库 | 原话有效；三库解释待 Q7 | 需求原稿 |
 | `D-008` | 可选对外 MCP 供外部 Agent 总控事件流 | 方向有效；权限待 Q4 | 需求原稿 |
 | `D-009` | 文档体系先行，采用 SimulatorMosire 最新格式 | 有效（维护落点 M-001） | 需求原稿 |
-| `D-010` | 私聊 + 公共群 | 有效；群内边界待 Q8 | 需求原稿 §五 |
-| `D-011` | 每玩家一个秘书子 Agent；秘书与 GM 交流，GM 提供审查过滤后的信息 | 有效；协议待细化 | 需求原稿 §五 |
-| `D-012` | 自然语言决策 + 秘书工具结构化 + 玩家私聊硬命令确认 | 有效；命令/过期规则待设计 | 需求原稿 §五 |
-| `D-013` | 外部 MCP 全游戏事件流控制 | 有效；认证与非游戏运维权界待 Q9 | 需求原稿 §五 |
-| `D-014` | 秘书会话 cache、切换与只读 QQ 历史 | 有效；源码完成、未部署/未真实验证 | 需求原稿；[专题](specs/2026-10-24-secretary-conversation-cache-and-qq-history.md) |
-| `D-015` | 玩家行动与信息获取必须轻松顺滑；建立推演文档系统 | 需求有效；方案提议、未实现/未 playtest | 需求原稿；[专题](specs/2026-10-24-player-experience-interaction-document-system.md) |
-| `D-016` | 秘书 system prompt 保持最小；详细规则放 AGENTS.md/Skill | 有效；已实现、待真实 playtest | 需求原稿 §5.5；[运行时架构](specs/2026-10-24-player-experience-runtime-architecture.md) |
-| `D-017` | connectlib 平台级 QQ 能力 + 受控自主入团 | 已实现代码与测试；未部署/未真实 smoke | 需求原稿 §5.6；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
-| `D-018` | 工单板 wait 长轮询，第一条新信息到达前保持调用 | 已实现代码与测试；未部署/未真实 DSH smoke | 需求原稿 §5.7；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
+| `D-010` | 私聊 + 公共群 | 有效；bot core 允许群聊入板，唤醒/回复策略见 D-021 | 需求原稿 §五 |
+| `D-011` | 每玩家一个秘书子 Agent；秘书与 GM 交流，GM 提供审查过滤后的信息 | 被 D-021 取代（bot core / 默认运行；旧文保留历史） | 需求原稿 §五 |
+| `D-012` | 自然语言决策 + 秘书工具结构化 + 玩家私聊硬命令确认 | 被 D-021 取代（宿主硬确认退出 bot core；可由文游 Skill 自建） | 需求原稿 §五 |
+| `D-013` | 外部 MCP 全游戏事件流控制 | legacy 文游控制面；bot core 外部 MCP 改为消息板/恢复/回复面 | 需求原稿 §五 |
+| `D-014` | 秘书会话 cache、切换与只读 QQ 历史 | 被 D-021 取代（秘书 cache 退出默认运行；QQ 历史能力由消息板/平台工具重做） | 需求原稿；[专题](specs/2026-10-24-secretary-conversation-cache-and-qq-history.md) |
+| `D-015` | 玩家行动与信息获取必须轻松顺滑；建立推演文档系统 | 旧文游历史；bot core 不再适用，文游 Skill 另行设计 | 需求原稿；[专题](specs/2026-10-24-player-experience-interaction-document-system.md) |
+| `D-016` | 秘书 system prompt 保持最小；详细规则放 AGENTS.md/Skill | 被 D-021 取代（秘书提示词退出默认运行） | 需求原稿 §5.5；[运行时架构](specs/2026-10-24-player-experience-runtime-architecture.md) |
+| `D-017` | connectlib 平台级 QQ 能力 + 受控自主入团 | 平台 QQ 能力保留；自主入团文游语义退出 bot core | 需求原稿 §5.6；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
+| `D-018` | 工单板 wait 长轮询，第一条新信息到达前保持调用 | legacy 文游工单；bot core 不再使用 | 需求原稿 §5.7；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
 | `D-019` | 所有外发逻辑消息共享 100–200ms 最小间隔 | 已实现代码与测试；运行中旧 jar 未替换 | 需求原稿 §5.8；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
-| `D-020` | 玩家秘书与 GM 推演秘书默认 128 轮 / 5 分钟 / 单响应 128 工具（2026-10-25 修订，原 8） | 源码与测试已更新；模拟区 jar 需重新部署后生效 | 需求原稿 §5.9（含 2026-10-25 修订）；[历史状态](status/2026-10-24-d020-agent-budget.md) |
+| `D-020` | 玩家秘书与 GM 推演秘书默认 128 轮 / 5 分钟 / 单响应 128 工具（2026-10-25 修订，原 8） | legacy 文游历史；bot core 不再适用 | 需求原稿 §5.9（含 2026-10-25 修订）；[历史状态](status/2026-10-24-d020-agent-budget.md) |
+| `D-021` | Bot-first 核心；外部主 Agent 全量可见；Inbox 摘要/恢复；用户备注标签；文游降为 Skill | 方向有效；红线重写、旧模块处置、摘要粒度待确认 | [需求原稿 §5.10](specs/2026-10-24-user-requirements-source.md)；[架构](specs/2026-10-26-bot-first-main-agent-architecture.md)；[计划](plans/2026-10-26-bot-first-main-agent-implementation-plan.md) |
+| `D-022` | Bot 为默认启动模式；`config/` 多文件合并；Inbox embedded 参数化 | 默认 bot、多文件与 Inbox 参数接入均已实现；真实启动/DSH 绑定 smoke 待跑 | [需求原稿 §5.11](specs/2026-10-24-user-requirements-source.md) |
 
 ## 三、专题设计索引
 
@@ -56,7 +58,8 @@
 | 玩家体验 / 交互 / 推演文档系统 | [`specs/2026-10-24-player-experience-interaction-document-system.md`](specs/2026-10-24-player-experience-interaction-document-system.md) | D-015：玩家可见文风、秘书确认与恢复、信息卡、推文模板、审稿门、自动化边界 |
 | 玩家体验运行时 | [`specs/2026-10-24-player-experience-runtime-architecture.md`](specs/2026-10-24-player-experience-runtime-architecture.md)；[实现快照](status/2026-10-24-player-experience-runtime-implementation.md) | 输出守卫、短确认码、ACTION_DRAFT 确认、结构化裁定、NO_OP、开场门禁；567 tests / full gate PASS，未部署 |
 | 首轮体验问题全量登记 | [`reports/2026-10-24-first-live-run-player-experience-audit.md`](reports/2026-10-24-first-live-run-player-experience-audit.md) | 真实 QQ/DSH/events.db 证据；工程问题 + 玩家体验问题统一编号 |
-| 目标运行与模块边界 | [`specs/2026-10-24-target-runtime-design.md`](specs/2026-10-24-target-runtime-design.md) | 事件流、回合状态机、提示词/可见性、失败语义、验收判据 |
+| 目标运行与模块边界 | [`specs/2026-10-24-target-runtime-design.md`](specs/2026-10-24-target-runtime-design.md) | 旧文游目标运行；默认运行已被 D-021 bot-first 取代，只作历史 |
+| Bot-first 消息板与外部主 Agent | [`specs/2026-10-26-bot-first-main-agent-architecture.md`](specs/2026-10-26-bot-first-main-agent-architecture.md)；[计划](plans/2026-10-26-bot-first-main-agent-implementation-plan.md) | 通用 QQ 消息板、来源大框、用户备注、Inbox 摘要恢复、外部主 Agent 全量可见 |
 | 对外 MCP 总控面 | [`specs/2026-10-24-external-mcp-control-plane.md`](specs/2026-10-24-external-mcp-control-plane.md) | 工具面、安全、幂等、回环限制与已知鉴权缺口 |
 | 三库上游契约 | [`../upstream/project-mosire-three-libs-0.2.3.md`](../upstream/project-mosire-three-libs-0.2.3.md) | 坐标、能力、边界、踩坑、未验证清单 |
 | NapCat/OneBot 11 契约 | [`../upstream/napcat-onebot11-contract.md`](../upstream/napcat-onebot11-contract.md) | 事件/动作/鉴权/传输策略/可靠性 |
@@ -67,10 +70,17 @@
 
 ## 四、当前未裁定
 
-已确认 Q1/Q3/Q4/Q7 与秘书结构；剩余 Q5（LLM 路由）、Q6（单/多世界）、Q8（公共群交互边界）、Q9（MCP 非游戏运维权界）
-见 [`specs/2026-10-24-requirements-baseline.md`](specs/2026-10-24-requirements-baseline.md) §7。
+2026-10-26 起，旧的秘书结构与文游 Q1/Q3/Q4/Q7 不再决定 bot core 默认运行；它们保留为 legacy 文游历史。
 
-已实现默认：单世界、公共群仅公开广播边界、MCP 不提供非游戏运维操作。它们仍是待用户确认的默认选择，不因代码存在而自动升级为裁定。
+当前 bot-first 待裁定：
+
+1. 根 `AGENTS.md` 红线 2 是否改为“单一受信任外部主 Agent 全量可见”；
+2. `iibot-taskflow` / 旧 `iibot-app` 是保留 legacy profile，还是 bot 路径验收后物理删除；
+3. Inbox 摘要粒度：一来源一个来源大框，还是每条消息一个 item；
+4. 群聊是否默认全部唤醒，还是全部入摘要但仅私聊/@Bot/高优先级唤醒；
+5. 原始消息保留期限与非文本消息解析范围。
+
+见 [`specs/2026-10-26-bot-first-main-agent-architecture.md`](specs/2026-10-26-bot-first-main-agent-architecture.md) §15。
 
 ## 五、设计与计划的边界
 

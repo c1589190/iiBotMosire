@@ -110,8 +110,8 @@ class InboxHostRuntimeTest {
             Map<String, InboxModels.ItemSummary> byChannel = list.items().stream()
                     .collect(java.util.stream.Collectors.toMap(
                             InboxModels.ItemSummary::channel, item -> item));
-            assertThat(byChannel.get("ticket").title()).isEqualTo("ACTION_DRAFT");
-            assertThat(byChannel.get("publication-review").title()).isEqualTo("PUBLIC");
+            assertThat(byChannel.get("ticket").summary()).isEqualTo("ACTION_DRAFT");
+            assertThat(byChannel.get("publication-review").summary()).isEqualTo("PUBLIC");
 
             InboxModels.ClaimResult claimed = host.programClient().claim("app-a",
                     list.items().stream().map(InboxModels.ItemSummary::itemId).toList(),
@@ -119,14 +119,14 @@ class InboxHostRuntimeTest {
             assertThat(claimed.claimed()).hasSize(2);
             for (InboxModels.ClaimedItem item : claimed.claimed()) {
                 @SuppressWarnings("unchecked")
-                Map<String, Object> payload = JSON.convertValue(item.payload(), Map.class);
+                Map<String, Object> content = JSON.convertValue(item.content(), Map.class);
                 if ("ticket".equals(item.channel())) {
-                    assertThat(payload).containsOnlyKeys(
+                    assertThat(content).containsOnlyKeys(
                             "ticketId", "type", "status", "revision");
                 } else {
-                    assertThat(payload).containsOnlyKeys("postId", "visibility", "revision");
+                    assertThat(content).containsOnlyKeys("postId", "visibility", "revision");
                 }
-                assertThat(payload.toString()).doesNotContain("HIDDEN_TICKET_TITLE",
+                assertThat(content.toString()).doesNotContain("HIDDEN_TICKET_TITLE",
                         "HIDDEN_TICKET_BODY", "HIDDEN_POST_TITLE", "HIDDEN_POST_BODY",
                         "player-1", programToken, wakeToken);
             }

@@ -1,7 +1,9 @@
 package io.mosire.iibot.app;
 
+import io.mosire.iibot.app.bot.BotMain;
 import io.mosire.iibot.app.config.AppConfig;
 import io.mosire.iibot.app.config.AppConfigLoader;
+import io.mosire.iibot.app.config.ConfigArguments;
 import io.mosire.iibot.app.config.ConfigException;
 import io.mosire.iibot.app.runtime.AppBootstrap;
 import io.mosire.iibot.app.runtime.AppRuntime;
@@ -14,40 +16,51 @@ import java.util.concurrent.CountDownLatch;
 /**
  * iiBotMosire 可运行入口。
  *
- * <p>用法：{@code java -jar iibot-app.jar --config config/iibot.json}。启动失败（配置非法、
- * 世界事实非法、缺 LLM/API key、NapCat/LLM 构造失败）一律 fail-closed，不启动玩家聊天；
- * 错误消息只给可操作提示，不打印密钥。JVM shutdown hook 按固定顺序关闭运行时组件。</p>
- *
- * <p>当配置 {@code control.enabled=true} 时，启动带 Bearer 鉴权的本地 MCP 控制面；
- * 缺省关闭。控制面只绑回环地址，token 只从配置指定的环境变量读取。</p>
+ * <p>默认启动 bot-first；legacy 文游组合根必须显式传 {@code --mode legacy}。
+ * 配置源可重复传多个 {@code --config <file-or-dir>}，省略时分别读取
+ * {@code config/bot/} 或 {@code config/legacy/}。</p>
  */
 public final class Main {
 
     private static final Logger LOG = LoggerFactory.getLogger(Main.class);
+    private static final Path DEFAULT_BOT_CONFIG = Path.of("config", "bot");
+    private static final Path DEFAULT_LEGACY_CONFIG = Path.of("config", "legacy");
 
     private Main() {
     }
 
     public static void main(String[] args) {
-        Path configPath;
+        String mode;
+        ConfigArguments.ParseResult cli;
         try {
-            configPath = parseConfigPath(args);
-        } catch (ConfigException e) {
-            LOG.error("参数错误: {}", e.getMessage());
+            mode = parseMode(args);
+            Path defaultConfig = "legacy".equals(mode)
+                    ? DEFAULT_LEGACY_CONFIG : DEFAULT_BOT_CONFIG;
+            cli = ConfigArguments.parse(ConfigArguments.withoutMode(args), defaultConfig);
+        } catch (ConfigException failure) {
+            LOG.error("参数错误: {}", failure.getMessage());
             printUsage();
             System.exit(2);
+            return;
+        }
+        if (cli.helpRequested()) {
+            printUsage();
+            return;
+        }
+        if ("bot".equals(mode)) {
+            BotMain.run(cli.sources(), !cli.explicitConfig());
             return;
         }
 
         AppRuntime runtime = null;
         try {
-            AppConfig config = AppConfigLoader.load(configPath);
+            AppConfig config = AppConfigLoader.load(cli.sources());
             runtime = AppBootstrap.build(config);
             AppRuntime shutdownTarget = runtime;
             Runtime.getRuntime().addShutdownHook(
                     new Thread(shutdownTarget::close, "iibot-shutdown"));
             runtime.start();
-            LOG.info("iiBotMosire 已启动。按 Ctrl+C 退出。");
+            LOG.info("iiBotMosire legacy 已启动。按 Ctrl+C 退出。");
             new CountDownLatch(1).await();
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
@@ -60,36 +73,32 @@ public final class Main {
         }
     }
 
-    private static Path parseConfigPath(String[] args) {
-        if (args == null || args.length == 0) {
-            throw new ConfigException("缺少 --config <path>");
+    /** 无 --mode 时默认 bot；显式 bot 仅保留兼容。 */
+    static String parseMode(String[] args) {
+        if (args == null) {
+            return "bot";
         }
-        Path configPath = null;
-        for (int i = 0; i < args.length; i++) {
-            String arg = args[i];
-            if ("--config".equals(arg)) {
-                if (i + 1 >= args.length || args[i + 1].isBlank()
-                        || args[i + 1].startsWith("--")) {
-                    throw new ConfigException("--config 需要一个路径参数");
+        String mode = "bot";
+        for (int index = 0; index < args.length; index++) {
+            String arg = args[index];
+            if ("--mode".equals(arg)) {
+                if (index + 1 >= args.length || args[index + 1].isBlank()) {
+                    throw new ConfigException("--mode 需要一个值");
                 }
-                if (configPath != null) {
-                    throw new ConfigException("--config 只能出现一次");
-                }
-                configPath = Path.of(args[++i]);
-            } else if ("--help".equals(arg) || "-h".equals(arg)) {
-                printUsage();
-                System.exit(0);
-            } else {
-                throw new ConfigException("未知参数: " + arg);
+                mode = args[++index];
+            } else if (arg.startsWith("--mode=")) {
+                mode = arg.substring("--mode=".length());
             }
         }
-        if (configPath == null) {
-            throw new ConfigException("缺少 --config <path>");
+        if (!"bot".equals(mode) && !"legacy".equals(mode)) {
+            throw new ConfigException("--mode 只允许 bot 或 legacy");
         }
-        return configPath;
+        return mode;
     }
 
     private static void printUsage() {
-        System.err.println("用法: java -jar iibot-app.jar --config <path-to-config.json>");
+        System.err.println("用法: java -jar iibot-app.jar [--config <file-or-dir>]...");
+        System.err.println("      默认 bot 模式；配置省略时读取 config/bot/。");
+        System.err.println("      legacy 需要显式传 --mode legacy，默认读取 config/legacy/。");
     }
 }

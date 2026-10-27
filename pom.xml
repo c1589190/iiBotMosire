@@ -10,11 +10,12 @@
   <packaging>pom</packaging>
 
   <name>iiBotMosire</name>
-  <description>QQ interaction-simulation bot: reusable connect layer, AgentLib extension layer, and turn-based taskflow.</description>
+  <description>Bot-first QQ message board and external Agent bridge; legacy turn-based taskflow remains during migration.</description>
 
   <modules>
     <module>iibot-connect</module>
     <module>iibot-connect-agent</module>
+    <module>iibot-bot</module>
     <module>iibot-taskflow</module>
     <module>iibot-app</module>
   </modules>
@@ -23,8 +24,9 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>21</maven.compiler.release>
     <jackson.version>2.22.2</jackson.version>
-    <agentlib.version>0.2.3</agentlib.version>
+    <agentlib.version>0.2.4</agentlib.version>
     <inbox.version>0.1.0-SNAPSHOT</inbox.version>
+    <sqlite.version>3.53.4.0</sqlite.version>
     <junit.version>5.11.4</junit.version>
     <assertj.version>3.27.7</assertj.version>
     <java.websocket.version>1.5.7</java.websocket.version>
@@ -80,6 +82,11 @@
         <groupId>io.mosire</groupId>
         <artifactId>inbox-mcp-tools-client</artifactId>
         <version>${inbox.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.xerial</groupId>
+        <artifactId>sqlite-jdbc</artifactId>
+        <version>${sqlite.version}</version>
       </dependency>
       <dependency>
         <groupId>org.junit.jupiter</groupId>

@@ -1,0 +1,42 @@
+{
+  "dataDir": "../runtime/bot",
+  "accountId": "100000001",
+  "napcat": {
+    "eventWebSocketUri": "ws://127.0.0.1:3001/",
+    "httpBaseUri": "http://127.0.0.1:3000/",
+    "accessTokenEnv": "IIBOT_NAPCAT_ACCESS_TOKEN",
+    "accountId": "100000001",
+    "privateTempGroupId": "",
+    "suppressSelfMessages": true,
+    "requestTimeoutSeconds": 10,
+    "maxTextLength": 2000
+  },
+  "control": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "path": "/mcp/bot",
+    "bearerTokenEnv": "IIBOT_CONTROL_TOKEN"
+  },
+  "inbox": {
+    "dataDir": "../runtime/inbox",
+    "inboxId": "iibot-bot-sim",
+    "bindingLabel": "dsh-bot-sim",
+    "channels": ["qq"],
+    "bindingTtlHours": 24,
+    "apiHost": "127.0.0.1",
+    "apiPort": 0,
+    "mcpHost": "127.0.0.1",
+    "mcpPort": 0,
+    "mcpPath": "/mcp",
+    "heartbeatMillis": 15000,
+    "claimSweepIntervalMillis": 5000
+  },
+  "summary": {
+    "debounceMillis": 2000,
+    "maxMessagesPerDigest": 100
+  },
+  "outbox": {
+    "sendTimeoutSeconds": 15,
+    "minSendIntervalMillis": 150
+  }
+}

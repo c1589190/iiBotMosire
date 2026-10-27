@@ -1,10 +1,128 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-25 23:31（Asia/Shanghai）
+> **更新时间**：2026-10-27 19:22（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
-## 0. 最新更新（2026-10-25 23:31）
+## 0. 最新更新（2026-10-27 19:22）
+
+- **Bot 已成为默认启动模式**：`java -jar iibot-app-0.1.0-SNAPSHOT.jar`
+  不带 `--mode` 直接走 bot-first；`--mode bot` 仅保留兼容，legacy 必须显式
+  `--mode legacy`。
+- **多配置源已落地**：
+  - 根目录新增 `config/`，默认 bot 配置目录为 `config/bot/`；
+  - `--config` 可重复，值可以是文件或目录；
+  - 目录读取直接子级 `*.json` 并按文件名升序合并；
+  - 对象递归合并，数组/标量后文件覆盖；多源必须同一目录，相对路径以该目录为基准；
+  - 新增 `config/README.md`、`config/bot/README.md`、`config/legacy/README.md`
+    和 `config/examples/bot/` 四段示例；
+  - 配置仍只保存 secret 的环境变量名。
+- **首次启动自动生成配置模板已实现**：
+  - 默认 `config/bot/` 完全没有任何 `*.json` 时，`java -jar` 生成
+    `00-base.json` / `10-napcat.json` / `20-control-inbox.json` /
+    `30-policy.json`，打印编辑提示，以 exit 2 退出；
+  - 生成阶段不启动 QQ/Inbox/MCP；
+  - 已有任意 JSON 时不覆盖；
+  - 显式传 `--config` 时不触发模板生成；
+  - 用户编辑配置并设置环境变量后，再次执行同一 `java -jar` 即可进入正常启动；
+  - 已用最终 jar 在空临时目录实测 first-run `rc=2`、四个文件权限 0600；
+    第二次执行因未设置 `IIBOT_CONTROL_TOKEN` 按预期 `rc=1`。
+- **新增上游需求提示词**：
+  [`docs/upstream/inboxmosire-embedded-parameterization-request.md`](../upstream/inboxmosire-embedded-parameterization-request.md)
+  已写好并已被 InboxMosire 实现（`6013cde` / `f93e7e2`，37 tests，
+  artifact 已 `clean install`）。
+- **Inbox embedded 参数化已接入本仓**：
+  - `BotConfig.Inbox` 新增 `apiHost/apiPort/mcpHost/mcpPort/mcpPath/
+    heartbeatMillis/claimSweepIntervalMillis`；
+  - 默认仍为 `127.0.0.1:0` API、`127.0.0.1:0` MCP、`/mcp`、15 秒 heartbeat、
+    5 秒 claim sweeper；
+  - 新增 `BotInboxRuntimeOptions`，`BotRuntimeOptions` 改为嵌套持有它；
+  - `BotInboxRuntime.start(options)` 全量传给 `EmbeddedInboxServer`，
+    `BotRuntime` 不再直接拼散参数；
+  - host 只允许 loopback，固定端口冲突 fail-closed；
+  - 所有 bot 配置样例、`simulation2/scripts/01-prepare.sh`、simulation2 示例与
+    当前生成的 `simulation2/config/bot.sim.local.json` 已同步新字段；
+  - `BotRuntimeE2ETest` 已用 `/custom/mcp`、2500ms heartbeat、250ms sweeper
+    跑通真实 embedded 启动与 MCP 工具链。
+- **最新门禁**：
+  - `tools/gate.sh docs` **PASS**（modules=5 files=516 links=203）；
+  - `tools/gate.sh full` **PASS，725 tests / 0 failures / 0 errors**
+    （connect 46、connect-agent 21、bot 55、taskflow 256、app 347）；
+    日志 `.work/bootstrap-full.log`；
+  - 新 jar sha256 `9ac7686c010140ac417a0b06ce210979d5437a0fd54d6b3f0c8d6a759130418f`。
+- **运行态核对**：`simulation2/scripts/04-status.sh` 当前返回 `BOT_PID=stale`、
+  `MCP_PORT=closed`；没有常驻 bot 进程，不能沿用旧 PID 192530。
+- **CLI smoke**：
+  - `--help` 显示默认 bot、无 `--mode`；
+  - 无配置时 fail-closed：读取 `/home/cna/iiBotMosire/config/bot`，目录无
+    `*.json` 时明确报错；
+  - `--config config/examples/bot` 能完成多文件合并，随后因未设置
+    `IIBOT_CONTROL_TOKEN` 按预期 fail-closed，未发起 QQ 外发。
+- **下一步**：在干净 runtime 启动新 jar，先做一次自定义 `mcpPath` /
+  heartbeat / 固定或随机端口的启动 smoke；通过后再按用户授权部署
+  `simulation2/dist` 并重新绑定 DSH。**未跑前不宣称真实 Inbox/DSH 闭环通过。**
+
+## 0.1 历史更新（2026-10-27 03:02）
+
+- **Inbox/DSH 对接已切换到 view-ack**：InboxMosire `e43f099` 提供
+  `ITEM_STATUS_CONFLICT` / `ITEM_REVISION_CONFLICT` 及 `details`；InboxMosire-DSH
+  `f770160` 支持 `wakeMode=view-ack`、程序 MCP 手动挂载和 programMcp 诊断。
+- **iiBot bot digest 修复已完成源码**：
+  - `bot_thread_ack` 成功后保存 `cursorOnly(threadId,lastSeq)`，不再把 thread 游标清回 0；
+  - ack / flush 使用 Inbox item content 的 `toSeq` 校正本地滞后游标；
+  - claim/非 available 状态 fail-closed，不再为同一 thread 新建第二个 available digest；
+  - `bot_thread_ack` 返回稳定错误码和脱敏 details；
+  - threadId 与 itemId 不匹配时拒绝归档，避免清错 thread 游标。
+- **OneBot 11 富消息/历史/媒体/好友申请已落地源码**：
+  - rich `OutboundSegment`（Text/Mention/Reply）、`bot_reply` 的 reply/at；
+  - 入站 `MessageSegment` 与 SQLite segments、`bot_thread_history`、
+    `bot_message_thread`、`bot_forward_read`；
+  - `bot_media_get` + `ToolAssetResolver`（MCP ImageContent）；
+  - `bot_qq_recent` / `bot_qq_history`（客户端侧，不等于 Inbox）；
+  - `inbox_view.content.context`（最近 6 条 IN/OUT）；
+  - `bot_inbox_history` 审计；
+  - 入站好友申请 `bot_friend_request_list/decide`；主动加好友不实现。
+- **view-ack 竞态修复已部署**：
+  - active item 发布后冻结，新消息在 ack 后形成下一版；
+  - `bot_thread_ack` 增加 `snapshotToSeq`，按 `inbox_view.content.toSeq` 归档；
+  - ack 后立即 `flushThread` 发布冻结期间消息；
+  - 启动 `flushAll` 修复旧 state/item 的 seq 空洞；
+  - 旧 claim 由 lease 过期清理，当前 `claimed=0`，不新增 claim 绕过。
+- **来源权重路由已实现并部署**：
+  - `SourceWeightPolicy` / `MessageWeightDecision` / `source_weight_policy`、
+    `chat_message_weight` 已落地；
+  - 统一分：`sourceWeight + max(signalWeight) + sum(keywordWeight)`；
+  - `priority` 直接映射到 Inbox 排序；群聊默认 `sourceWeight=0`、阈值100，
+    私聊默认 `sourceWeight=300`；
+  - 首次来源生成 `FIRST_CONTACT` item；已有 7 个 thread 已迁移为已引导；
+  - `bot_source_weight_get/list/set` 可调来源权重/阈值/信号/关键词；
+  - 新 Inbox lib 的 `inbox_rest` 已随 `InboxClientMcpTools` 自动出现。
+- **最新门禁**：
+  - `tools/gate.sh docs` **PASS**（modules=5 files=512 links=201）；
+  - `tools/gate.sh full` **PASS，705 tests / 0 failures / 0 errors**
+    （connect 46、connect-agent 21、bot 55、taskflow 256、app 327）；
+    日志 `.work/weight-full2.log`。
+- **正文一致性/旧图片修复已部署**：
+  - `BotReplyService` 在落库前调用 `BotReplyTextNormalizer`，app 注入
+    `PlayerFacingTextGuard`，本地 board 与实际 QQ 正文使用同一规范化结果；
+  - OUT `bot_reply` 的 reply/mention/text 段写入 `chat_message_segment`；
+  - `MediaCapability.imageSegmentsForMessage` + `get_msg` fallback，旧图片可按
+    messageId 读取；实测旧消息 `1472304806` 返回
+    `source=onebot_get_msg`、`image/jpeg`、`size=21561`；
+  - 一次性修复历史 OUT 正文 10 条（8 条 guard fallback、2 条删行），修复后
+    dry-run 为 0 changes。
+- **运行态**：新 jar 已部署，PID `192530`，Bot MCP 37 tools；
+  `available=2`、`claimed=0`；`source_weight_policy` 已迁移 7 个现有 thread。
+  实测群 sourceWeight 0→500 后 active item priority 0→500，恢复 0 后回到 0。
+  尚未重新 bind DSH，未做真实回复/好友审批外发。
+- **未完成**：语音/文件媒体读取仍是非目标（图片已实现）；2 秒 debounce 与分段耗时指标
+  尚未调整；真实 DSH view-ack 全链路需要重新 bind 后验证。
+- **默认入口（历史）**：当时仍为 legacy；现已被 2026-10-27 18:56 的默认 bot 更新覆盖。
+- 下一步：读取当前 descriptor，以 `wakeMode=view-ack` rebind DSH → 用
+  `inbox_view.content.toSeq` 作为 `snapshotToSeq` 做一轮真实 smoke；
+  真实回复/好友审批按 M-004 等授权。
+
+## 0.2 历史更新（2026-10-25 23:31）
 
 - **模拟区文档系统已归档并清理项目级残留副本**：
   `simulation/docs/` 成为模拟区文档入口，`simulation/docs/world/` 收纳公开/秘密世界设定，
@@ -143,19 +261,25 @@
 | 项 | 当前事实 |
 |---|---|
 | 仓库 | `/home/cna/iiBotMosire` |
-| Git | **已初始化并推送**：`origin git@github.com:c1589190/iiBotMosire.git`，分支 `main` |
-| Maven reactor | `io.mosire.iibot:iibot-parent:0.1.0-SNAPSHOT`，4 个模块 |
+| Git | `origin git@github.com:c1589190/iiBotMosire.git`；当前分支 `refactor/bot-first-main-agent`，HEAD `31f502b` |
+| Maven reactor | `io.mosire.iibot:iibot-parent:0.1.0-SNAPSHOT`，5 个模块（含迁移期 legacy） |
 | Java | OpenJDK 21.0.12.1 |
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
-| 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.3`（Pages 固定版） |
-| 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar`，约 21 MB |
-| Git/提交 | `origin/main` 已同步；历史关键提交：Inbox Mode A `0b4d585`、秘书工具调用上限 128 `b41d30b`。模拟区文档迁移提交见当前 `HEAD`。P8-A 历史 feature `1480c55` |
-| 本机工作树 | 代码/文档/模拟区资产已提交；`target/`、`simulation/dist/`、`simulation/runtime/` 按 gitignore 不入库 |
+| 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.4`；InboxMosire `e43f099`；InboxMosire-DSH `f770160` |
+| 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar` 当前 sha256 `9ac7686c010140ac417a0b06ce210979d5437a0fd54d6b3f0c8d6a759130418f`（约 22 MB）；`simulation2/dist` 仍是上一版部署 jar，未替换 |
+| Git/提交 | `origin/main` 与分支基线同为 `31f502b`；bot-first 代码/文档/simulation2 为未提交工作树改动 |
+| 本机工作树 | **dirty**；`target/`、`simulation/dist/`、`simulation/runtime/` 按 gitignore 不入库 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
+| **2026-10-27 consistency bot full reactor** | **PASS（full gate 内）**：bot **49 tests / 0 failures / 0 errors** |
+| **2026-10-27 consistency app full reactor** | **PASS（full gate 内）**：app **325 tests / 0 failures / 0 errors** |
+| **2026-10-27 weight routing full** | **PASS**：`tools/gate.sh full`；全仓 **705 tests / 0 failures / 0 errors**（connect 46、connect-agent 21、bot 55、taskflow 256、app 327）；日志 `.work/weight-full2.log` |
+| **2026-10-27 default bot + multi config full** | **PASS**：`tools/gate.sh full`；全仓 **719 tests / 0 failures / 0 errors**（connect 46、connect-agent 21、bot 55、taskflow 256、app 341）；日志 `.work/config-full2.log`；默认 bot 与 `--config` 多文件合并已测 |
+| **2026-10-27 Inbox embedded 参数化 full** | **PASS**：`tools/gate.sh full`；全仓 **723 tests / 0 failures / 0 errors**（connect 46、connect-agent 21、bot 55、taskflow 256、app 345）；日志 `.work/inbox-params-full2.log`；BotInboxRuntime 参数透传与配置字段已测 |
+| **2026-10-27 first-run bootstrap full** | **PASS**：`tools/gate.sh full`；全仓 **725 tests / 0 failures / 0 errors**（connect 46、connect-agent 21、bot 55、taskflow 256、app 347）；日志 `.work/bootstrap-full.log`；空目录首启模板生成、已有配置不覆盖、二次启动 token fail-closed 已测 |
 | **秘书工具上限 128 focused** | **PASS**：`tools/gate.sh focused iibot-taskflow test`；taskflow 256 tests / 0 failures / 0 errors / 0 skipped；日志 `.work/tool-limit-128-focused.log` |
 | **秘书工具上限 128 full** | **PASS**：`tools/gate.sh full`；全仓 627 tests / 0 failures / 0 errors / 0 skipped（connect 38、connect-agent 21、taskflow 256、app 312）；日志 `.work/tool-limit-128-full.log` |
 | **本轮 Inbox Mode A focused** | **PASS**：`tools/gate.sh focused iibot-app test`；app 312 tests / 0 failures / 0 errors / 0 skipped；日志 `.work/inbox-gate-focused-final.log` |
@@ -249,16 +373,16 @@
 
 1. **Inbox Mode A 真实外发未跑**：自动化与隔离 smoke 已过，但真实 DSH LLM +
    真实 NapCat/QQ + 真实发布链路 `NOT_RUN`。真实 smoke 需用户明确目标与授权。
-2. **Inbox 重启去重未做跨进程 smoke**：服务端持久 dedupeKey、桥本地成功集合与
+3. **Inbox 重启去重未做跨进程 smoke**：服务端持久 dedupeKey、桥本地成功集合与
    SQLite 已实现，单进程周期扫描已测；app 重启后同 revision 不重复产 item 未实测。
-3. **Inbox credential 生命周期**：每次 app 启动签发新 program/wake credential，
+4. **Inbox credential 生命周期**：每次 app 启动签发新 program/wake credential，
    旧 credential 留到 TTL 或手动 revoke；自动清理/轮换未实现。
-4. **Mode A 端口随机**：app 重启后必须重新 `inbox_adapter_bind`；跨机器固定 daemon、
+5. **Mode A 端口随机**：app 重启后必须重新 `inbox_adapter_bind`；跨机器固定 daemon、
    TLS、远程绑定不在本切片范围。
-5. **通知桥通道范围有限**：首版只推 ticket OPEN/CLAIMED/CONFIRMED 与
+6. **通知桥通道范围有限**：首版只推 ticket OPEN/CLAIMED/CONFIRMED 与
    publication-review PENDING_APPROVAL；COMMITTED batch、delivery FAILED/UNKNOWN
    等独立通道未覆盖。
-6. **第二轮真实行动/公共推文未跑**：ACK/工作区/GM aide/私人推文/共享 Skill/投诉真实闭环已验证；第二轮决策与公共推文尚未跑。
+7. **第二轮真实行动/公共推文未跑**：ACK/工作区/GM aide/私人推文/共享 Skill/投诉真实闭环已验证；第二轮决策与公共推文尚未跑。
 7. **真实 DSH 完整 Agent 会话未回归**：本轮已实际通过 DSH adapter v2 完成
    bind/unbind 与 occupancy smoke，并验证当前项目 MCP；但真实 DSH LLM Agent
    在 app MCP 上完成一轮业务处理尚未运行。
@@ -282,11 +406,14 @@
 
 ## 7. 下一步
 
-1. **Inbox Mode A 真实联调**：先停/备份当前运行面，再把本轮 target jar 以用户确认的方式
+1. **首次启动/参数化验收**：空目录模板生成已实测；下一步用真实配置在干净
+   runtime 启动新 jar，确认 embedded Inbox 与 Bot MCP 同时就绪，再按用户授权
+   部署并绑定 DSH。
+2. **Inbox Mode A 真实联调**：先停/备份当前运行面，再把本轮 target jar 以用户确认的方式
    部署到 `simulation/dist`；启动后用 `tf_inbox_binding_descriptor` → `inbox_adapter_bind`
    重建绑定，验证真实 DSH 唤醒、occupancy、宿主桥 item 与真实审核/外发边界。
-2. **玩家体验真实 playtest**：先用新 target jar 在干净 runtime 上按 `simulation/player-experience/09-playtest-and-acceptance.md` 做 5 人 playtest；未通过前不进入多玩家长跑。下列 D-014/P8 项仍有效。
-3. **D-014 收口**：在用户明确授权后，用新构建 jar 替换 `simulation/dist` 前先停/备份并按用户确认执行；不要在本轮自动重启 app。
-4. **真实 NapCat 历史验证**：只对用户指定/已注册 QQ 和当前公共群调用 `tf_qq_history_read`，记录真实游标、临时会话、超时/1200 结果；未跑前保持 `NOT_RUN`。
-5. **P8 真实模拟**：真实 DSH/Hermes MCP、真实 LLM/NapCat/QQ，零玩家公共开场→审核发布→动态注册玩家→多玩家/多工单/多批次/发布/记录全链路；真实外部发送按 M-004 先与用户确认。
-6. P7 已跳过；P8-A 独立评审未完成，需在真实模拟前决定是否补评审；未跑项继续标 `NOT_RUN`，不得用 Mock/loopback 代替真实联调结论。
+3. **玩家体验真实 playtest**：先用新 target jar 在干净 runtime 上按 `simulation/player-experience/09-playtest-and-acceptance.md` 做 5 人 playtest；未通过前不进入多玩家长跑。下列 D-014/P8 项仍有效。
+4. **D-014 收口**：在用户明确授权后，用新构建 jar 替换 `simulation/dist` 前先停/备份并按用户确认执行；不要在本轮自动重启 app。
+5. **真实 NapCat 历史验证**：只对用户指定/已注册 QQ 和当前公共群调用 `tf_qq_history_read`，记录真实游标、临时会话、超时/1200 结果；未跑前保持 `NOT_RUN`。
+6. **P8 真实模拟**：真实 DSH/Hermes MCP、真实 LLM/NapCat/QQ，零玩家公共开场→审核发布→动态注册玩家→多玩家/多工单/多批次/发布/记录全链路；真实外部发送按 M-004 先与用户确认。
+7. P7 已跳过；P8-A 独立评审未完成，需在真实模拟前决定是否补评审；未跑项继续标 `NOT_RUN`，不得用 Mock/loopback 代替真实联调结论。
