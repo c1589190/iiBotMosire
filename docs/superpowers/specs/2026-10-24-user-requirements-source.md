@@ -393,9 +393,144 @@
   接入均已实现并通过 full gate；尚未做真实启动/DSH 绑定 smoke，也未部署
   `simulation2/dist`。
 
+### 5.12 补充裁定（2026-10-27，正文约束只在 Skill 层）
+
+#### D-023 程序不得清洗、静默替换或 fallback Agent 正文
+
+- **用户原话（逐字）**：
+  > 「谁让你在程序上自己替换了？？？？？？？？？？？？？？？？？？？？？？？？？？这玩意他妈是Skill约束的，不是程序约束的，整个删了！！！！！」
+- **裁定**：
+  1. 删除 `PlayerFacingTextGuard` 及其程序侧测试。
+  2. 删除 `BotReplyTextNormalizer` 这一为程序净化引入的抽象；`BotReplyService` 不再在落库/发送前清洗、删行、替换或生成 fallback。
+  3. 正文文风、后台字段、Markdown、路径、状态词等约束属于 **Skill / AGENTS.md**，不由程序静默改写。
+  4. 程序只保留结构性校验：非空、长度上限、目标 thread/幂等键、权限和发送三态。
+  5. 本地消息板正文必须与实际发送正文一致；不得再出现程序替换后本地记录 fallback、模型却收到成功的情况。
+- **状态**：本轮已删除源码、测试和 app 接线；文档与历史状态中的旧守卫记录只作历史。
+
+### 5.13 补充裁定（2026-10-27，Inbox 改为 QQ 式未读列表）
+
+#### D-024 Inbox 是来源未读桶，不是正文库
+
+- **用户原话（逐字）**：
+  > 「接下来要实现的就是我说的新inbox了」
+- **此前已明确的语义**：iibot 维护的是 QQ 对 Agent 客户端的“未读消息列表”；
+  Inbox 只放简要未读预览，完整正文仍由来源查看工具读取。
+- **裁定**：
+  1. 每个来源 thread 只维护一个 active Inbox item；不把同一来源拆成多条 item。
+  2. item 必须带来源元数据：`threadId`、`chatType`、`targetId`、`displayName`。
+  3. item 必须有代表 trigger：`messageId`、`localSeq`、发送者、`replyToMessageId`、
+     bounded summary 和 `wakeReason`。
+  4. `messages` 是未读预览，默认保留最后 `n` 条入站摘要；`n` 使用现有
+     `summary.maxMessagesPerDigest` / `weighting.maxMessagesPerDigest`，
+     运行时取两者有效上限。
+  5. item 必须带 `unreadCount` 和 `hasMoreUnread`；预览少于实际未读时不得把
+     `messages` 冒充全部未读。
+  6. 来源有新消息时更新同一个 active item：revision 递增、预览向后追加/滚动、
+     `unreadCount` 增长；不再采用“active item 冻结到 ack 后重建”的旧方案。
+  7. `bot_thread_ack` 使用同一次 `inbox_view` 的 `snapshotToSeq` 消费到该位置；
+     部分 ack 保留同一 item 的剩余未读；完整 ack 归档；之后新消息再创建新 item。
+  8. 来源查看工具不受 Inbox item 状态限制：`bot_thread_read`、
+     `bot_thread_history`、`bot_message_get`、`bot_message_thread`、
+     `bot_forward_read` 必须能读取完整、分页、递归的来源历史。
+  9. 低权重消息同样进入未读桶；权重只影响 priority、wakeReason、防抖和排序。
+- **状态**：本轮已实现源码与自动化测试；真实 QQ/OpenCode wake-ack 闭环待跑。
+- **2026-10-28 补充**：D-024 的“一来源一未读桶、最后 n 条预览、unreadCount”继续有效；
+  第 7 条中由 Agent 手动调 `bot_thread_ack(snapshotToSeq)` 的面向模型部分，将由 D-026
+  的“服务端维护读游标与 Inbox 同步”替代；具体以目标架构和改造计划为准。
+
 ## 六、待补问题
 
 - Q5：LLM provider / 模型路由；
 - Q6：单世界还是多世界；
 - Q8：公共群是否只做公告，还是允许玩家群内交流/群内提交决策？
 - Q9：外部 MCP “全部功能”是否包含进程启停、角色配置、密钥管理等非游戏事件流操作？（建议：不包含，保持本地运维。）
+
+### 5.14 补充裁定（2026-10-28，产品重新定位为统一 QQ Agent 客户端）
+
+#### D-025 iibot 只提供统一 QQ 消息客户端，文游模块退出默认产品
+
+- **用户原话（逐字）**：
+  > 「首先，iibot模块不额外提供程序化的文游服务，只作为给各类Agent软件提供一个统一QQ消息客户端的功能，因此文游相关模块可以标弃用删除了」
+- **裁定**：
+  1. `iiBotMosire` 的默认产品是为各类 Agent 软件提供统一 QQ 客户端能力，不在宿主内提供程序化文游服务。
+  2. `iibot-taskflow` 及 `iibot-app` 中的文游/legacy 代码、旧 MCP、旧模拟区、旧配置不再进入默认构建和运行。
+  3. 物理删除前先按本仓工作流处理 dirty worktree；删除后的历史由 Git 保留。
+  4. 默认构建与默认 jar 必须能证明不含文游模块和 `tf_*` 文游工具。
+- **状态**：用户方向已确认；源码删除与文档收口待实施。
+
+#### D-026 通用 QQ 工具必须进入统一消息板/MCP 上游，内部标记由服务维护
+
+- **用户原话（逐字）**：
+  > 「那这玩意不应该做成现有iibot的上游实现吗，天然的MCP工具，为啥没接进去」
+  >
+  > 「你的意思是，iibot的消息板适配相关lib，自己独立实现了一套发消息，原本通用的qq对接lib给晾在一边了，导致现在Agent一个iibot都不能切换Onebot配置，工具调用也不统一？你不难猜我的需求吧，就是消息板这块怎么办，总不能让Agent自己维护一个额外的标记系统吧」
+- **裁定**：
+  1. `iibot-connect-agent` 的通用 AgentTool 能力必须接入统一组合根，作为 QQ 账号/连接能力的上游工具层；不能继续保持在“只有测试引用”的孤儿状态。
+  2. 一个 iibot 运行时必须支持多个已配置 OneBot/QQ 账号，消息板按 `accountId` 分区，出站按 thread/account 路由，不允许串号。
+  3. 消息板是正文、历史、未读位置、幂等和发送状态的唯一事实源；Inbox 只做唤醒和未读预览。
+  4. Agent 不应被要求维护 `itemId`、`expectedRevision`、`snapshotToSeq` 或必填 `idempotencyKey`；这些同步令牌由服务端维护。
+  5. 统一工具面必须走同一个 MCP、同一权限器和同一日志包装器；禁止直接发送工具绕过消息板。
+  6. 工具最终命名、consumer 隔离程度和账号切换权限仍待实施设计冻结。
+- **当前设计入口**：[统一 QQ Agent 客户端与消息板目标架构](2026-10-28-unified-qq-agent-client-architecture.md)
+- **状态**：方向有效；实施待进行。
+
+#### D-026 修订（2026-10-28）：读取只预览，处理完显式 ack；connect-agent 整合删除
+
+- **用户选择/原话**：
+  > 「可以开一个新分支，确认一切无恙之后再合并」
+  >
+  > 「整合一下吧，这个模块和iibot项目本身的语义重合了」
+  >
+  > 读取语义选择：**B. 读取只预览，处理完显式 ack**
+- **补充裁定**：
+  1. `qq_conversation_read(threadId)` 不推进已读游标，只记录服务内部 `deliveredSeq`；
+  2. Agent 处理完成后调用 `qq_conversation_ack(threadId)`，只传 threadId，不传 revision/itemId/seq；
+  3. ack 将 `readSeq` 推进到当前 `deliveredSeq`；read 与 ack 之间到达的新消息保留下一次未读；
+  4. 发送回复成功可按固定规则自动 ack；无回复时必须显式 ack；
+  5. `iibot-connect-agent` 的 `AdapterRegistry` 和账号工具迁入 iibot 正式模块，迁移完成后删除独立模块；
+  6. 所有发送仍经消息板与 account 路由，不保留绕过消息板的公开 `qq_send_message`。
+- **状态**：用户已确认；实施按改造计划执行。
+
+
+### 5.15 补充裁定（2026-10-28，运维日志与配置系统）
+
+#### D-027 debug/info 日志与易用配置系统是默认运维能力
+
+- **用户原话（逐字）**：
+  > 「此外还有之前一直没补的运维，包括完善的debug/info log、完善且易用的配置文件系统，规划一下，出修改计划，写文档」
+- **裁定**：
+  1. 日志必须覆盖默认 INFO 运维事件和可按组件开启的 DEBUG 技术细节；技术日志与运维事件分文件。
+  2. 日志必须带稳定事件名、关联 ID、账号/线程/工具上下文、稳定错误码和耗时；禁止记录正文、token、Authorization 和完整协议 JSON。
+  3. 配置文件系统必须严格、可解释、可覆盖、可脱敏输出、可在启动前校验，并支持多账号。
+  4. 首次生成的配置、schema、示例和 README 必须使用户不读源码即可启动。
+  5. 日志级别、日志目录、轮转和保留数纳入配置系统；密钥仍只通过环境变量名引用。
+- **当前设计入口**：
+  - [日志分级与诊断](2026-10-28-logging-levels-and-diagnostics.md)
+  - [配置文件系统](2026-10-28-configuration-system.md)
+- **状态**：规划已落文档；待实施。
+
+### 5.16 补充裁定（2026-10-28，依赖与文档基线）
+
+#### D-028 依赖必须是最新且可公开复现，文档必须与当前目标一致
+
+- **用户原话（逐字）**：
+  > 「其次，iibot、inbox依赖的agentlib是最新版本吗？去调查一下，项目设计基本上没有其他花头了，主要就是依赖是否为最新版本、文档是否完善等」
+- **调查事实**：
+  - iibot 与 inbox 当前均使用 `agentlib-mosire:0.2.4`；
+  - `ProjectMosire` 源码主线最新为 0.2.4，但 0.2.4 未打 tag、未发布 Pages；
+  - 公开 tag/Pages 最新为 0.2.3；0.2.4 公开 POM 返回 404；
+  - 当前构建依赖本机手工安装的 0.2.4，干净 Maven 仓库不可复现；
+  - 其他依赖存在 patch 级落后（Jackson、SLF4J、Java-WebSocket、SpotBugs annotations、Maven plugins），JUnit 6 是独立大版本迁移；
+  - Inbox 的 `jackson-dataformat-yaml` 传递版本为 2.18.4，与 Jackson 2.22.2 不一致。
+- **裁定**：
+  1. 默认依赖基线必须能在干净 Maven 仓库解析；不得以本机 `~/.m2` 手工安装冒充可复现发布。
+  2. AgentLib 0.2.4 优先在上游正式 tag/发布；若用户选择退到 0.2.3，必须记录原因并跑完整兼容测试。
+  3. patch 级依赖统一升级；JUnit 6 单独迁移；下游不硬覆盖 AgentLib 控制的 MCP SDK 版本。
+  4. README、AGENTS、STATUS、config、模块图和上游契约必须与统一 QQ 客户端目标一致；旧文游文档不得留在当前入口。
+- **当前计划入口**：[统一 QQ Agent 客户端改造计划](../plans/2026-10-28-unified-qq-agent-client-refactor-plan.md)
+- **用户确认（2026-10-28）**：
+  > 「1 继续用0.2.4」
+  - 继续固定 `agentlib-mosire:0.2.4`，不降级到 0.2.3；
+  - 上游 0.2.4 的 tag/Pages 发布落差继续作为干净仓库复现的 `PUBLICATION_GAP` 风险；
+  - patch 级依赖升级、Inbox Jackson BOM 对齐、JUnit 6 独立迁移仍按计划执行。
+- **状态**：调查完成；AgentLib 版本已确认，文档收口与依赖升级待实施。

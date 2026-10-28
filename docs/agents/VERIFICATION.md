@@ -1,5 +1,9 @@
 # 验证维护手册
 
+> **2026-10-28 状态**：项目正在从文游宿主重构为统一 QQ Agent 客户端。本文下方
+> 部分测试分层和负向判据仍是 legacy 文游口径，将在改造计划 P1/P7 重写；当前最新
+> 门禁事实只以 [`STATUS.md`](STATUS.md) §3 和本轮证据为准。
+
 > **本文件属于项目维护。** 命令、证据规则与已知门禁边界以本文件为准。
 
 ## 一、第一入口
@@ -21,18 +25,13 @@ tools/gate.sh full
 
 ## 二、最近已运行基线
 
-见 `docs/agents/STATUS.md` §3：
-
-```text
-./mvnw -B -ntp package
-BUILD SUCCESS
-169 tests / 0 failures / 0 errors / 0 skipped
-shaded jar 已生成且 Main-Class 可核
-```
-
-- connect 29、connect-agent 21、taskflow 71、app 48。
-- `java -jar ... --help` 已实际运行 rc=0。
-- 真实 NapCat/LLM/MCP/长跑/崩溃恢复均 `NOT_RUN`。
+- 2026-10-28 核对：`STATUS.md` 记录的最近一次源码 full gate 为 D-024 的
+  **730 tests / 0 failures / 0 errors / 0 skipped**；该结果包含即将删除的
+  taskflow/legacy app 测试，不能作为重构后的固定基线。
+- 2026-10-28 本轮只新增/更新规划文档；生产代码未改，Maven 未重跑，
+  因此当前结论为 `NOT_RUN`。
+- `tools/gate.sh docs` 本轮实际运行并通过。
+- 真实 NapCat/DSH/QQ/MCP 长跑、日志真实轮转与崩溃恢复均 `NOT_RUN`。
 
 ## 三、证据规则
 

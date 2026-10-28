@@ -1,5 +1,11 @@
 # iiBotMosire
 
+> **2026-10-28 方向更新（规划中）**：用户已裁定 iiBot 只做面向各类 Agent 软件的
+> 统一 QQ 消息客户端；文游模块将从默认产品删除。当前 README 中文游/legacy 内容
+> 为历史实现，尚未按新计划改完。目标设计与执行顺序见
+> [统一 QQ Agent 客户端架构](docs/superpowers/specs/2026-10-28-unified-qq-agent-client-architecture.md)
+> 和 [改造计划](docs/superpowers/plans/2026-10-28-unified-qq-agent-client-refactor-plan.md)。
+
 面向 QQ 的 **bot-first** 消息接入与外部主 Agent 桥：QQ 账号经可替换 Adapter（当前 LLBot，后续 NapCat，统一 OneBot 11）接入；
 `iibot-bot` 把私聊/群聊消息写入来源消息板，按来源生成 bounded 摘要并投递到 Inbox，供一个受信任的外部主 Agent
 读取摘要、恢复正文和回复。纯文游语义正在退出默认核心，改为外部 Agent Skill；旧文游模块在迁移期保留为 legacy。

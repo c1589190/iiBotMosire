@@ -207,60 +207,89 @@ NapCatAdapter
 - 长文本截断必须带明确标记；
 - 用户备注、标签和 priority 参与摘要头部与 Inbox item priority，但不得改写原始消息。
 
-### 5.2 一来源一个 Inbox item
+### 5.2 一来源一个 Inbox 未读桶
 
-同一 `threadId` 只维护一个 active digest item：
+同一 `threadId` 只维护一个 active Inbox item；它是 Agent 客户端的未读列表，
+不是聊天正文库：
 
 ```text
 channel       qq
-kind          dm | group
+kind          digest
 dedupeKey     qq-thread:<threadId>:active
-summary       最近一条消息的 bounded summary
-content       JSON：threadId + fromSeq/toSeq + 未处理消息 summary 列表
+summary       当前 trigger 的 bounded summary
+content       JSON：source + unreadCount + hasMoreUnread + trigger + messages 预览
 contentRef    可选：message-board://thread/<threadId>
-priority      max(0, 当前 digest 中最高用户 priority)
+priority      max(0, 当前未读范围最高用户 priority)
 ```
 
-`content` 示例：
+`content` 关键形状：
 
 ```json
 {
-  "threadId": "thread:...",
-  "chatType": "GROUP",
-  "targetId": "123456",
+  "threadId": "thread:group:...",
   "fromSeq": 1001,
   "toSeq": 1008,
+  "unreadCount": 8,
+  "hasMoreUnread": false,
+  "source": {
+    "threadId": "thread:group:...",
+    "chatType": "group",
+    "targetId": "123456",
+    "displayName": "测试群"
+  },
+  "trigger": {
+    "messageId": "qq-msg-8",
+    "localSeq": 1008,
+    "senderId": "20001",
+    "senderName": "张三",
+    "replyToMessageId": "qq-msg-7",
+    "summary": "张三：@Bot 帮我看一下",
+    "wakeReason": "MENTION"
+  },
   "messages": [
     {
-      "seq": 1001,
-      "messageId": "qq-msg-1",
+      "localSeq": 1007,
+      "messageId": "qq-msg-7",
+      "senderId": "20002",
+      "senderName": "李四",
+      "summary": "李四：今晚还开吗？"
+    },
+    {
+      "localSeq": 1008,
+      "messageId": "qq-msg-8",
       "senderId": "20001",
       "senderName": "张三",
-      "tags": ["盟友"],
-      "note": "负责后勤",
-      "summary": "张三：前线缺粮，能否今晚补给？",
-      "sentAt": "2026-10-26T12:00:00Z"
+      "summary": "张三：@Bot 帮我看一下"
     }
-  ],
-  "restore": "bot_thread_read"
+  ]
 }
 ```
 
-- summary 只用于扫描/选择；content 是有限的 digest manifest；完整正文用 `bot_thread_read` / `bot_message_get` 恢复。
-- 一个 thread 的连续消息合并为一个大框，不把群内不同发送者拆成多个 thread。
-- 如果 digest 超过条数上限，保留边界和 `fromSeq`，较早消息仍可从消息板分页读取。
+- `messages` 是未读预览，默认保留最后 `n` 条；`n` 由
+  `summary.maxMessagesPerDigest` / `weighting.maxMessagesPerDigest` 的有效上限决定。
+  它不等于完整未读范围。
+- `unreadCount` 是实际未读入站数量；`hasMoreUnread=true` 表示还有预览未展示的
+  未读消息。
+- 完整正文永远用 `bot_thread_read` / `bot_thread_history` / `bot_message_get`
+  读取；这些工具不受 item 状态限制。
+- 同一来源不同发送者仍属于同一个 thread；不按 sender 拆 item。
+- `context` 只放未读范围之前的最近少量 IN/OUT 摘要，不参与游标推进。
 
 ### 5.3 生命周期
 
-- 入站消息到达时，宿主在 `threadId` 锁内更新/追加 digest；
-- 主 Agent 先 `inbox_list` 看 summary，再 `inbox_view` 看 digest，不要求 claim；
-- 主 Agent 处理完调用 bot 侧 `bot_thread_ack` 归档；ack 只允许 available item，
-  成功后保留该 thread 已处理到的 `lastSeq`，不得把游标清回 0；
-- 若主 Agent 正在查看/回复期间又有新消息，item revision 变化使旧 ack 失败，
-  返回 `ITEM_REVISION_CONFLICT`，必须重新 `inbox_view`；
-- 已归档 item 不物理删除，Inbox 保留 done 审计；新消息从保留的 cursor 之后
-  重新创建 active digest，不得重放已处理历史；
-- Inbox 摘要失败不回滚消息入库；下一次扫描/重建按 thread 的 `lastDigestedSeq` 重试。
+- 入站消息到达时，宿主更新同一 thread 的 active item：预览追加/滚动到最后 `n` 条，
+  `unreadCount` 增长，item revision 递增；
+- 主 Agent 先 `inbox_list` 看 summary，再 `inbox_view` 看未读桶，不要求 claim；
+- `hasMoreUnread=true` 时，`inbox_view.content.messages` 只是预览；主 Agent 必须用
+  `bot_thread_read(threadId, fromSeq - 1)` 等工具读取完整未读范围，再决定回复；
+- 主 Agent 处理完调用 `bot_thread_ack`，用同一次 `inbox_view` 的 `content.toSeq`
+  作为 `snapshotToSeq`；部分 ack 只消费到该 seq，剩余未读保留在同一个 item；
+- 完整 ack 归档 item，并保留 thread cursor；之后新消息从 cursor 之后创建新的
+  active item，不重放已处理历史；
+- 如果查看/回复期间 item revision 变化，旧 ack 返回 `ITEM_REVISION_CONFLICT`，
+  必须重新 `inbox_view`；如果 snapshot 落在 item 范围内，则按 snapshot 消费；
+- 已归档 item 不物理删除，Inbox 保留 done 审计；
+- Inbox 摘要失败不回滚消息入库；下一次扫描/重建按 thread cursor 重试。
 
 ## 6. 外部主 Agent 与 MCP
 
@@ -481,12 +510,13 @@ Skill 只能使用宿主提供的通用能力（读 thread、读备注、回复�
 
 ### 14.3 Inbox
 
-- 同一 thread 只维护一个 active digest；
-- `inbox_list` 只见 summary；`inbox_view` 见 digest content；
-- digest 中每条入站消息都有 summary 和 messageId；
-- 新增消息推进 revision；旧 revision 的 archive 被拒，并返回
+- 同一 thread 只维护一个 active 未读桶；
+- `inbox_list` 只见 summary；`inbox_view` 见未读桶 content；
+- item 带 `source` / `trigger` / `unreadCount` / `hasMoreUnread`；
+- `messages` 只含最后 `n` 条未读预览；完整范围必须能通过来源工具恢复；
+- 新增消息更新同一 item 并推进 revision；旧 revision 的 archive 被拒，并返回
   `ITEM_REVISION_CONFLICT` + expected/actual；
-- ack 成功后保留 thread cursor；下一条消息生成的 digest 只包含未处理 seq；
+- ack 成功后保留 thread cursor；下一条消息生成的未读桶只包含未处理 seq；
 - 主 Agent 可选择恢复 full thread 并回复；
 - 失败/UNKNOWN 不产生虚假已发送摘要。
 

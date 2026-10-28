@@ -6,11 +6,11 @@
 
 | 项 | 当前事实 |
 |---|---|
-| 工作目录 | `/home/cna/iiBotMosire` |
+| 工作目录 | `/home/cna/DevMosire-iiBot/iiBotMosire`（2026-10-27 迁移后） |
 | Java | OpenJDK 21.0.12.1（`java -version` 于 2026-10-24 实跑） |
 | Maven | 仓库内 `./mvnw`，Maven Wrapper 3.9.16；`./mvnw -v` 已实测 |
 | Python | 文档检查脚本需要 Python 3；`python3` 可直接调用 |
-| Git | 当前目录未初始化 Git |
+| Git | 独立 Git 仓库；当前在 `refactor/bot-first-main-agent` 分支 |
 | OS | Linux，当前时区 Asia/Shanghai |
 | 内存 | 本机约 11 GiB；当前测试/打包不需要额外堆参数 |
 
@@ -18,12 +18,12 @@
 
 | 路径 | 用途 | 当前事实 |
 |---|---|---|
-| `~/ProjectMosire` | AgentLib / Workspace / Docs 三库上游 | HEAD `79b349fb`，tag `v0.2.3`；工作树有 5 个未跟踪本地文件 |
+| `~/ProjectMosire` | AgentLib / Workspace / Docs 三库上游 | 2026-10-28 核对：HEAD `6d2a1a8`（`release: 0.2.4`）；最新公开 tag 仍为 `v0.2.3`；工作树有未跟踪本地文件 |
 | `~/DevMosire` | 旧工程实践参考 | 只读审计；GPL/无许可证仓不得直接复制代码，目标架构不继承 |
 | `~/SimulatorMosire` | 文档系统格式参考、三库消费者参考 | 仅采用 2026-10-23 文档系统层级；不复制其业务设计 |
 
-- 上游库坐标与发布页：`https://c1589190.github.io/ProjectMosire/`，当前版本 `0.2.3`。
-- 消费三库前先核 POM 与本地/远程仓库解析；当前使用固定版 `0.2.3` 而不是 `0.2.3-SNAPSHOT`。
+- 上游库坐标与发布页：`https://c1589190.github.io/ProjectMosire/`。2026-10-28 核对公开 Pages metadata 最新为 `0.2.3`；`0.2.4` 只在源码主线/本机 Maven 仓，公开 POM 为 404。
+- iiBot/Inbox 当前 POM 固定 `agentlib-mosire:0.2.4`；干净 Maven 仓库复现前必须先完成上游 0.2.4 发布，或由用户裁定回退到公开的 0.2.3 并跑兼容测试。不得用 `~/.m2` 手工安装冒充可复现发布。
 
 ## 三、工作树与 Maven 规则
 

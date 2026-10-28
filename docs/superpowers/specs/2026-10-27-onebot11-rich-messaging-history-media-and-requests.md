@@ -238,6 +238,12 @@ bot_friend_request_decide(requestId, approve, remark?)
 
 ## 10. view-ack 重放/归档竞态修复（2026-10-27 01:36）
 
+> **D-024 后续裁定（2026-10-27）**：本节 §10.2 的“active item 冻结”只保留为
+> 历史修复记录。当前实现已改为同一来源未读桶原地追加：新消息更新同一 item，
+> `snapshotToSeq` 消费已处理范围，完整 ack 清空；详见
+> [`2026-10-26-bot-first-main-agent-architecture.md`](2026-10-26-bot-first-main-agent-architecture.md)
+> §5.2–5.3。
+
 ### 10.1 复核结论
 
 运行中的旧 jar 确实是报告 A 的直接原因：`javap` 显示旧
@@ -297,12 +303,17 @@ bot_friend_request_decide(requestId, approve, remark?)
 - 旧图片消息只有 `non_text_summary=[图片×1]`，没有 `chat_message_segment`；
   `bot_media_get` 只查本地 segment，直接返回 `MEDIA_NOT_FOUND`。
 
-### 11.2 修复
+### 11.2 修复（含 2026-10-27 D-023 后续删除）
 
-- 新增 `BotReplyTextNormalizer`，`BotRuntime` 注入
+> D-023 已推翻本节的程序净化方案：`PlayerFacingTextGuard` 与
+> `BotReplyTextNormalizer` 已删除。正文约束只在 Skill / `AGENTS.md`；程序不得
+> 清洗、删行、静默替换或 fallback。下面保留历史修复记录，不再代表当前实现。
+
+- 历史实现曾新增 `BotReplyTextNormalizer`，`BotRuntime` 注入
   `PlayerFacingTextGuard.normalizeForChat/normalizeForPost`；
-- `BotReplyService` 先规范化，再写 `chat_message`、再发送；
-- `BotReplyService` 同时把 `REPLY/MENTION/TEXT` 段写入 `chat_message_segment`；
+- 历史实现曾让 `BotReplyService` 先规范化，再写 `chat_message`、再发送；
+- 当前实现由 `BotReplyService` 直接使用原始正文写入 `chat_message` 再发送；
+- `BotReplyService` 仍把 `REPLY/MENTION/TEXT` 段写入 `chat_message_segment`；
 - `MediaCapability.imageSegmentsForMessage(messageId)` 默认空，`NapCatAdapter`
   通过 `get_msg` 解析图片段；
 - `BotMediaGetTool` 本地无 IMAGE segment 时按 messageId 回退，结果标记
@@ -346,10 +357,14 @@ actionable = bootstrap || totalScore >= notifyThreshold
 priority   = totalScore
 ```
 
+`actionable` 只用于低权重消息的防抖/冷却与诊断，**不是 Inbox 可见性开关**。
+每条入站消息都必须进入 thread digest。
+
 ### 12.2 默认行为
 
 - 私聊：`sourceWeight=300`，阈值100，DM 信号200，普通私聊为500；
-- 群聊：`sourceWeight=0`，阈值100；普通群聊0不生成 item；
+- 群聊：`sourceWeight=0`，阈值100；普通群聊 `totalScore=0`、`actionable=false`，
+  但仍生成/更新 Inbox item，`wakeReason=BELOW_THRESHOLD`、`priority=0`；
 - 群聊 `MENTION=200`、`REPLY_TO_BOT=180`、`NAME=120`、`COMMAND=250`；
 - 关键词默认不内置，Agent 可通过 `bot_source_weight_set` 设置正负权重；
 - 新来源首次消息强制生成 `FIRST_CONTACT` item，之后按权重策略生效；
@@ -384,6 +399,36 @@ Bot 把 `totalScore` 写入 `InboxDigest.priority`，DSH summary 读取 `/items`
   `0d25749e0f790e40195408fe4c7d8398bc07b86671ae95f0a1ccff6bb6ffbf74`。
 - 运行态已迁移 7 个现有 thread；实测群 sourceWeight 0→500 后 active item
   priority 0→500，恢复 0 后回到 0。
-- E2E：首次来源 `FIRST_CONTACT`，ack 后普通群聊不生成 item，@ 消息生成
-  `wakeReason=MENTION`、`totalScore=200`。
+- E2E（历史结果，已被 §12.6 纠正）：首次来源 `FIRST_CONTACT`，ack 后普通群聊
+  曾不生成 item，@ 消息生成 `wakeReason=MENTION`、`totalScore=200`。
 - 引用/@ 真实外发仍等待目标授权。
+
+### 12.6 2026-10-27 用户纠正：低权重消息仍必须进 Inbox
+
+用户原话（逐字）：
+
+> 「首先，inbox确实是和唤醒绑在一起的，其次，我什么时候说这些低权重信息不进inbox了？」
+
+裁定：
+
+1. Inbox 与唤醒绑定是已知且接受的语义；不得以“避免唤醒”为由过滤低权重消息。
+2. 所有入站文本/非文本占位都进入对应 thread digest，低权重消息同样生成或更新 item。
+3. 权重只决定 `priority`、`wakeReason`、防抖延迟与排序；`actionable=false` 不等于
+   “不可见”或“不推送”。
+4. `context` 也不得按 `actionable` 过滤；@ 触发的 digest 必须带上此前普通消息。
+5. 新的验收锚点：普通群聊单独 flush 必须产生 `wakeReason=BELOW_THRESHOLD` 的 item；
+   普通消息之后紧接着 @ 消息时，同一 digest 必须同时包含两条 summary。
+
+### 12.7 D-024 新 Inbox 未读列表验收
+
+1. 同一来源只出现一个 active item；新消息更新同一 item，不新建第二个。
+2. `content.messages` 最多 `n` 条且是最后 `n` 条未读预览；`content.unreadCount`
+   是实际未读入站数；预览不足时 `hasMoreUnread=true`。
+3. `content.source` 至少含 `threadId/chatType/targetId/displayName`；
+   `content.trigger` 至少含 `messageId/localSeq/senderId/replyToMessageId/summary`。
+4. `snapshotToSeq` 部分 ack 后，同一 item 保留剩余未读；完整 ack 后归档；
+   后续新消息创建新 item。
+5. `hasMoreUnread=true` 时，`bot_thread_read` / `bot_thread_history` /
+   `bot_message_get` / `bot_message_thread` / `bot_forward_read` 仍能读取完整历史，
+   不得被 Inbox item 范围限制。
+6. 低权重消息仍进入未读桶，只影响 priority/wakeReason/排序。

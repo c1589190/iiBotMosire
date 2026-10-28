@@ -41,7 +41,7 @@ Scope: 当前 simulation2 / iiBotMosire workspace
 ## 2. 构建并生成 bot 配置
 
 ```bash
-cd ~/iiBotMosire
+cd ~/DevMosire-iiBot/iiBotMosire
 simulation2/scripts/00-build.sh
 simulation2/scripts/01-prepare.sh
 simulation2/scripts/00-check.sh

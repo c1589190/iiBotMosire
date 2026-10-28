@@ -6,6 +6,8 @@
 > **事实底稿**：[`../reports/2026-10-24-first-live-run-player-experience-audit.md`](../reports/2026-10-24-first-live-run-player-experience-audit.md)
 > **体验规则设计**：[`2026-10-24-player-experience-interaction-document-system.md`](2026-10-24-player-experience-interaction-document-system.md)
 >
+> **2026-10-27 D-023 修订**：`PlayerFacingTextGuard` 与 `BotReplyTextNormalizer` 已从程序删除。正文文风、后台词、Markdown、路径等约束只属于 Skill/AGENTS.md；程序不得清洗、删行、静默替换或生成 fallback。下文涉及旧守卫的段落只作历史。
+>
 > **用户原话**：
 > 「实际推演流程中也有大量真人推演不会犯的错误……反复确认（死磕条项目，打击玩家游玩积极性）、推文重点不明确、秘书Agent Markdown残留……必须用额外的推演文档系统来解决」
 > 「把这些所有问题先都记录下来，然后你出解决方案，要求是让玩家的行动与信息获取变得轻松顺滑」
@@ -26,7 +28,7 @@
 - 不绕过 PostService 的审核/发布状态机；
 - 不引入 Web UI、外部网关或新 Maven 模块；
 - 不在当前被首轮事故污染的 simulation runtime 上做验收；
-- 不把文档风格规则全部硬编码为代码；代码只负责硬边界和结构。
+- 不把文档风格规则硬编码为代码；程序只保留非空、长度、目标、权限、幂等和发送三态等结构边界。
 
 ## 三、运行时组件
 
@@ -43,32 +45,24 @@ QQ 私聊入站
                  - 当前 brief
                  - 玩家体验文档规则摘要
             -> AgentRunner + tools
-            -> PlayerFacingTextGuard（输出净化/校验）
   -> OutboxSender
-       -> PlayerFacingTextGuard（最后一道外发闸门）
 
 GM/MCP 发布
   -> PublicationOrchestrator
        -> 结构化 ActionBatch.result（禁止 CoT）
-       -> PlayerFacingTextGuard（正文净化）
        -> PostService 待审草稿
   -> GM tf_post_decide / tf_post_publish
   -> PostDistributor
-       -> PlayerFacingTextGuard（第二次外发闸门）
 ```
 
-### 3.1 `PlayerFacingTextGuard`
+### 3.1 正文约束只在 Skill / AGENTS.md
 
-位置：`iibot-taskflow/src/main/java/io/mosire/iibot/taskflow/agent/PlayerFacingTextGuard.java`。
+D-023 裁定：程序不再提供 `PlayerFacingTextGuard`，也不再对秘书、发布、发帖或 Bot 回复正文做规范化、删行或 fallback 替换。
 
-职责：
-
-- 去除 Markdown 标题、代码围栏、加粗标记、反引号、表格分隔；
-- 删除或拒绝后台字段：draftId/decisionId/ticketId/postId/revision/contentHash/turnId/MCP/schema/workspace/文件路径/系统状态枚举；
-- 合并重复空行，限制极端长度；
-- 保留唯一允许的机器交互：`/确认 <短确认码>`；
-- 提供 `normalizeForChat`、`normalizeForPost`、`containsBackstageLeak`；
-- 在秘书输出和 QQ 外发两个边界调用。
+- 文风、Markdown、后台字段、路径、状态词和玩家可见范围由 Skill / `AGENTS.md` / 提示词约束；
+- 程序只校验结构性条件：非空、长度上限、thread/目标存在、权限、幂等键和发送三态；
+- 本地消息板记录的正文与实际发送正文一致；
+- 模型输出不合格时，不得由程序伪造一句“可读回复”替代。
 
 ### 3.2 最小 system prompt + AGENTS.md / Skill 规则
 
@@ -87,7 +81,7 @@ D-016 裁定：
   - 不重复长篇规则，不要求玩家读文件；
   - 玩家只收到转述后的信息卡/结果卡。
 
-输出仍由 `PlayerFacingTextGuard` 做最后硬边界，避免模型即使未遵守 AGENTS.md 也把后台字段/Markdown 发出去。
+正文风格和可见性由 Skill / `AGENTS.md` 约束；程序不静默改写模型输出。
 
 ### 3.3 `ConfirmationResolver` 与短确认码
 

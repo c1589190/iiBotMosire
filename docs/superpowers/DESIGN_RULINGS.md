@@ -35,8 +35,14 @@
 | `D-018` | 工单板 wait 长轮询，第一条新信息到达前保持调用 | legacy 文游工单；bot core 不再使用 | 需求原稿 §5.7；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
 | `D-019` | 所有外发逻辑消息共享 100–200ms 最小间隔 | 已实现代码与测试；运行中旧 jar 未替换 | 需求原稿 §5.8；[计划](plans/2026-10-24-mcp-external-authoring-and-qq-chat-access-plan.md) |
 | `D-020` | 玩家秘书与 GM 推演秘书默认 128 轮 / 5 分钟 / 单响应 128 工具（2026-10-25 修订，原 8） | legacy 文游历史；bot core 不再适用 | 需求原稿 §5.9（含 2026-10-25 修订）；[历史状态](status/2026-10-24-d020-agent-budget.md) |
-| `D-021` | Bot-first 核心；外部主 Agent 全量可见；Inbox 摘要/恢复；用户备注标签；文游降为 Skill | 方向有效；红线重写、旧模块处置、摘要粒度待确认 | [需求原稿 §5.10](specs/2026-10-24-user-requirements-source.md)；[架构](specs/2026-10-26-bot-first-main-agent-architecture.md)；[计划](plans/2026-10-26-bot-first-main-agent-implementation-plan.md) |
+| `D-021` | Bot-first 核心；外部主 Agent 全量可见；Inbox 摘要/恢复；用户备注标签；文游降为 Skill | 方向继续有效；旧模块处置由 D-025 决定 | [需求原稿 §5.10](specs/2026-10-24-user-requirements-source.md)；[架构](specs/2026-10-26-bot-first-main-agent-architecture.md)；[计划](plans/2026-10-26-bot-first-main-agent-implementation-plan.md) |
 | `D-022` | Bot 为默认启动模式；`config/` 多文件合并；Inbox embedded 参数化 | 默认 bot、多文件与 Inbox 参数接入均已实现；真实启动/DSH 绑定 smoke 待跑 | [需求原稿 §5.11](specs/2026-10-24-user-requirements-source.md) |
+| `D-023` | 正文文本约束只在 Skill/AGENTS.md；程序不得清洗、静默替换或 fallback | 有效；程序守卫与 BotReplyTextNormalizer 已删除 | [需求原稿 §5.12](specs/2026-10-24-user-requirements-source.md) |
+| `D-024` | Inbox = 一来源一个 QQ 式未读桶；预览最后 n 条、未读计数、可变追加、snapshot ack | 未读桶语义有效；面向 Agent 的手动 snapshot ack 将由 D-026 服务端游标替代 | [需求原稿 §5.13](specs/2026-10-24-user-requirements-source.md) |
+| `D-025` | iibot 只做统一 QQ Agent 客户端；文游模块退出默认产品并删除 | 用户方向已确认；待实施 | [需求原稿 §5.14](specs/2026-10-24-user-requirements-source.md) |
+| `D-026` | connect-agent 进入统一上游工具层；多账号路由；消息板服务端维护内部标记；Agent 不维护 revision/snapshot | 已确认读取预览+显式 ack、connect-agent 整合删除；实施待进行 | [需求原稿 §5.14](specs/2026-10-24-user-requirements-source.md)；[目标架构](specs/2026-10-28-unified-qq-agent-client-architecture.md) |
+| `D-027` | debug/info 日志与易用配置系统为默认运维能力 | 规划已落文档；待实施 | [需求原稿 §5.15](specs/2026-10-24-user-requirements-source.md)；[日志](specs/2026-10-28-logging-levels-and-diagnostics.md)；[配置](specs/2026-10-28-configuration-system.md) |
+| `D-028` | 依赖必须最新且干净仓库可复现；文档与当前目标一致 | 用户固定 AgentLib 0.2.4；上游公开 0.2.4 的发布落差为 P7 风险 | [需求原稿 §5.16](specs/2026-10-24-user-requirements-source.md)；[计划](plans/2026-10-28-unified-qq-agent-client-refactor-plan.md) |
 
 ## 三、专题设计索引
 
@@ -56,10 +62,14 @@
 | P8-A 零玩家/开场推文 | [`specs/2026-10-24-p8-preplayer-opening-publication.md`](specs/2026-10-24-p8-preplayer-opening-publication.md) | 允许 players=[] 启动；GM 独立 PUBLIC 开场推文；records/openings |
 | 秘书会话 cache / NapCat 历史 | [`specs/2026-10-24-secretary-conversation-cache-and-qq-history.md`](specs/2026-10-24-secretary-conversation-cache-and-qq-history.md) | App cache 水合/切换/读取，玩家与 GM 工具，NapCat 只读历史 |
 | 玩家体验 / 交互 / 推演文档系统 | [`specs/2026-10-24-player-experience-interaction-document-system.md`](specs/2026-10-24-player-experience-interaction-document-system.md) | D-015：玩家可见文风、秘书确认与恢复、信息卡、推文模板、审稿门、自动化边界 |
-| 玩家体验运行时 | [`specs/2026-10-24-player-experience-runtime-architecture.md`](specs/2026-10-24-player-experience-runtime-architecture.md)；[实现快照](status/2026-10-24-player-experience-runtime-implementation.md) | 输出守卫、短确认码、ACTION_DRAFT 确认、结构化裁定、NO_OP、开场门禁；567 tests / full gate PASS，未部署 |
+| 玩家体验运行时 | [`specs/2026-10-24-player-experience-runtime-architecture.md`](specs/2026-10-24-player-experience-runtime-architecture.md)；[实现快照](status/2026-10-24-player-experience-runtime-implementation.md) | 短确认码、ACTION_DRAFT 确认、结构化裁定、NO_OP、开场门禁；D-023 已删除程序侧输出守卫（历史实现快照不再代表当前代码） |
 | 首轮体验问题全量登记 | [`reports/2026-10-24-first-live-run-player-experience-audit.md`](reports/2026-10-24-first-live-run-player-experience-audit.md) | 真实 QQ/DSH/events.db 证据；工程问题 + 玩家体验问题统一编号 |
 | 目标运行与模块边界 | [`specs/2026-10-24-target-runtime-design.md`](specs/2026-10-24-target-runtime-design.md) | 旧文游目标运行；默认运行已被 D-021 bot-first 取代，只作历史 |
 | Bot-first 消息板与外部主 Agent | [`specs/2026-10-26-bot-first-main-agent-architecture.md`](specs/2026-10-26-bot-first-main-agent-architecture.md)；[计划](plans/2026-10-26-bot-first-main-agent-implementation-plan.md) | 通用 QQ 消息板、来源大框、用户备注、Inbox 摘要恢复、外部主 Agent 全量可见 |
+| 统一 QQ Agent 客户端目标架构 | [`specs/2026-10-28-unified-qq-agent-client-architecture.md`](specs/2026-10-28-unified-qq-agent-client-architecture.md) | 多账号 Adapter Registry、消息板游标、统一 MCP 工具面、Agent 不维护内部标记 |
+| 日志分级与诊断 | [`specs/2026-10-28-logging-levels-and-diagnostics.md`](specs/2026-10-28-logging-levels-and-diagnostics.md) | INFO/DEBUG 分级、结构化事件、关联 ID、配置化轮转、脱敏验收 |
+| 配置文件系统 | [`specs/2026-10-28-configuration-system.md`](specs/2026-10-28-configuration-system.md) | 多账号 schema、严格校验、来源追踪、有效配置脱敏、首次单文件生成、迁移 |
+| 统一 QQ Agent 客户端改造计划 | [`plans/2026-10-28-unified-qq-agent-client-refactor-plan.md`](plans/2026-10-28-unified-qq-agent-client-refactor-plan.md) | P0–P7：依赖前置、文游删除、日志、配置、账号路由、消息板游标、统一 MCP、收口 |
 | 对外 MCP 总控面 | [`specs/2026-10-24-external-mcp-control-plane.md`](specs/2026-10-24-external-mcp-control-plane.md) | 工具面、安全、幂等、回环限制与已知鉴权缺口 |
 | 三库上游契约 | [`../upstream/project-mosire-three-libs-0.2.3.md`](../upstream/project-mosire-three-libs-0.2.3.md) | 坐标、能力、边界、踩坑、未验证清单 |
 | NapCat/OneBot 11 契约 | [`../upstream/napcat-onebot11-contract.md`](../upstream/napcat-onebot11-contract.md) | 事件/动作/鉴权/传输策略/可靠性 |
@@ -75,7 +85,7 @@
 当前 bot-first 待裁定：
 
 1. 根 `AGENTS.md` 红线 2 是否改为“单一受信任外部主 Agent 全量可见”；
-2. `iibot-taskflow` / 旧 `iibot-app` 是保留 legacy profile，还是 bot 路径验收后物理删除；
+2. `iibot-taskflow` / 旧 `iibot-app` 已由 D-025 裁定退出默认产品；删除顺序、当前 dirty worktree 处理和 `iibot-connect-agent` 最终去留见改造计划。
 3. Inbox 摘要粒度：一来源一个来源大框，还是每条消息一个 item；
 4. 群聊是否默认全部唤醒，还是全部入摘要但仅私聊/@Bot/高优先级唤醒；
 5. 原始消息保留期限与非文本消息解析范围。

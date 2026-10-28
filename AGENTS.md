@@ -1,5 +1,13 @@
 # AGENTS.md —— iiBotMosire 常驻索引
 
+> **2026-10-28 用户重定位（优先于本文其余 legacy 条目）**：iiBot 默认产品是
+> 面向各类 Agent 软件的统一 QQ 消息客户端，不提供程序化文游服务。本文仍保留的
+> `iibot-taskflow`、玩家/回合/秘书等条目只描述待删除的当前源码，不得据此新增业务。
+> 当前目标以 D-025..D-028、
+> [统一 QQ Agent 客户端架构](docs/superpowers/specs/2026-10-28-unified-qq-agent-client-architecture.md)
+> 和 [改造计划](docs/superpowers/plans/2026-10-28-unified-qq-agent-client-refactor-plan.md)
+> 为准。
+
 > **更新时间**：2026-10-24（首个可运行纵向切片）
 > **本文件只做三件事**：项目简介、常驻红线、文档/模块路由。
 > **规则正文不在本文件**：项目设计看 `docs/superpowers/`，项目维护看 `docs/agents/`。

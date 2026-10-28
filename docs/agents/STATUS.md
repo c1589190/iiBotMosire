@@ -1,10 +1,160 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-27 19:22（Asia/Shanghai）
+> **更新时间**：2026-10-28 19:35（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
-## 0. 最新更新（2026-10-27 19:22）
+## 0. 最新更新：统一 QQ Agent 客户端重构规划（2026-10-28）
+
+- **用户方向**：iibot 不再提供程序化文游服务，只做面向各类 Agent 软件的统一 QQ 消息客户端；
+  文游模块退出默认产品，消息板服务端维护内部游标/幂等/Inbox 同步，Agent 不维护额外标记。
+- **执行分支**：`refactor/unified-qq-agent-client`；按责任区分批实现、测试、提交、推送，
+  全部确认后再合并（M-005）。
+- **已冻结选择**：
+  - AgentLib 继续固定 `agentlib-mosire:0.2.4`，不降级；
+  - `iibot-connect-agent` 整合进正式模块后删除；
+  - 读取只预览，Agent 处理完成后调用 `qq_conversation_ack(threadId)`；ack 不接受内部 seq/revision。
+- **规划文档**：
+  - [统一 QQ Agent 客户端与消息板目标架构](../superpowers/specs/2026-10-28-unified-qq-agent-client-architecture.md)
+  - [日志分级与诊断](../superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md)
+  - [配置文件系统](../superpowers/specs/2026-10-28-configuration-system.md)
+  - [P0–P7 改造计划](../superpowers/plans/2026-10-28-unified-qq-agent-client-refactor-plan.md)
+- **依赖事实**：iibot 与 inbox 当前均用并继续固定 `agentlib-mosire:0.2.4`；源码主线最新
+  为 0.2.4，但公开 tag/Pages 最新仍为 0.2.3、0.2.4 公开 POM 为 404。该落差作为
+  `PUBLICATION_GAP` 记录；干净仓库复现前不得宣称可公开构建。
+- **本次动作**：新增/更新规划文档，作为 P0 独立 checkpoint 提交；未改生产代码、
+  未删除模块、未跑 Maven、未启动 QQ/Inbox/MCP、未执行外发。
+- **状态**：`P0_IN_PROGRESS`；版本/读取语义/模块整合策略已确认，正在建立分支 checkpoint
+  与提交规划文档；尚未进入 P1 删除。
+
+## 0.1 历史更新：D-024 Inbox 改为 QQ 式未读列表（2026-10-28 00:05）
+
+- **用户原话（逐字）**：
+  > 「接下来要实现的就是我说的新inbox了」
+- **设计裁定**：D-024 已加入需求原稿 §5.13 与设计裁定索引。Inbox 是每个来源的
+  Agent 客户端未读列表，不是正文库；完整历史仍由来源查看工具读取。
+- **数据模型**：
+  - `InboxDigest` 新增 `source`（threadId/chatType/targetId/displayName）、
+    `trigger`（messageId/localSeq/sender/replyTo/summary/wakeReason）、
+    `unreadCount`、`hasMoreUnread`；
+  - `InboxDigestItem` 可回读 content digest，供同一 item 更新时复用；
+  - `InboxDigest.messages` 只保留最后 n 条未读预览，n 复用现有
+    `summary.maxMessagesPerDigest` / `weighting.maxMessagesPerDigest` 有效上限；
+    `fromSeq/toSeq` 表示完整未读范围，不再等于预览边界。
+- **生命周期**：
+  - 同一 thread 的 active item 不再冻结；新消息原地更新同一 item，revision 递增，
+    `unreadCount` 增长、预览滚动到最后 n 条；
+  - `MessageBoardStore.countInboundAfter` 精确统计未读入站数（SQLite 用 COUNT）；
+  - `bot_thread_ack` 的 `snapshotToSeq` 部分消费后保留同一 item；完整 ack 归档；
+    之后新消息从 cursor 之后创建新 item；
+  - 来源查看工具未加任何 item 范围限制；完整/分页/递归历史照常可用。
+- **验证**：`tools/gate.sh full` **PASS，730 tests / 0 failures / 0 errors /
+  0 skipped**（connect 46、connect-agent 21、bot 67、taskflow 250、app 346）；
+  `tools/gate.sh docs` PASS（files=517 links=208）。新增回归覆盖
+  source/trigger/unreadCount、last-n 预览、同 item 追加、partial ack、legacy content、
+  SQLite 未读计数和 snapshot cursor 竞态。
+- **运行态**：源码与 target jar 已更新（target sha256
+  `e513237f793d0e22792dad441acde2d085c68e938ac87e1e0da5e9115c729ab2`）；
+  当前常驻进程 PID `46457` 仍运行旧 jar（sha256
+  `a1b42e7ec985e14638e2d69eb671c65afed34277f85809793fb225d874336e0a`），
+  未替换/未重启，真实 QQ/OpenCode wake-ack 闭环仍为 `NOT_RUN`。不得覆盖运行中 jar。
+
+## 0.2 历史更新：D-023 删除程序侧文本 Guard（2026-10-27 23:10）
+
+- **用户原话（逐字）**：
+  > 「谁让你在程序上自己替换了？？？？？？？？？？？？？？？？？？？？？？？？？？这玩意他妈是Skill约束的，不是程序约束的，整个删了！！！！！」
+- **设计裁定**：D-023 已加入设计裁定索引与需求原稿 §5.12。正文文风、后台词、
+  Markdown、路径和可见性属于 **Skill / AGENTS.md**；程序不得清洗、删行、静默替换
+  或生成 fallback。
+- **源码删除**：
+  - 删除 `iibot-taskflow` 的 `PlayerFacingTextGuard` 与其测试；
+  - 删除 `iibot-bot` 的 `BotReplyTextNormalizer`；
+  - 删除 app 侧全部接线：BotRuntime、OutboxSender、PlayerOnboardingService、
+    ExternalPostService、PublicationOrchestrator、LlmActionBatchExecutor、
+    SecretarySession、GmPostComposeTool；
+  - `BotReplyService` 直接使用原文落库/发送，只保留非空、长度、目标、权限、
+    幂等和发送三态等结构校验。
+- **测试语义更新**：OutboxSender、PublicationOrchestrator、BotReplyService 的测试改为
+  断言原文被保留，不再断言行级清洗或 fallback。
+- **验证**：`tools/gate.sh full` **PASS，723 tests / 0 failures / 0 errors /
+  0 skipped**（connect 46、connect-agent 21、bot 61、taskflow 250、app 345）；
+  `tools/gate.sh docs` PASS（files=517 links=206）。
+- **运行态**：源码已删除，但正在运行的 Bot 仍是旧 jar；不得覆盖运行中 jar。
+  新行为需重新构建 jar、停止旧进程并启动新 jar 后才生效。
+
+## 0.3 历史更新：Bot 运维日志补全与 Inbox 可见性纠正（2026-10-27 21:43）
+
+- **用户需求原话（逐字）**：
+  > 「注意到iibot程序本体的log运维记录并不全面，能不能完善一下？」
+- **设计正本**：
+  [`docs/superpowers/specs/2026-10-27-bot-operational-logging.md`](../superpowers/specs/2026-10-27-bot-operational-logging.md)。
+- **用户纠正（逐字）**：
+  > 「首先，inbox确实是和唤醒绑在一起的，其次，我什么时候说这些低权重信息不进inbox了？」
+  当前口径已写入
+  [`docs/superpowers/specs/2026-10-27-onebot11-rich-messaging-history-media-and-requests.md`](../superpowers/specs/2026-10-27-onebot11-rich-messaging-history-media-and-requests.md)
+  §12.6：Inbox 与唤醒绑定是已知语义；权重只决定 priority/wakeReason/防抖延迟，
+  **不得过滤低权重消息**。
+- **代码纠正**：`InboxDigestService` 不再按 `actionable` 过滤 digest 与 context；
+  普通群聊会生成 `wakeReason=BELOW_THRESHOLD`、`priority=0` 的 item，@ 触发时
+  同一 digest 会包含此前普通消息。`MessageWeightDecision.actionable` 仍保留用于
+  防抖/冷启动策略，不再作为 Inbox 可见性开关。
+- **日志落盘**：`log4j2.xml` 新增 `iibot.log` 与独立 `iibot-ops.log` 两个滚动文件；
+  默认目录 `logs/`，可用 `-Diibot.log.dir=/path` 或 `IIBOT_LOG_DIR=/path` 覆盖；
+  按天 + 20 MB 滚动、gzip、最多 30 个归档；文件权限实测为 `0600`。
+- **运维事件覆盖率**：新增 `iibot.ops` 门面并接入进程启停、配置模板、BotRuntime 生命周期、
+  Adapter 连接/重连/发送、入站 accepted/duplicate、Inbox embedded/客户端调用、
+  digest 发布/冻结/ack/审计失败、MCP HTTP 鉴权与请求、逐 MCP 工具调用（工具名/结果/
+  错误码/耗时/参数 key）、回复、好友申请、用户备注、来源权重、出站三态。
+- **脱敏边界**：日志不记录聊天/备注/回复正文、token、Authorization、完整 OneBot JSON；
+  MCP 参数只记录 key 名，不记录 value。`OpsLog` 对日志实现异常静默隔离，不改变业务结果。
+- **自动化测试**：日志测试 4 条 + Inbox 可见性回归 2 条；`tools/gate.sh full`
+  **PASS，731 tests / 0 failures / 0 errors / 0 skipped**（connect 46、connect-agent 21、
+  bot 61、taskflow 256、app 347），日志 `/tmp/iibot-inbox-allmsg-full.log`；
+  `tools/gate.sh docs` **PASS**（files=517 links=204）。
+- **落盘 smoke**：最终 target jar 以不存在配置启动，实际生成 `600` 权限的
+  `iibot.log`/`iibot-ops.log`，含 `process_start` 与 `bot_process_failed`；property 与
+  `IIBOT_LOG_DIR` 两种目录覆盖均实测。
+- **本地部署已完成**：旧 bot 进程已停止，`8765` 与 Bot 其他回环端口均已关闭；
+  `bot/iibot-app-0.1.0-SNAPSHOT.jar` 已替换为新 jar，sha256
+  `a1b42e7ec985e14638e2d69eb671c65afed34277f85809793fb225d874336e0a`；
+  旧 jar 备份为
+  `bot/iibot-app-0.1.0-SNAPSHOT.jar.backup-20261027-215934-pre-ops-log-and-inbox-visibility`
+  （sha256 `9ac7686c...`）。
+- **GitHub Release 已更新**：`v0.1.0-bot-first.1` 的
+  `iibot-app-0.1.0-bot-first.1.jar` 与 `.sha256` 已 clobber 上传；
+  远端下载后 `sha256sum -c` 校验 OK。
+- **当前构建产物**：`iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar` sha256
+  `a1b42e7ec985e14638e2d69eb671c65afed34277f85809793fb225d874336e0a`。
+- **未完成/`NOT_RUN`**：当前没有 Bot 常驻进程，未按用户指令重新启动；真实
+  QQ → Inbox → DSH wake → Bot MCP 闭环、真实运行期日志轮转与长跑容量仍为 `NOT_RUN`。
+
+## 0.4 历史更新（2026-10-27 20:43）
+
+- **工作区已迁移**：本仓现在位于 `/home/cna/DevMosire-iiBot/iiBotMosire`；
+  `InboxMosire` 与 `InboxMosire-DSH` 是该根下的同级独立仓库。跨仓关系见
+  `/home/cna/DevMosire-iiBot/AGENTS.md`。
+- **DSH 插件断链已修复**：`~/.dsh/profiles/web` 的
+  `@mosire/dsh-inbox-mosire` 已从旧 `link:/home/cna/InboxMosire-DSH`
+  改到 `/home/cna/DevMosire-iiBot/InboxMosire-DSH`。当前 DSH 进程是在修复前
+  启动的，因此 adapter 工具尚未在本进程加载；需重载/重启 DSH 后再绑定。
+- **Bot 迁移验证已完成并停止**：验证时 Bot MCP 37 tools 监听、OneBot WS 上游
+  连接建立、embedded Inbox 启动、DSH `custom-iibot` health 通过；随后按用户要求
+  停止，当前无常驻 Bot，`8765` 已关闭。验证用 descriptor 已随进程停止而失效。
+- **运行产物交接**：编译 jar 已复制到
+  `/home/cna/DevMosire-iiBot/bot/iibot-app-0.1.0-SNAPSHOT.jar`
+  （sha256 `9ac7686c010140ac417a0b06ce210979d5437a0fd54d6b3f0c8d6a759130418f`）。
+  Bot 源码仍以本仓为准；`bot/` 是另一个 DSH 工作区的运行目录，不是第四个项目。
+- **MCP 边界（用户当次纠正）**：Bot MCP 专门给 Bot 使用，本协调/开发工作区
+  已停用 `custom-iibot`；不得再次启用、激活或调用其 `bot_*` 业务工具。
+- **迁移后验证**：`InboxMosire-DSH` `npm test` 为 124 tests / 121 pass /
+  3 skipped / 0 fail；本仓 `tools/gate.sh docs` PASS。迁移后未重跑全量 Maven
+  gate，旧 725 tests 结果不能冒充迁移后结果。
+- **未完成/`NOT_RUN`**：真实 QQ → Inbox → DSH wake → Bot MCP 的完整闭环尚未
+  验收。下一步在新 Bot 工作区启动 `bot/` 中的 jar、重新生成 descriptor，
+  重载 DSH 后以 `wakeMode=view-ack` 绑定，并用 `inbox_adapter_status` 核对
+  `programMcp=available` 与 SSE/occupancy。
+
+## 0.5 历史更新（2026-10-27 19:22）
 
 - **Bot 已成为默认启动模式**：`java -jar iibot-app-0.1.0-SNAPSHOT.jar`
   不带 `--mode` 直接走 bot-first；`--mode bot` 仅保留兼容，legacy 必须显式
@@ -62,7 +212,7 @@
   heartbeat / 固定或随机端口的启动 smoke；通过后再按用户授权部署
   `simulation2/dist` 并重新绑定 DSH。**未跑前不宣称真实 Inbox/DSH 闭环通过。**
 
-## 0.1 历史更新（2026-10-27 03:02）
+## 0.6 历史更新（2026-10-27 03:02）
 
 - **Inbox/DSH 对接已切换到 view-ack**：InboxMosire `e43f099` 提供
   `ITEM_STATUS_CONFLICT` / `ITEM_REVISION_CONFLICT` 及 `details`；InboxMosire-DSH
@@ -102,9 +252,10 @@
   - `tools/gate.sh full` **PASS，705 tests / 0 failures / 0 errors**
     （connect 46、connect-agent 21、bot 55、taskflow 256、app 327）；
     日志 `.work/weight-full2.log`。
-- **正文一致性/旧图片修复已部署**：
-  - `BotReplyService` 在落库前调用 `BotReplyTextNormalizer`，app 注入
-    `PlayerFacingTextGuard`，本地 board 与实际 QQ 正文使用同一规范化结果；
+- **正文一致性/旧图片修复（历史；D-023 已删除程序守卫）**：
+  - 当时 `BotReplyService` 在落库前调用 `BotReplyTextNormalizer`，app 注入
+    `PlayerFacingTextGuard`；该行为现已被 D-023 删除；
+  - 当前程序不再清洗、删行、静默替换或 fallback，正文约束只在 Skill / `AGENTS.md`；
   - OUT `bot_reply` 的 reply/mention/text 段写入 `chat_message_segment`；
   - `MediaCapability.imageSegmentsForMessage` + `get_msg` fallback，旧图片可按
     messageId 读取；实测旧消息 `1472304806` 返回
@@ -122,7 +273,7 @@
   `inbox_view.content.toSeq` 作为 `snapshotToSeq` 做一轮真实 smoke；
   真实回复/好友审批按 M-004 等授权。
 
-## 0.2 历史更新（2026-10-25 23:31）
+## 0.7 历史更新（2026-10-25 23:31）
 
 - **模拟区文档系统已归档并清理项目级残留副本**：
   `simulation/docs/` 成为模拟区文档入口，`simulation/docs/world/` 收纳公开/秘密世界设定，
@@ -230,6 +381,11 @@
 
 ## 1. 当前目标
 
+> **2026-10-28 重定位**：以下 P0–P8 文游目标为历史，不再决定默认产品；
+> 当前目标以 D-025..D-028 和
+> [统一 QQ Agent 客户端改造计划](../superpowers/plans/2026-10-28-unified-qq-agent-client-refactor-plan.md)
+> 为准。实施前不要把以下文游内容当作待办。
+
 - **玩家体验复盘与推演文档系统（2026-10-24）**：已登记首轮真实推演中的工程/状态/玩家体验/自动化问题，并形成 D-015 提议设计；未改生产代码、未部署 jar、未跑构建/playtest。事实底稿：[`../superpowers/reports/2026-10-24-first-live-run-player-experience-audit.md`](../superpowers/reports/2026-10-24-first-live-run-player-experience-audit.md)；提议：[`../superpowers/specs/2026-10-24-player-experience-interaction-document-system.md`](../superpowers/specs/2026-10-24-player-experience-interaction-document-system.md)。
 - **玩家体验运行时本轮已实现**：D-016 保持最小 system prompt，详细规则写入秘书 `AGENTS.md` + 共享 Skill；玩家文本守卫、短确认码、ACTION_DRAFT 确认门、结构化裁定/NO_OP、opening 门禁、只读 watchdog、体验文档包均已落地；`tools/gate.sh full` **PASS**，全仓 **568 tests / 0 failures / 0 errors / 0 skipped**，shaded jar 成功，5 项变异验证通过。**未部署、未真实 playtest、未 commit。** 证据：[`../superpowers/status/2026-10-24-player-experience-runtime-implementation.md`](../superpowers/status/2026-10-24-player-experience-runtime-implementation.md)；架构：[`../superpowers/specs/2026-10-24-player-experience-runtime-architecture.md`](../superpowers/specs/2026-10-24-player-experience-runtime-architecture.md)；计划：[`../superpowers/plans/2026-10-24-player-experience-runtime-plan.md`](../superpowers/plans/2026-10-24-player-experience-runtime-plan.md)。
 - **P0 已完成**：v3 行动池 + AgentLib 裁定包 + 48 MCP 工具已通过 full gate，提交为 `0695675`；应用保持停止。
@@ -260,20 +416,22 @@
 
 | 项 | 当前事实 |
 |---|---|
-| 仓库 | `/home/cna/iiBotMosire` |
-| Git | `origin git@github.com:c1589190/iiBotMosire.git`；当前分支 `refactor/bot-first-main-agent`，HEAD `31f502b` |
+| 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
+| Git | `origin git@github.com:c1589190/iiBotMosire.git`；当前分支 `refactor/bot-first-main-agent`，HEAD `8075396`，tag `v0.1.0-bot-first.1` |
 | Maven reactor | `io.mosire.iibot:iibot-parent:0.1.0-SNAPSHOT`，5 个模块（含迁移期 legacy） |
 | Java | OpenJDK 21.0.12.1 |
 | Maven Wrapper | 3.9.16；`./mvnw -v` 实测 |
-| 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.4`；InboxMosire `e43f099`；InboxMosire-DSH `f770160` |
-| 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar` 当前 sha256 `9ac7686c010140ac417a0b06ce210979d5437a0fd54d6b3f0c8d6a759130418f`（约 22 MB）；`simulation2/dist` 仍是上一版部署 jar，未替换 |
-| Git/提交 | `origin/main` 与分支基线同为 `31f502b`；bot-first 代码/文档/simulation2 为未提交工作树改动 |
-| 本机工作树 | **dirty**；`target/`、`simulation/dist/`、`simulation/runtime/` 按 gitignore 不入库 |
+| 上游三库 | `io.mosire:{agentlib,workspace,docs}-mosire:0.2.4`；InboxMosire `f93e7e2`（`0.1.0-SNAPSHOT`）；InboxMosire-DSH `113a838` |
+| 可运行产物 | `iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar` 与已部署的 `bot/iibot-app-0.1.0-SNAPSHOT.jar` 均为 sha256 `a1b42e7ec985e14638e2d69eb671c65afed34277f85809793fb225d874336e0a`；GitHub Release `v0.1.0-bot-first.1` 的 jar/sha256 已同步替换；旧 jar 已备份在 `bot/` |
+| Git/提交 | `origin/refactor/bot-first-main-agent` 同到 `8075396`；tag 已推送；迁移路径文档与运维日志改动均未提交 |
+| 本机工作树 | **dirty（迁移文档 + 运维日志代码/设计/测试）**；`target/`、`logs/`、`simulation/dist/`、`simulation/runtime/`、`.work/` 按 gitignore 不入库 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
+| **2026-10-28 D-024 Inbox 未读列表 full** | **PASS**：`tools/gate.sh full`；全仓 **730 tests / 0 failures / 0 errors / 0 skipped**（connect 46、connect-agent 21、bot 67、taskflow 250、app 346）；`tools/gate.sh docs` PASS（files=517 links=208）；`messages` last-n 预览、source/trigger/unreadCount/hasMoreUnread、同 item 追加、partial ack、legacy content、SQLite 未读计数、snapshot cursor 竞态均已覆盖 |
+| **2026-10-27 Bot 运维日志 + Inbox 可见性 full** | **PASS**：`tools/gate.sh full`；全仓 **731 tests / 0 failures / 0 errors / 0 skipped**（connect 46、connect-agent 21、bot 61、taskflow 256、app 347）；日志 `/tmp/iibot-inbox-allmsg-full.log`；低权重普通群聊仍生成 `BELOW_THRESHOLD` item，@ digest 同时包含此前普通消息，context 也不再被权重过滤 |
 | **2026-10-27 consistency bot full reactor** | **PASS（full gate 内）**：bot **49 tests / 0 failures / 0 errors** |
 | **2026-10-27 consistency app full reactor** | **PASS（full gate 内）**：app **325 tests / 0 failures / 0 errors** |
 | **2026-10-27 weight routing full** | **PASS**：`tools/gate.sh full`；全仓 **705 tests / 0 failures / 0 errors**（connect 46、connect-agent 21、bot 55、taskflow 256、app 327）；日志 `.work/weight-full2.log` |
@@ -330,6 +488,7 @@
 | v3 设计 | `docs/superpowers/specs/2026-10-24-decision-packages-action-pool-and-turn-records.md` |
 | 理想工作流/events.db 设计 | `docs/superpowers/specs/2026-10-24-ideal-gm-control-workflow-and-events-db.md` |
 | 理想工作流实施计划 | `docs/superpowers/plans/2026-10-24-ideal-workflow-implementation-plan.md` |
+| Bot 运维日志设计 | `docs/superpowers/specs/2026-10-27-bot-operational-logging.md` |
 
 ## 5. 已实现与已验证的能力
 
@@ -403,10 +562,17 @@
 22. **D-014 未验证边界**：真实 NapCat `get_friend_msg_history/get_group_msg_history` 尚未调用；群临时会话的来源群歧义、短 `message_seq` LRU、历史清理、真实 QQ 发送副作用均未验证。`simulation/dist` 仍是旧 jar；本轮 626-tests target jar 尚未部署。cache 只做 raw append，不做摘要压缩。
 23. **文档门禁当前通过**：`tools/gate.sh docs` 本轮 PASS（modules=4 files=486 links=174）；
    仍需保持新增 Skill/文档与登记一致。
+24. **新 jar 已部署但未重启**：旧进程已停止、`bot/` 与 GitHub Release 资产已替换并校验；当前没有 Bot 常驻进程。真实运行期日志轮转、长跑容量、真实链路敏感值扫描均 `NOT_RUN`；重新启动会建立真实 QQ/Inbox/MCP 外部连接，需按用户当次指令执行。
 
 ## 7. 下一步
 
-1. **首次启动/参数化验收**：空目录模板生成已实测；下一步用真实配置在干净
+0. **先审阅并冻结本轮规划**：确认 AgentLib 0.2.4 发布/降级策略、dirty worktree
+   处理方式、文游物理删除边界和 `iibot-connect-agent` 去留；确认后按计划 P0 开始。
+1. **启动新 jar（需用户当次指令）**：当前旧进程已停止、新 jar 已部署且
+   Release 资产已同步；用户要求启动时再运行 `java -jar iibot-app-0.1.0-SNAPSHOT.jar`，
+   并检查 `bot/logs/iibot.log` 与 `bot/logs/iibot-ops.log` 是否出现
+   `process_start`、`bot_runtime_ready`、`mcp_started`、`adapter_event`。
+2. **首次启动/参数化验收**：空目录模板生成已实测；下一步用真实配置在干净
    runtime 启动新 jar，确认 embedded Inbox 与 Bot MCP 同时就绪，再按用户授权
    部署并绑定 DSH。
 2. **Inbox Mode A 真实联调**：先停/备份当前运行面，再把本轮 target jar 以用户确认的方式

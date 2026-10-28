@@ -1,5 +1,10 @@
 # config
 
+> **2026-10-28 规划中变更**：配置系统将按
+> [配置文件系统设计](../docs/superpowers/specs/2026-10-28-configuration-system.md)
+> 升级为多账号 schema、单文件首次生成、`--check-config` 和脱敏有效配置输出。
+> 本文件以下内容描述当前实现，实施 P3 后整体替换。
+
 运行配置目录。Bot 是默认启动模式：
 
 ```bash
@@ -16,6 +21,19 @@ java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar
 ```bash
 java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar --mode legacy
 ```
+
+## 日志
+
+默认同时写控制台和滚动文件：
+
+```text
+logs/iibot.log        # 技术日志
+logs/iibot-ops.log    # event=... 运维事件流
+```
+
+可通过 `-Diibot.log.dir=/path` 或环境变量 `IIBOT_LOG_DIR=/path` 改目录。
+两个文件均按天和 20 MB 滚动，归档 gzip 压缩，最多保留 30 个。
+日志只记录 ID、状态、计数、错误码与耗时，不记录聊天正文、token 或完整协议 JSON。
 
 ## 多文件规则
 
@@ -45,6 +63,23 @@ java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar --mode legacy
 `apiPort/mcpPort=0` 表示随机回环端口；固定端口绑定失败会 fail-closed。
 `apiHost/mcpHost` 只允许 loopback；`mcpPath` 必须是以 `/` 开头且不含
 query/fragment 的路径。
+
+## Inbox 未读预览
+
+Inbox item 只保存每个来源的最后 `n` 条未读摘要作为预览；完整正文仍由
+`bot_thread_read` / `bot_thread_history` 等工具读取。
+
+`n` 使用现有两个配置项的有效上限：
+
+```json
+{
+  "summary": { "maxMessagesPerDigest": 100 },
+  "weighting": { "maxMessagesPerDigest": 20 }
+}
+```
+
+上例有效预览上限为 20。item content 还会返回 `unreadCount` 与
+`hasMoreUnread`；预览不足时 Agent 必须读取完整来源历史，不能把预览当全文。
 
 ## 推荐布局
 
