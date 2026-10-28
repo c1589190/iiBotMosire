@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-28 23:05（Asia/Shanghai）
+> **更新时间**：2026-10-28 23:15（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -76,18 +76,20 @@
 - **P8.2 Inbox/DSH source 契约已完成**：Inbox commit `a040f25` 增加可选 item.source
   （SQLite 幂等迁移、HTTP/MCP/client 透传）；DSH commit `b14f7a1` 在 wake 摘要携带
   source，view-ack 模板改为 `qq_conversation_read(source)` →
-  `qq_conversation_ack(source)`，programMcp 按 wakeMode 探测。
+  `qq_conversation_ack(source)`，programMcp 按 wakeMode 探测；`bef43ed` 让
+  `inbox_adapter_status` 回源 board，避免旧 revision 缓存。
   - Inbox `clean verify` PASS：41 tests；DSH `npm test` PASS：139 tests（3 live skipped）。
 - **P8.3 读窗口与迁移已完成并推送 `b3bc680`**：`qq_conversation_read/ack/send/history`
   接受 `source`（兼容旧 threadId）；read 默认只返回 IN，OUT 通过
   `includeOutbound` 单独返回且不进入 ack 边界；SQLite consumer 游标从旧
   `inbox_digest_state.last_seq` 回填。
-- **P8.4 群名/缓存/全唤醒收口（待提交）**：消息板 thread 展示名可由
+- **P8.4 群名/缓存/全唤醒收口已推送 `bcc8646`**：消息板 thread 展示名可由
   `QqPlatformCapability` 的 joinedGroups/friends 异步同步（remark 优先，失败回退
   targetId）；DSH `inbox_adapter_status` 改为回源 board；来源地址进入 MCP 输出和
   读/写主力工具；全唤醒保持，权重/阈值/quiet/cooldown 仅排序/诊断。
   - `tools/gate.sh full`：PASS，**235 tests / 0 failures / 0 errors / 0 skipped**
     （connect 61、bot 104、app 70）。
+  - `tools/gate.sh docs`：PASS（modules=3 files=41 links=103）；selftest PASS。
 - **P7b 文档收口完成并合并**：旧文游 specs/plans/status/reports 已归档到
   `docs/archive/legacy-game/`；当前设计索引/README/AGENTS/config/handoff 已更新；
   docs checker 排除归档目录；`tools/gate.sh selftest` PASS。
@@ -120,10 +122,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 当前进行中：
 
-- P1b–P7b 已完成并合并；P8.1 地址核心已实现待提交；
-- P8.2–P8.4 待做：Inbox/DSH wake source、consumer 游标回填、read 入站窗口、
-  群名同步/缓存、全唤醒文档收口。
-- 真实外部联调与 AgentLib 0.2.4 公开发布仍待办。
+- P1b–P7b 已完成并合并；P8.1–P8.4 已完成并推送；
+- 剩余：P8 三分支最终合并，以及真实外部联调与 AgentLib 0.2.4 公开发布。
 
 非目标：
 
@@ -137,11 +137,11 @@ OneBot 11 / NapCat / LLBot（可多个）
 | 项 | 当前事实 |
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
-| 分支 | `feat/p8-source-address`（P8 实施中）；`refactor/bot-first-main-agent` 为 P0–P7b 基线 |
+| 分支 | `feat/p8-source-address`（P8 已完成待合并）；`refactor/bot-first-main-agent` 为 P0–P7b 基线 |
 | 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main） |
 | Maven reactor | 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | P8.4 变更待提交；无运行中 Java 进程 |
+| 工作树 | clean；无运行中 Java 进程 |
 | 模块目标 | 已完成：`iibot-connect-agent` 已删除，模块数为 3 |
 
 ## 3. 最近功能门禁
@@ -178,6 +178,7 @@ OneBot 11 / NapCat / LLBot（可多个）
 | P8.3 full | `tools/gate.sh full` PASS：**233 tests / 0 failures / 0 errors / 0 skipped**（connect 61、bot 102、app 70） |
 | P8.4 full | `tools/gate.sh full` PASS：**235 tests / 0 failures / 0 errors / 0 skipped**（connect 61、bot 104、app 70） |
 | P8.4 DSH | `npm test` PASS：139 tests（3 live skipped）；status 回源 board |
+| P8 跨仓 | Inbox `a040f25`（41 tests）、DSH `b14f7a1`/`bef43ed`（139 tests）、iiBot `bcc8646` |
 
 ## 4. 当前有效设计/维护入口
 
@@ -216,7 +217,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 ## 7. 下一步
 
-1. **提交 P8.4 并合并 P8 分支**：`feat/p8-source-address`；Inbox/DSH 分支同步合并。
+1. **合并 P8 分支**：iiBot `feat/p8-source-address`、Inbox `feat/p8-source-metadata`、
+   DSH `feat/p8-source-wake` 到各自基线并推送。
 2. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。
 3. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
