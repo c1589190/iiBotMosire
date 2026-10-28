@@ -8,7 +8,7 @@
 ## 0. 冲突顺序
 
 1. 用户当次明确指令。
-2. 用户设计裁定：D-025..D-028、统一 QQ Agent 客户端目标架构。
+2. 用户设计裁定：D-025..D-029、统一 QQ Agent 客户端目标架构与来源地址。
 3. 项目维护裁定：`docs/agents/MAINTENANCE_RULINGS.md`、`docs/AGENTS.md`。
 4. 当前有效设计与契约：`docs/superpowers/specs/**`。
 5. 本文件。
@@ -81,6 +81,8 @@ iibot-app
 | P0–P7 改造计划 | [`docs/superpowers/plans/2026-10-28-unified-qq-agent-client-refactor-plan.md`](docs/superpowers/plans/2026-10-28-unified-qq-agent-client-refactor-plan.md) |
 | 设计裁定索引 | [`docs/superpowers/DESIGN_RULINGS.md`](docs/superpowers/DESIGN_RULINGS.md) |
 | 用户需求原话 | [`docs/superpowers/specs/2026-10-24-user-requirements-source.md`](docs/superpowers/specs/2026-10-24-user-requirements-source.md) |
+| 统一消息来源地址 | [`docs/superpowers/specs/2026-10-28-unified-message-source-address.md`](docs/superpowers/specs/2026-10-28-unified-message-source-address.md) |
+| P8 来源地址/wake 计划 | [`docs/superpowers/plans/2026-10-28-p8-source-address-and-wake-contract.md`](docs/superpowers/plans/2026-10-28-p8-source-address-and-wake-contract.md) |
 | 文档规则 | [`docs/AGENTS.md`](docs/AGENTS.md) |
 | 工作流 | [`docs/agents/WORKFLOW.md`](docs/agents/WORKFLOW.md) |
 | 验证与证据 | [`docs/agents/VERIFICATION.md`](docs/agents/VERIFICATION.md) |

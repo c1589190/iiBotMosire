@@ -95,6 +95,16 @@ public interface MessageBoardStore {
                 .reduce((first, second) -> second);
     }
 
+    /**
+     * 用平台目录更新 thread 的展示名（群名/好友备注）；未知 thread 为 no-op。
+     * 只更新展示名，不改变来源键、消息、未读或发送状态。
+     *
+     * @return 是否实际改变
+     */
+    default boolean updateThreadDisplayName(String threadId, String displayName) {
+        return false;
+    }
+
     /** 读取 thread 投影。 */
     Optional<ChatThread> thread(String threadId);
 

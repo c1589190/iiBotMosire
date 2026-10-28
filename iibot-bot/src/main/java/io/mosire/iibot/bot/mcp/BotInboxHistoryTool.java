@@ -21,7 +21,10 @@ public final class BotInboxHistoryTool implements AgentTool {
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",
             "properties", Map.of(
-                    "threadId", Map.of("type", "string"),
+                    "source", Map.of("type", "string",
+                            "description", "统一来源地址；按来源过滤"),
+                    "threadId", Map.of("type", "string",
+                            "description", "旧版内部 threadId；新调用方使用 source"),
                     "limit", Map.of("type", "integer", "minimum", 1, "maximum", 200,
                             "description", "最多返回通知数，默认 50")),
             "additionalProperties", false);
@@ -48,6 +51,15 @@ public final class BotInboxHistoryTool implements AgentTool {
         try {
             String threadId = BotToolSupport.optionalText(
                     context.arguments(), "threadId", 512);
+            String source = BotToolSupport.optionalText(
+                    context.arguments(), "source", 1024);
+            if (!threadId.isEmpty() && !source.isEmpty()) {
+                throw new BotToolSupport.InvalidArgumentsException(
+                        "source 与 threadId 不能同时提供");
+            }
+            if (!source.isEmpty()) {
+                threadId = BotToolSupport.threadKey(context.arguments()).threadId();
+            }
             int limit = BotToolSupport.optionalInt(context.arguments(), "limit", 50);
             if (limit < 1 || limit > 200) {
                 throw new BotToolSupport.InvalidArgumentsException("limit 必须在 1..200");
@@ -87,7 +99,7 @@ public final class BotInboxHistoryTool implements AgentTool {
 
     @Override public Map<String, Object> ledgerArgs(ToolContext context) {
         Map<String, Object> safe = new LinkedHashMap<>();
-        for (String name : List.of("threadId", "limit")) {
+        for (String name : List.of("source", "threadId", "limit")) {
             if (context.arguments().containsKey(name)) {
                 safe.put(name, context.arguments().get(name));
             }

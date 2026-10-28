@@ -25,20 +25,26 @@ public final class BotSourceWeightSetTool implements AgentTool {
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",
             "properties", Map.of(
-                    "threadId", Map.of("type", "string", "minLength", 1),
+                    "source", Map.of("type", "string", "minLength", 1,
+                            "description", "统一来源地址，如 qq_group/bot-1/955432692"),
+                    "threadId", Map.of("type", "string", "minLength", 1,
+                            "description", "旧版内部 threadId；新调用方使用 source"),
                     "sourceWeight", Map.of("type", "integer", "minimum", -1000,
                             "maximum", 1000),
                     "notifyThreshold", Map.of("type", "integer", "minimum", -1000,
-                            "maximum", 1000),
+                            "maximum", 1000,
+                            "description", "排序参考阈值；当前全唤醒策略下不 gate 唤醒"),
                     "signalWeights", Map.of("type", "object",
                             "description", "结构信号到整数的映射；键为 DM/MENTION/REPLY_TO_BOT/NAME/COMMAND"),
                     "keywordWeights", Map.of("type", "object",
                             "description", "关键词到整数的映射，支持负权重"),
                     "maxMessages", Map.of("type", "integer", "minimum", 1, "maximum", 1000),
-                    "quietSeconds", Map.of("type", "integer", "minimum", 0, "maximum", 86400),
-                    "cooldownSeconds", Map.of("type", "integer", "minimum", 0, "maximum", 86400),
+                    "quietSeconds", Map.of("type", "integer", "minimum", 0, "maximum", 86400,
+                            "description", "保留字段；当前全唤醒下不 gate 唤醒"),
+                    "cooldownSeconds", Map.of("type", "integer", "minimum", 0, "maximum", 86400,
+                            "description", "保留字段；当前全唤醒下不 gate 唤醒"),
                     "expectedRevision", Map.of("type", "integer", "minimum", 0)),
-            "required", List.of("threadId", "sourceWeight"),
+            "required", List.of("sourceWeight"),
             "additionalProperties", false);
 
     private final SourceWeightService service;
@@ -56,8 +62,8 @@ public final class BotSourceWeightSetTool implements AgentTool {
 
     @Override public String name() { return NAME; }
     @Override public String description() {
-        return "设置来源基础权重、通知阈值、@/回复/名称/命令结构权重和关键词权重；"
-                + "权重总分同时用于 Inbox priority 排序。";
+        return "设置来源基础权重、排序阈值、@/回复/名称/命令结构权重和关键词权重；"
+                + "权重只用于 Inbox priority 排序/诊断，当前所有入站消息仍全唤醒。";
     }
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
     @Override public ToolSpec spec() { return ToolSpec.DEFAULT; }
@@ -65,8 +71,7 @@ public final class BotSourceWeightSetTool implements AgentTool {
 
     @Override public ToolResult execute(ToolContext context) {
         try {
-            String threadId = BotToolSupport.requiredText(
-                    context.arguments(), "threadId", 512);
+            String threadId = BotToolSupport.threadKey(context.arguments()).threadId();
             Integer sourceWeight = optionalInteger(context.arguments(), "sourceWeight");
             if (sourceWeight == null) {
                 throw new BotToolSupport.InvalidArgumentsException("sourceWeight 必须提供");
@@ -195,7 +200,7 @@ public final class BotSourceWeightSetTool implements AgentTool {
 
     @Override public Map<String, Object> ledgerArgs(ToolContext context) {
         Map<String, Object> safe = new LinkedHashMap<>();
-        for (String name : List.of("threadId", "sourceWeight", "notifyThreshold",
+        for (String name : List.of("source", "threadId", "sourceWeight", "notifyThreshold",
                 "signalWeights", "keywordWeights", "maxMessages", "quietSeconds",
                 "cooldownSeconds", "expectedRevision")) {
             if (context.arguments().containsKey(name)) {

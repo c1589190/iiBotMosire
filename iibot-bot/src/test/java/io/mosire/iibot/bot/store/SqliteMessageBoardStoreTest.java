@@ -113,6 +113,22 @@ class SqliteMessageBoardStoreTest {
         }
     }
 
+    @Test
+    void displayNameUpdatePersistsAcrossReopen() {
+        Path db = tempDir.resolve("bot.db");
+        try (SqliteMessageBoardStore store = new SqliteMessageBoardStore(db)) {
+            store.append(inbound("m-1", "alice", "Alice", "你好"));
+            assertThat(store.updateThreadDisplayName(GROUP.threadId(), "测试群")).isTrue();
+            assertThat(store.updateThreadDisplayName(GROUP.threadId(), "测试群")).isFalse();
+        }
+
+        try (SqliteMessageBoardStore reopened = new SqliteMessageBoardStore(db)) {
+            assertThat(reopened.thread(GROUP.threadId())).get()
+                    .extracting(ChatThread::displayName, ChatThread::messageCount)
+                    .containsExactly("测试群", 1L);
+        }
+    }
+
     private static ChatMessage inbound(String id, String senderId, String senderName, String text) {
         return ChatMessage.inbound(GROUP, id, senderId, senderName, T0, T0, text, "", "");
     }

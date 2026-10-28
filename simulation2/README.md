@@ -88,8 +88,9 @@ simulation2/dsh/HANDOFF_PROMPT.md
    `wakeMode: "view-ack"`；
 3. 用 `inbox_adapter_status` 确认 `isBound=true`、`wakeMode=view-ack`、
    `programMcp=available`、SSE/occupancy 正常；
-4. 后续从 Inbox summary 进入 `inbox_view`，再用 `qq_conversation_read(threadId)`
-   读取未 ack 批次；处理完成后调 `qq_conversation_ack(threadId)`。
+4. 后续从 Inbox summary 读取每个 item 的 `source`，再用
+   `qq_conversation_read(source)` 读取未 ack 批次；处理完成后调
+   `qq_conversation_ack(source)`。
    Agent 不传 revision/snapshot/itemId 等内部标记；read 只记录服务端 delivered
    位置，ack 才推进已读并同步 Inbox。处理期间的新消息留到下一次未读批次。
 

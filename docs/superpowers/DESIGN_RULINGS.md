@@ -20,7 +20,7 @@
 | D-026 | 多账号路由、服务端 read/ack、统一 `qq_*` MCP | 已实施 P4–P6 | [需求原稿](specs/2026-10-24-user-requirements-source.md)；[目标架构](specs/2026-10-28-unified-qq-agent-client-architecture.md) |
 | D-027 | debug/info 日志与易用配置系统 | 已实施 P2/P3 | [需求原稿](specs/2026-10-24-user-requirements-source.md)；[日志](specs/2026-10-28-logging-levels-and-diagnostics.md)；[配置](specs/2026-10-28-configuration-system.md) |
 | D-028 | 依赖最新且可复现、文档一致 | P7a 已升级；AgentLib 0.2.4 发布待补 | [需求原稿](specs/2026-10-24-user-requirements-source.md)；[计划](plans/2026-10-28-unified-qq-agent-client-refactor-plan.md) |
-| D-029 | 全唤醒 + 统一来源地址（qq_group/qq_private/qq_system/app_system） | P8 实施中 | [来源地址设计](specs/2026-10-28-unified-message-source-address.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
+| D-029 | 全唤醒 + 统一来源地址（qq_group/qq_private/qq_system/app_system） | P8 已实施（外部联调 NOT_RUN） | [来源地址设计](specs/2026-10-28-unified-message-source-address.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
 
 ## 二、当前专题入口
 

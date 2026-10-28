@@ -7,6 +7,8 @@ import io.mosire.iibot.app.inbox.InboxBindingDescriptorTool;
 import io.mosire.iibot.app.media.BotMediaGetTool;
 import io.mosire.iibot.app.media.BotMediaStore;
 import io.mosire.iibot.app.reply.BotOutboxReplyPort;
+import io.mosire.iibot.bot.chat.ChatSourceKey;
+import io.mosire.iibot.bot.chat.ChatType;
 import io.mosire.iibot.bot.friend.FriendRequestService;
 import io.mosire.iibot.bot.friend.SqliteFriendRequestStore;
 import io.mosire.iibot.bot.inbox.InboxDigestScheduler;
@@ -18,6 +20,7 @@ import io.mosire.iibot.bot.mcp.BotMcpServer;
 import io.mosire.iibot.bot.mcp.BotMcpTools;
 import io.mosire.iibot.bot.note.SqliteUserNoteStore;
 import io.mosire.iibot.bot.reply.BotReplyService;
+import io.mosire.iibot.bot.store.MessageBoardStore;
 import io.mosire.iibot.bot.store.SqliteConsumerConversationStore;
 import io.mosire.iibot.bot.store.SqliteMessageBoardStore;
 import io.mosire.iibot.bot.weight.SourceWeightService;
@@ -26,10 +29,12 @@ import io.mosire.iibot.bot.summary.MessageSummaryBuilder;
 import io.mosire.iibot.connect.core.AccountInfo;
 import io.mosire.iibot.connect.core.AccountInfoProvider;
 import io.mosire.iibot.connect.core.AccountRegistry;
+import io.mosire.iibot.connect.core.ChatConversation;
 import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.connect.core.FriendRequestCapability;
 import io.mosire.iibot.connect.core.ForwardCapability;
 import io.mosire.iibot.connect.core.MediaCapability;
+import io.mosire.iibot.connect.core.QqPlatformCapability;
 import io.mosire.iibot.connect.core.RecentQqProvider;
 import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.ops.LogContext;
@@ -71,6 +76,8 @@ public final class BotRuntime implements AutoCloseable {
     private final AccountRegistry accountRegistry;
     private final List<AdapterBinding> bindings;
     private final Map<String, OutboxSender> outboxes;
+    private static final long THREAD_PROFILE_SYNC_TIMEOUT_SECONDS = 20L;
+
     private final SqliteMessageBoardStore board;
     private final SqliteUserNoteStore notes;
     private final SqliteInboxDigestStateStore digestStates;
@@ -276,6 +283,7 @@ public final class BotRuntime implements AutoCloseable {
                 LOG.debug("event=adapter_state state=started adapter={} accountId={} "
                                 + "inboundHandler=registered",
                         binding.adapter().adapterId(), binding.accountId());
+                syncThreadProfiles(binding, board);
             }
             OpsLog.info("event=bot_runtime_ready accountCount={} controlPort={} "
                             + "inboxApiPort={} inboxMcpPort={} tools={}",
@@ -348,6 +356,53 @@ public final class BotRuntime implements AutoCloseable {
                     ? capabilityType.cast(binding.adapter()) : null);
         }
         return Collections.unmodifiableMap(new LinkedHashMap<>(capabilities));
+    }
+
+    /**
+     * 连接后异步同步已加入群/好友的展示名；只更新已存在的 thread，不阻塞启动，
+     * 失败保持 targetId 回退值。
+     */
+    private static void syncThreadProfiles(AdapterBinding binding, MessageBoardStore board) {
+        if (!(binding.adapter() instanceof QqPlatformCapability platform)) {
+            return;
+        }
+        platform.joinedGroups()
+                .thenCombine(platform.friends(false), (groups, friends) -> {
+                    List<ChatConversation> all = new ArrayList<>();
+                    all.addAll(groups);
+                    all.addAll(friends);
+                    return all;
+                })
+                .toCompletableFuture()
+                .orTimeout(THREAD_PROFILE_SYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .thenAccept(conversations -> {
+                    int updated = 0;
+                    for (ChatConversation conversation : conversations) {
+                        String displayName = conversation.remark().isBlank()
+                                ? conversation.displayName() : conversation.remark();
+                        if (displayName.isBlank()) {
+                            continue;
+                        }
+                        ChatType type = switch (conversation.sessionType()) {
+                            case GROUP -> ChatType.GROUP;
+                            case PRIVATE -> ChatType.PRIVATE;
+                        };
+                        ChatSourceKey key = new ChatSourceKey(binding.accountId(),
+                                type, conversation.targetId());
+                        if (board.updateThreadDisplayName(key.threadId(), displayName)) {
+                            updated++;
+                        }
+                    }
+                    OpsLog.info("event=thread_profiles_synced accountId={} "
+                                    + "conversations={} updated={}",
+                            binding.accountId(), conversations.size(), updated);
+                })
+                .exceptionally(failure -> {
+                    OpsLog.warn("event=thread_profiles_sync_failed accountId={} "
+                                    + "errorType={}", binding.accountId(),
+                            failure.getClass().getSimpleName());
+                    return null;
+                });
     }
 
     private static void verifyAccountIdentity(String expectedAccountId,

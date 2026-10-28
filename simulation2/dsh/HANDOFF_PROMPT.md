@@ -106,10 +106,11 @@ descriptor 只有 `inboxId/apiBaseUrl/adapterTokenRef/channels/label` 五个字�
 
 1. 调 `inbox_list`，选一个本轮要处理的 item；不要一次处理多个。
    当前 backlog 数量以 inbox_list 为准；不是重复唤醒；处理完一个再等下一次 wake。
-2. 调 `inbox_view(itemId)`，拿到 summary、threadId、source/trigger、
+2. 从 wake 摘要读取每个 item 的 `source`（统一地址，如
+   `qq_group/bot-1/955432692`），必要时再看 summary/trigger；
    unreadCount/hasMoreUnread、fromSeq/toSeq、item revision 和恢复正文所需信息。
    wake 摘要不是正文；`content.messages` 只是最后 n 条未读预览。
-3. 调 `qq_conversation_read(threadId)` 读取当前 consumer 尚未 ack 的批次。
+3. 调 `qq_conversation_read(source)` 读取当前 consumer 尚未 ack 的批次。
    read 只预览并记录服务端投递位置，不推进已读；未 ack 前重复调用回放同一批。
    wake 摘要和 `content.messages` 都只是预览；需要单条原文时再 `qq_message_get`
    或 `qq_conversation_history`。
@@ -120,7 +121,7 @@ descriptor 只有 `inboxId/apiBaseUrl/adapterTokenRef/channels/label` 五个字�
    - 群聊回复同一条入站消息时可用 `mentionSender=true`；宿主会从被回复消息
      解析 sender 并生成 at 段，模型不要自行传任意 QQ。
    - 不需要：跳过 `qq_conversation_send`
-5. 调 `qq_conversation_ack(threadId)`。
+5. 调 `qq_conversation_ack(source)`。
    - 只接受 threadId；不要传 itemId、expectedRevision、snapshotToSeq 或 seq。
    - 服务端先同步 Inbox 再推进已读；read 与 ack 之间到达的新消息保持未读。
 6. 完成后结束本回合。不要轮询；剩余 item 等下一次 wake。
@@ -143,8 +144,10 @@ priority = totalScore（Inbox 按 priority 降序显示）
 
 - `WakeReason=FIRST_CONTACT`：该来源第一次出现，先看这一版，然后调用
   `qq_source_weight_set(threadId, sourceWeight, ...)` 写规则；
-- 群聊默认 `sourceWeight=0 / threshold=100`：普通群聊不生成 item；
-- 私聊默认 `sourceWeight=300 / threshold=100`：直接进入 Inbox；
+- **当前是全唤醒**：所有入站消息都会生成/更新 Inbox item 并唤醒；
+- `sourceWeight`、阈值、`quietSeconds`、`cooldownSeconds` 只影响 priority 排序/诊断，
+  不是 wake gate；
+- 群聊默认 `sourceWeight=0`、私聊默认 `300` 只影响排序；
 - 群聊 `@Bot`、回复 Bot、别名、命令、关键词通过信号/关键词权重穿过阈值；
 - 权重越高，item 的 `priority` 越高，通知板排序越靠前；
 - 低于 threshold 的消息只进 `bot.db`，不生成当前版本 item；需要时通过
@@ -153,13 +156,15 @@ priority = totalScore（Inbox 按 priority 降序显示）
 常用示例：
 
 ```text
-qq_source_weight_set(threadId, sourceWeight=500)
+qq_source_weight_set(source="qq_group/bot-1/955432692", sourceWeight=500)
    # 这个来源普通消息也通知，并排到更前
 
-qq_source_weight_set(threadId, sourceWeight=-100, notifyThreshold=100)
+qq_source_weight_set(source="qq_group/bot-1/955432692", sourceWeight=-100,
+                     notifyThreshold=100)  # 仅排序，不 gate wake
    # 普通群聊压下去，只让高权重 @/关键词等穿过
 
-qq_source_weight_set(threadId, sourceWeight=0, keywordWeights={"上线": 120})
+qq_source_weight_set(source="qq_group/bot-1/955432692", sourceWeight=0,
+                     keywordWeights={"上线": 120})
    # 关键词上线会进入 Inbox
 ```
 
@@ -168,7 +173,7 @@ qq_source_weight_set(threadId, sourceWeight=0, keywordWeights={"上线": 120})
 
 ## 错误处理
 
-- `qq_conversation_read` 失败：报告真实错误码，不要伪造消息或切换 thread 重试。
+- `qq_conversation_read` 失败：报告真实错误码，不要伪造消息或切换 source 重试。
 - ack 返回 `acked=false` / `reason=NO_DELIVERED_MESSAGES`：
   说明本轮没有新的服务端投递批次；直接结束，不要构造 revision/snapshot。
 - ack 返回 `archived=false` / `remaining=true`：
@@ -178,6 +183,7 @@ qq_source_weight_set(threadId, sourceWeight=0, keywordWeights={"上线": 120})
   也不要手工维护游标。
 - `ACCOUNT_REQUIRED`：存在多个账号但调用未指定 accountId；先 `qq_account_list`
   再选择明确账号。`qq_account_status` / `qq_account_login_info` 才需要该选择。
+- 来源地址必须使用 canonical `source`；不要用群号或旧 `threadId` 手工拼地址。
 - `ACCOUNT_NOT_FOUND` / `UNSUPPORTED_ACCOUNT_INFO` / `ACCOUNT_INFO_FAILED`：
   报告稳定错误码；不要猜测登录账号或尝试任意 adapter/URL。
 - `qq_conversation_send` 返回 `UNKNOWN`：消息可能已经发出，禁止自动重发。

@@ -2,7 +2,7 @@
 
 面向各类 Agent 软件的**统一 QQ 消息客户端**：通过 OneBot 11 接入 QQ，把私聊/群聊写入消息板，提供统一 MCP 工具，并用 Inbox 唤醒外部 Agent。
 
-> **当前阶段**：P1–P7 已完成并合并到 `refactor/bot-first-main-agent`；真实 QQ/DSH/OpenCode 外部联调与 AgentLib 0.2.4 公开发布仍待办。默认已收敛为 3 模块、统一 `qq_*` MCP、多账号路由、服务端 read/ack、配置/日志 v2 与文档归档；当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
+> **当前阶段**：P8 统一来源地址与全唤醒已实施（`feat/p8-source-address`）；真实 QQ/DSH/OpenCode 外部联调与 AgentLib 0.2.4 公开发布仍待办。默认 3 模块、统一 `qq_*` MCP、多账号路由、服务端 read/ack、配置/日志 v2 与文档归档；当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
 
 ## 当前模块
 
@@ -22,7 +22,7 @@ iibot-connect -> iibot-bot -> iibot-app
 
 - OneBot 11 事件 WebSocket + HTTP Action；
 - QQ 私聊/群聊入库、thread、历史、用户备注、媒体读取、好友申请；
-- Inbox 来源未读预览与唤醒；
+- Inbox 来源未读预览与**全入站消息唤醒**（权重只排序/诊断，不 gate）；
 - 回环 Bot MCP，默认暴露统一 `qq_*` 业务工具、`inbox_rest` 与宿主交接 descriptor；
 - 出站三态：`SENT` / `FAILED_BEFORE_SEND` / `UNKNOWN`，`UNKNOWN` 不自动重发；
 - 默认只监听回环地址，token 只来自环境变量。
@@ -56,6 +56,8 @@ Authorization: Bearer <IIBOT_CONTROL_TOKEN>
 ```
 
 默认 MCP 只暴露统一 `qq_*` 业务工具（含账号、会话、消息、媒体、好友申请、用户备注和来源权重）、唯一通用 Inbox 工具 `inbox_rest`，以及暂留宿主交接的 `qq_inbox_binding_descriptor`。不再全量暴露通用 `inbox_*` 工具，也不保留绕过消息板的公开直接发送工具。
+
+消息来源统一为 canonical `source`：`qq_group/{account}/{group}`、`qq_private/{account}/{peer}`、`qq_system/{account}/{event}`、`app_system/{event}`；`qq_conversation_read/ack/send` 优先接受 `source`，旧 `threadId` 仅兼容。
 
 ## 目标设计
 

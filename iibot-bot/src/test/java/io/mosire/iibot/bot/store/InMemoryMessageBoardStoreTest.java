@@ -83,6 +83,20 @@ class InMemoryMessageBoardStoreTest {
                 .containsExactly(2L, 3L, 4L);
     }
 
+    @Test
+    void displayNameCanBeUpdatedWithoutChangingThreadIdentityOrCounts() {
+        InMemoryMessageBoardStore store = new InMemoryMessageBoardStore();
+        store.append(inbound("m-1", "alice", "Alice", "你好", T0));
+
+        assertThat(store.updateThreadDisplayName(GROUP.threadId(), "测试群")).isTrue();
+        assertThat(store.updateThreadDisplayName(GROUP.threadId(), "测试群")).isFalse();
+        assertThat(store.thread(GROUP.threadId())).get()
+                .extracting(ChatThread::threadId, ChatThread::displayName,
+                        ChatThread::messageCount)
+                .containsExactly(GROUP.threadId(), "测试群", 1L);
+        assertThat(store.updateThreadDisplayName("thread:missing", "不存在")).isFalse();
+    }
+
     private static ChatMessage inbound(String messageId, String senderId, String senderName,
                                        String text, Instant receivedAt) {
         return ChatMessage.inbound(GROUP, messageId, senderId, senderName, receivedAt,

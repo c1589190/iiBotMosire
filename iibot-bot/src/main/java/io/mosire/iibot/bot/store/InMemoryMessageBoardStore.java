@@ -168,6 +168,25 @@ public final class InMemoryMessageBoardStore implements MessageBoardStore {
     }
 
     @Override
+    public synchronized boolean updateThreadDisplayName(String threadId, String displayName) {
+        if (threadId == null || threadId.isBlank() || displayName == null
+                || displayName.isBlank()) {
+            return false;
+        }
+        ChatThread current = threadsBySource.get(threadId);
+        if (current == null) {
+            return false;
+        }
+        String normalized = displayName.trim();
+        if (normalized.equals(current.displayName())) {
+            return false;
+        }
+        threadsBySource.put(threadId, new ChatThread(current.source(), normalized,
+                current.lastSeq(), current.messageCount(), current.lastMessageAt()));
+        return true;
+    }
+
+    @Override
     public synchronized Optional<ChatThread> thread(String threadId) {
         if (threadId == null || threadId.isBlank()) {
             return Optional.empty();

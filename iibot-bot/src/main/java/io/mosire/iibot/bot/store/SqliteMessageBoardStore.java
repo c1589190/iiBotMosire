@@ -379,6 +379,28 @@ public final class SqliteMessageBoardStore implements MessageBoardStore, AutoClo
     }
 
     @Override
+    public synchronized boolean updateThreadDisplayName(String threadId, String displayName) {
+        ensureOpen();
+        if (threadId == null || threadId.isBlank() || displayName == null
+                || displayName.isBlank()) {
+            return false;
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE chat_thread
+                SET display_name = ?
+                WHERE thread_id = ? AND display_name <> ?
+                """)) {
+            String normalized = displayName.trim();
+            statement.setString(1, normalized);
+            statement.setString(2, threadId);
+            statement.setString(3, normalized);
+            return statement.executeUpdate() == 1;
+        } catch (SQLException failure) {
+            throw new IllegalStateException("更新 SQLite thread 展示名失败", failure);
+        }
+    }
+
+    @Override
     public synchronized Optional<ChatThread> thread(String threadId) {
         ensureOpen();
         if (threadId == null || threadId.isBlank()) {

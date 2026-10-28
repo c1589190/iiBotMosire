@@ -63,6 +63,7 @@ public final class BotSourceWeightListTool implements AgentTool {
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("source", BotToolSupport.sourceOf(policy.threadId()));
         value.put("threadId", policy.threadId());
+        value.put("wakePolicy", "ALL_INBOUND");
         value.put("chatType", policy.chatType().wire());
         value.put("targetId", policy.targetId());
         value.put("sourceWeight", policy.sourceWeight());

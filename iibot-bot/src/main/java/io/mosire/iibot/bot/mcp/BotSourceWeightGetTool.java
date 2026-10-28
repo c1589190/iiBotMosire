@@ -8,6 +8,7 @@ import io.mosire.iibot.bot.weight.SourceWeightPolicy;
 import io.mosire.iibot.bot.weight.SourceWeightService;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -20,8 +21,11 @@ public final class BotSourceWeightGetTool implements AgentTool {
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",
             "properties", Map.of(
-                    "threadId", Map.of("type", "string", "minLength", 1)),
-            "required", java.util.List.of("threadId"),
+                    "source", Map.of("type", "string", "minLength", 1,
+                            "description", "统一来源地址，如 qq_group/bot-1/955432692"),
+                    "threadId", Map.of("type", "string", "minLength", 1,
+                            "description", "旧版内部 threadId；新调用方使用 source")),
+            "required", java.util.List.of(),
             "additionalProperties", false);
 
     private final SourceWeightService service;
@@ -38,8 +42,7 @@ public final class BotSourceWeightGetTool implements AgentTool {
 
     @Override public ToolResult execute(ToolContext context) {
         try {
-            String threadId = BotToolSupport.requiredText(
-                    context.arguments(), "threadId", 512);
+            String threadId = BotToolSupport.threadKey(context.arguments()).threadId();
             SourceWeightPolicy policy = service.findPolicy(threadId).orElseThrow(() ->
                     new BotToolSupport.InvalidArgumentsException("来源策略不存在"));
             Map<String, Object> data = new LinkedHashMap<>(
@@ -54,7 +57,12 @@ public final class BotSourceWeightGetTool implements AgentTool {
     }
 
     @Override public Map<String, Object> ledgerArgs(ToolContext context) {
-        return context.arguments().containsKey("threadId")
-                ? Map.of("threadId", context.arguments().get("threadId")) : Map.of();
+        Map<String, Object> safe = new LinkedHashMap<>();
+        for (String name : List.of("source", "threadId")) {
+            if (context.arguments().containsKey(name)) {
+                safe.put(name, context.arguments().get(name));
+            }
+        }
+        return Map.copyOf(safe);
     }
 }

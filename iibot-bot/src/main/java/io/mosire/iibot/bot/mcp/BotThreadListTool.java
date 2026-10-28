@@ -71,6 +71,7 @@ public final class BotThreadListTool implements AgentTool {
                 threads.add(value);
             });
             Map<String, Object> data = new LinkedHashMap<>();
+            data.put("wakePolicy", "ALL_INBOUND");
             data.put("count", threads.size());
             data.put("threads", threads);
             return BotToolSupport.ok(NAME, data);
