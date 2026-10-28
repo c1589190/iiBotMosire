@@ -25,7 +25,7 @@ public final class BotUserNoteUpsertTool implements AgentTool {
             "type", "object",
             "properties", Map.of(
                     "accountId", Map.of("type", "string",
-                            "description", "Bot 账号；省略时使用宿主默认账号"),
+                            "description", "Bot 账号；单账号可省略，多账号必须指定"),
                     "qqId", Map.of("type", "string", "minLength", 1),
                     "displayName", Map.of("type", "string"),
                     "tags", Map.of("type", "array",
@@ -37,17 +37,23 @@ public final class BotUserNoteUpsertTool implements AgentTool {
             "additionalProperties", false);
 
     private final UserNoteStore notes;
-    private final String defaultAccountId;
+    private final BotAccountScope scope;
 
-    public BotUserNoteUpsertTool(UserNoteStore notes, String defaultAccountId) {
+    public BotUserNoteUpsertTool(UserNoteStore notes, BotAccountScope scope) {
         this.notes = Objects.requireNonNull(notes, "notes");
-        this.defaultAccountId = requireText(defaultAccountId, "defaultAccountId");
+        this.scope = Objects.requireNonNull(scope, "scope");
+    }
+
+    /** 单账号便捷构造：只有该账号可用，禁止给未注册账号写备注。 */
+    public BotUserNoteUpsertTool(UserNoteStore notes, String defaultAccountId) {
+        this(notes, BotAccountScope.single(defaultAccountId));
     }
 
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "新建或更新 QQ 用户备注；省略字段保留当前值，tags 传入时整体替换。";
+        return "新建或更新某个 Bot 账号下的 QQ 用户备注；省略字段保留当前值，tags 传入时"
+                + "整体替换。多账号时必须指定 accountId。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -58,11 +64,7 @@ public final class BotUserNoteUpsertTool implements AgentTool {
 
     @Override public ToolResult execute(ToolContext context) {
         try {
-            String accountId = BotToolSupport.optionalText(
-                    context.arguments(), "accountId", 128);
-            if (accountId.isEmpty()) {
-                accountId = defaultAccountId;
-            }
+            String accountId = scope.resolve(context.arguments());
             String qqId = BotToolSupport.requiredText(context.arguments(), "qqId", 64);
             UserNote current = notes.find(accountId, qqId).orElse(null);
             String displayName = context.arguments().containsKey("displayName")
@@ -88,6 +90,8 @@ public final class BotUserNoteUpsertTool implements AgentTool {
                             + "priority={} tagCount={}", accountId, qqId, saved.revision(),
                     saved.priority(), saved.tags().size());
             return BotToolSupport.ok(NAME, BotToolSupport.noteMap(saved));
+        } catch (BotAccountToolSupport.AccountToolException unavailable) {
+            return BotToolSupport.failure(unavailable.code(), unavailable.getMessage());
         } catch (BotToolSupport.InvalidArgumentsException invalid) {
             return BotToolSupport.failure("INVALID_ARGUMENTS", invalid.getMessage());
         } catch (UserNoteRevisionConflictException conflict) {
@@ -111,10 +115,4 @@ public final class BotUserNoteUpsertTool implements AgentTool {
         return Map.copyOf(safe);
     }
 
-    private static String requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " 不能为空");
-        }
-        return value.trim();
-    }
 }

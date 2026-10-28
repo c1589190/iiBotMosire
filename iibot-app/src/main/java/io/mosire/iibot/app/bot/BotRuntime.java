@@ -204,23 +204,28 @@ public final class BotRuntime implements AutoCloseable {
             BotReplyService replies = new BotReplyService(board,
                     new BotOutboxReplyPort(outboxes), clock);
 
-            AdapterBinding active = bindings.getFirst();
-            MessagingAdapter activeAdapter = active.adapter();
-            RecentQqProvider activeRecent = activeAdapter instanceof RecentQqProvider provider
-                    ? provider : null;
-            FriendRequestService friendService = activeAdapter
-                    instanceof FriendRequestCapability capability
-                    ? new FriendRequestService(friendRequests, capability, clock) : null;
-            ChatHistoryProvider activeHistory = activeAdapter instanceof ChatHistoryProvider provider
-                    ? provider : null;
             Map<String, ForwardCapability> forwardByAccount = capabilityMap(
                     bindings, ForwardCapability.class);
             Map<String, MediaCapability> mediaByAccount = capabilityMap(
                     bindings, MediaCapability.class);
+            Map<String, RecentQqProvider> recentByAccount = capabilityMap(
+                    bindings, RecentQqProvider.class);
+            Map<String, ChatHistoryProvider> historyByAccount = capabilityMap(
+                    bindings, ChatHistoryProvider.class);
+            // 每个账号一套 FriendRequestService：store 按 accountId 分区，入站 handler 只绑定
+            // 本账号 service，审批也只会作用于本账号的记录。
+            Map<String, FriendRequestService> friendRequestByAccount = new LinkedHashMap<>();
+            for (AdapterBinding binding : bindings) {
+                FriendRequestService service = binding.adapter()
+                        instanceof FriendRequestCapability capability
+                        ? new FriendRequestService(binding.accountId(), friendRequests,
+                                capability, clock) : null;
+                friendRequestByAccount.put(binding.accountId(), service);
+            }
             List<AgentTool> tools = new ArrayList<>(BotMcpTools.allForAccounts(
                     board, notes, digestService, replies, options.accountId(),
-                    forwardByAccount, activeRecent, friendService, inboxAudit,
-                    activeHistory, weightService, consumerStates, accountRegistry));
+                    forwardByAccount, recentByAccount, friendRequestByAccount, inboxAudit,
+                    historyByAccount, weightService, consumerStates, accountRegistry));
             BotMediaStore mediaStore = new BotMediaStore(dataDir);
             if (mediaByAccount.values().stream().anyMatch(Objects::nonNull)) {
                 tools.add(new BotMediaGetTool(board, mediaByAccount, mediaStore));
@@ -250,9 +255,15 @@ public final class BotRuntime implements AutoCloseable {
                         failure.getClass().getSimpleName());
             }
             mcpServer.start();
-            if (friendService != null && activeAdapter
-                    instanceof FriendRequestCapability capability) {
-                capability.setFriendRequestHandler(friendService::receive);
+            for (AdapterBinding binding : bindings) {
+                FriendRequestService service =
+                        friendRequestByAccount.get(binding.accountId());
+                if (service != null
+                        && binding.adapter() instanceof FriendRequestCapability capability) {
+                    capability.setFriendRequestHandler(service::receive);
+                    LOG.debug("event=friend_request_handler_bound accountId={} adapter={}",
+                            binding.accountId(), binding.adapter().adapterId());
+                }
             }
             for (AdapterBinding binding : bindings) {
                 LOG.debug("event=adapter_state state=starting adapter={} accountId={}",

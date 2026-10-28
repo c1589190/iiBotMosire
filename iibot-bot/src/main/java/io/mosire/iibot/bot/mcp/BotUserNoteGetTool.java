@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** 读取一个 QQ 用户的备注/标签。 */
+/** 读取一个 QQ 用户在某账号下的备注/标签。 */
 public final class BotUserNoteGetTool implements AgentTool {
 
     public static final String NAME = "qq_user_note_get";
@@ -22,23 +22,29 @@ public final class BotUserNoteGetTool implements AgentTool {
             "type", "object",
             "properties", Map.of(
                     "accountId", Map.of("type", "string",
-                            "description", "Bot 账号；省略时使用宿主默认账号"),
+                            "description", "Bot 账号；单账号可省略，多账号必须指定"),
                     "qqId", Map.of("type", "string", "minLength", 1)),
             "required", List.of("qqId"),
             "additionalProperties", false);
 
     private final UserNoteStore notes;
-    private final String defaultAccountId;
+    private final BotAccountScope scope;
 
-    public BotUserNoteGetTool(UserNoteStore notes, String defaultAccountId) {
+    public BotUserNoteGetTool(UserNoteStore notes, BotAccountScope scope) {
         this.notes = Objects.requireNonNull(notes, "notes");
-        this.defaultAccountId = requireText(defaultAccountId, "defaultAccountId");
+        this.scope = Objects.requireNonNull(scope, "scope");
+    }
+
+    /** 单账号便捷构造：只有该账号可用。 */
+    public BotUserNoteGetTool(UserNoteStore notes, String defaultAccountId) {
+        this(notes, BotAccountScope.single(defaultAccountId));
     }
 
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "读取一个 QQ 用户的备注、标签与 priority；不存在时返回 NOT_FOUND。";
+        return "读取一个 QQ 用户在某 Bot 账号下的备注、标签与 priority；不存在时返回 "
+                + "NOTE_NOT_FOUND。多账号时必须指定 accountId。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -49,16 +55,14 @@ public final class BotUserNoteGetTool implements AgentTool {
 
     @Override public ToolResult execute(ToolContext context) {
         try {
-            String accountId = BotToolSupport.optionalText(
-                    context.arguments(), "accountId", 128);
-            if (accountId.isEmpty()) {
-                accountId = defaultAccountId;
-            }
+            String accountId = scope.resolve(context.arguments());
             String qqId = BotToolSupport.requiredText(context.arguments(), "qqId", 64);
             UserNote note = notes.find(accountId, qqId)
                     .orElseThrow(() -> new BotToolSupport.InvalidArgumentsException(
                             "用户备注不存在"));
             return BotToolSupport.ok(NAME, BotToolSupport.noteMap(note));
+        } catch (BotAccountToolSupport.AccountToolException unavailable) {
+            return BotToolSupport.failure(unavailable.code(), unavailable.getMessage());
         } catch (BotToolSupport.InvalidArgumentsException invalid) {
             return BotToolSupport.failure("NOTE_NOT_FOUND", invalid.getMessage());
         } catch (RuntimeException failure) {
@@ -75,12 +79,5 @@ public final class BotUserNoteGetTool implements AgentTool {
             }
         }
         return Map.copyOf(safe);
-    }
-
-    private static String requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " 不能为空");
-        }
-        return value.trim();
     }
 }

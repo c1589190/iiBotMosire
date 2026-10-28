@@ -10,6 +10,7 @@ import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.connect.core.ChatHistoryQuery;
 import io.mosire.iibot.connect.core.InboundMessage;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -18,7 +19,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-/** 直接读取 OneBot 历史扩展；与 qq_conversation_history 的本地权威板分开。 */
+/** 按账号直接读取 OneBot 历史扩展；与 qq_conversation_history 的本地权威板分开。 */
 public final class BotQqHistoryTool implements AgentTool {
 
     public static final String NAME = "qq_remote_history";
@@ -26,6 +27,8 @@ public final class BotQqHistoryTool implements AgentTool {
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",
             "properties", Map.of(
+                    "accountId", Map.of("type", "string",
+                            "description", "Bot 账号；单账号可省略，多账号必须指定"),
                     "chatType", Map.of("type", "string", "enum", List.of("PRIVATE", "GROUP")),
                     "targetId", Map.of("type", "string", "minLength", 1,
                             "description", "私聊 QQ 或群号"),
@@ -38,29 +41,36 @@ public final class BotQqHistoryTool implements AgentTool {
             "required", List.of("chatType", "targetId"),
             "additionalProperties", false);
 
-    private final ChatHistoryProvider provider;
-    private final String accountId;
-
-    public BotQqHistoryTool(ChatHistoryProvider provider) {
-        this(provider, null);
-    }
+    private final Map<String, ChatHistoryProvider> providers;
 
     /**
-     * P4 直接 provider 工具仍绑定单一 active account；响应显式带 accountId，避免模型误以为
-     * 查询覆盖全部账号。完整多账号化留 P6。
+     * @param providers accountId → 历史 provider；value 为 null 表示该账号已注册但不支持历史能力
      */
-    public BotQqHistoryTool(ChatHistoryProvider provider, String accountId) {
-        this.provider = Objects.requireNonNull(provider, "provider");
-        this.accountId = accountId == null || accountId.isBlank() ? null : accountId.trim();
+    public BotQqHistoryTool(Map<String, ChatHistoryProvider> providers) {
+        Objects.requireNonNull(providers, "providers");
+        if (providers.isEmpty()) {
+            throw new IllegalArgumentException("providers 不能为空");
+        }
+        this.providers = Collections.unmodifiableMap(new LinkedHashMap<>(providers));
+    }
+
+    /** 单账号便捷构造。 */
+    public BotQqHistoryTool(String accountId, ChatHistoryProvider provider) {
+        this(single(accountId, provider));
+    }
+
+    private static Map<String, ChatHistoryProvider> single(String accountId,
+                                                            ChatHistoryProvider provider) {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(provider, "provider");
+        return Map.of(accountId.trim(), provider);
     }
 
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return accountId == null
-                ? "直接读取 OneBot/LLBot 历史扩展；返回 message_seq 游标和消息段，不写入本地消息板。"
-                : "直接读取当前 active 账号 " + accountId
-                        + " 的 OneBot/LLBot 历史扩展；不写入本地消息板。";
+        return "直接读取某个 Bot 账号的 OneBot/LLBot 历史扩展；返回 message_seq 游标和消息段，"
+                + "不写入本地消息板。多账号时必须指定 accountId。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -71,6 +81,9 @@ public final class BotQqHistoryTool implements AgentTool {
 
     @Override public ToolResult execute(ToolContext context) {
         try {
+            String accountId = BotAccountScope.resolveCapability(providers,
+                    context.arguments(), BotAccountToolSupport.UNSUPPORTED_CHAT_HISTORY);
+            ChatHistoryProvider provider = providers.get(accountId);
             String chatType = BotToolSupport.requiredText(
                     context.arguments(), "chatType", 32).toUpperCase(Locale.ROOT);
             InboundMessage.SessionType sessionType;
@@ -97,9 +110,7 @@ public final class BotQqHistoryTool implements AgentTool {
             List<Map<String, Object>> messages = page.messages().stream()
                     .map(BotQqHistoryTool::row).toList();
             Map<String, Object> data = new LinkedHashMap<>();
-            if (accountId != null) {
-                data.put("accountId", accountId);
-            }
+            data.put("accountId", accountId);
             data.put("chatType", sessionType.name());
             data.put("targetId", targetId);
             data.put("cursor", cursor);
@@ -108,6 +119,8 @@ public final class BotQqHistoryTool implements AgentTool {
             data.put("count", messages.size());
             data.put("messages", messages);
             return BotToolSupport.ok(NAME, data);
+        } catch (BotAccountToolSupport.AccountToolException unavailable) {
+            return BotToolSupport.failure(unavailable.code(), unavailable.getMessage());
         } catch (BotToolSupport.InvalidArgumentsException invalid) {
             return BotToolSupport.failure("INVALID_ARGUMENTS", invalid.getMessage());
         } catch (Exception failure) {
@@ -130,7 +143,8 @@ public final class BotQqHistoryTool implements AgentTool {
 
     @Override public Map<String, Object> ledgerArgs(ToolContext context) {
         Map<String, Object> safe = new LinkedHashMap<>();
-        for (String name : List.of("chatType", "targetId", "cursor", "count", "reverseOrder")) {
+        for (String name : List.of("accountId", "chatType", "targetId", "cursor",
+                "count", "reverseOrder")) {
             if (context.arguments().containsKey(name)) {
                 safe.put(name, context.arguments().get(name));
             }

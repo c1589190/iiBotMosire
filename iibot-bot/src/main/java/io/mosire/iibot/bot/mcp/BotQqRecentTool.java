@@ -10,6 +10,7 @@ import io.mosire.iibot.connect.core.RecentQqMessage;
 import io.mosire.iibot.connect.core.RecentQqProvider;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +18,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-/** 读取 OneBot 客户端侧最近会话消息，独立于 Bot Inbox。 */
+/** 按账号读取 OneBot 客户端侧最近会话消息，独立于 Bot Inbox。 */
 public final class BotQqRecentTool implements AgentTool {
 
     public static final String NAME = "qq_recent_messages";
@@ -25,6 +26,8 @@ public final class BotQqRecentTool implements AgentTool {
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",
             "properties", Map.of(
+                    "accountId", Map.of("type", "string",
+                            "description", "Bot 账号；单账号可省略，多账号必须指定"),
                     "limit", Map.of("type", "integer", "minimum", 1, "maximum", 20,
                             "description", "最多返回最近会话数，默认 10"),
                     "includePrivate", Map.of("type", "boolean",
@@ -33,29 +36,37 @@ public final class BotQqRecentTool implements AgentTool {
                             "description", "是否包含群聊，默认 true")),
             "additionalProperties", false);
 
-    private final RecentQqProvider provider;
-    private final String accountId;
-
-    public BotQqRecentTool(RecentQqProvider provider) {
-        this(provider, null);
-    }
+    private final Map<String, RecentQqProvider> providers;
 
     /**
-     * P4 直接 provider 工具仍绑定单一 active account；响应显式带 accountId，避免模型误以为
-     * 查询覆盖全部账号。完整多账号化留 P6。
+     * @param providers accountId → 最近消息 provider；value 为 null 表示该账号已注册但不支持
+     *                  最近消息能力
      */
-    public BotQqRecentTool(RecentQqProvider provider, String accountId) {
-        this.provider = Objects.requireNonNull(provider, "provider");
-        this.accountId = accountId == null || accountId.isBlank() ? null : accountId.trim();
+    public BotQqRecentTool(Map<String, RecentQqProvider> providers) {
+        Objects.requireNonNull(providers, "providers");
+        if (providers.isEmpty()) {
+            throw new IllegalArgumentException("providers 不能为空");
+        }
+        this.providers = Collections.unmodifiableMap(new LinkedHashMap<>(providers));
+    }
+
+    /** 单账号便捷构造。 */
+    public BotQqRecentTool(String accountId, RecentQqProvider provider) {
+        this(single(accountId, provider));
+    }
+
+    private static Map<String, RecentQqProvider> single(String accountId,
+                                                        RecentQqProvider provider) {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(provider, "provider");
+        return Map.of(accountId.trim(), provider);
     }
 
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return accountId == null
-                ? "查看 OneBot 客户端最近会话里的最后一条消息；这是 QQ 客户端通知，不是 Bot Inbox。"
-                : "查看当前 active 账号 " + accountId
-                        + " 的 OneBot 客户端最近会话；这是 QQ 客户端通知，不是 Bot Inbox。";
+        return "查看某个 Bot 账号在 OneBot 客户端最近会话里的最后一条消息；这是 QQ 客户端"
+                + "通知，不是 Bot Inbox。多账号时必须指定 accountId。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -66,6 +77,9 @@ public final class BotQqRecentTool implements AgentTool {
 
     @Override public ToolResult execute(ToolContext context) {
         try {
+            String accountId = BotAccountScope.resolveCapability(providers,
+                    context.arguments(), BotAccountToolSupport.UNSUPPORTED_RECENT_QQ);
+            RecentQqProvider provider = providers.get(accountId);
             int limit = BotToolSupport.optionalInt(context.arguments(), "limit", 10);
             if (limit < 1 || limit > 20) {
                 throw new BotToolSupport.InvalidArgumentsException("limit 必须在 1..20");
@@ -92,13 +106,13 @@ public final class BotQqRecentTool implements AgentTool {
                 }
             }
             Map<String, Object> data = new LinkedHashMap<>();
-            if (accountId != null) {
-                data.put("accountId", accountId);
-            }
+            data.put("accountId", accountId);
             data.put("source", "onebot-client-recent");
             data.put("count", rows.size());
             data.put("recent", rows);
             return BotToolSupport.ok(NAME, data);
+        } catch (BotAccountToolSupport.AccountToolException unavailable) {
+            return BotToolSupport.failure(unavailable.code(), unavailable.getMessage());
         } catch (BotToolSupport.InvalidArgumentsException invalid) {
             return BotToolSupport.failure("INVALID_ARGUMENTS", invalid.getMessage());
         } catch (Exception failure) {
@@ -125,7 +139,7 @@ public final class BotQqRecentTool implements AgentTool {
 
     @Override public Map<String, Object> ledgerArgs(ToolContext context) {
         Map<String, Object> safe = new LinkedHashMap<>();
-        for (String name : List.of("limit", "includePrivate", "includeGroups")) {
+        for (String name : List.of("accountId", "limit", "includePrivate", "includeGroups")) {
             if (context.arguments().containsKey(name)) {
                 safe.put(name, context.arguments().get(name));
             }

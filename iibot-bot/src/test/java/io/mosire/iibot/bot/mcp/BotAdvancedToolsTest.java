@@ -127,9 +127,10 @@ class BotAdvancedToolsTest {
                         List.of(MessageSegment.text(0, "历史正文")))),
                         "100", false, 0));
 
-        JsonNode result = call(new BotQqHistoryTool(provider), Map.of(
+        JsonNode result = call(new BotQqHistoryTool(Map.of("bot-1", provider)), Map.of(
                 "chatType", "GROUP", "targetId", "group-1", "count", 20));
 
+        assertThat(result.path("data").path("accountId").asText()).isEqualTo("bot-1");
         assertThat(result.path("data").path("nextCursor").asText()).isEqualTo("100");
         assertThat(result.path("data").path("messages").get(0).path("text").asText())
                 .isEqualTo("历史正文");
@@ -158,9 +159,10 @@ class BotAdvancedToolsTest {
                 new RecentQqMessage(InboundMessage.SessionType.GROUP, "group-3", "群",
                         new ChatHistoryMessage("m-2", "qq-3", "Alice", "群最近消息", T0))));
 
-        JsonNode result = call(new BotQqRecentTool(provider), Map.of(
+        JsonNode result = call(new BotQqRecentTool(Map.of("bot-1", provider)), Map.of(
                 "limit", 10, "includePrivate", true, "includeGroups", false));
 
+        assertThat(result.path("data").path("accountId").asText()).isEqualTo("bot-1");
         assertThat(result.path("data").path("source").asText())
                 .isEqualTo("onebot-client-recent");
         assertThat(result.path("data").path("count").asInt()).isEqualTo(1);
@@ -168,9 +170,88 @@ class BotAdvancedToolsTest {
                 .isEqualTo("PRIVATE");
     }
 
+    @Test
+    void qqRecentToolRoutesByAccountAndRequiresSelection() throws Exception {
+        RecentQqProvider providerA = limit -> CompletableFuture.completedFuture(List.of(
+                new RecentQqMessage(InboundMessage.SessionType.PRIVATE, "qq-a", "Alice",
+                        new ChatHistoryMessage("m-a", "qq-a", "Alice", "A 的最近消息", T0))));
+        RecentQqProvider providerB = limit -> CompletableFuture.completedFuture(List.of(
+                new RecentQqMessage(InboundMessage.SessionType.PRIVATE, "qq-b", "Bob",
+                        new ChatHistoryMessage("m-b", "qq-b", "Bob", "B 的最近消息", T0))));
+
+        AgentTool multi = new BotQqRecentTool(Map.of("bot-a", providerA, "bot-b", providerB));
+        JsonNode selected = call(multi, Map.of("accountId", "bot-b", "limit", 5));
+        assertThat(selected.path("data").path("accountId").asText()).isEqualTo("bot-b");
+        assertThat(selected.path("data").path("recent").get(0).path("text").asText())
+                .isEqualTo("B 的最近消息");
+
+        ToolResult missing = failure(multi, Map.of());
+        assertThat(missing.code()).isEqualTo("ACCOUNT_REQUIRED");
+
+        ToolResult unknown = failure(multi, Map.of("accountId", "bot-x"));
+        assertThat(unknown.code()).isEqualTo("ACCOUNT_UNAVAILABLE");
+
+        AgentTool partlySupported = new BotQqRecentTool(providersWithUnsupported(
+                "bot-a", providerA, "bot-b"));
+        ToolResult unsupported = failure(partlySupported, Map.of("accountId", "bot-b"));
+        assertThat(unsupported.code()).isEqualTo("UNSUPPORTED_RECENT_QQ");
+        JsonNode single = call(partlySupported, Map.of());
+        assertThat(single.path("data").path("accountId").asText()).isEqualTo("bot-a");
+    }
+
+    @Test
+    void qqHistoryToolRoutesByAccountAndRequiresSelection() throws Exception {
+        ChatHistoryProvider providerA = query -> CompletableFuture.completedFuture(
+                new ChatHistoryPage(List.of(new ChatHistoryMessage(
+                        "m-a", "qq-a", "Alice", "A 的历史", T0,
+                        List.of(MessageSegment.text(0, "A 的历史")))), "100", false, 0));
+        ChatHistoryProvider providerB = query -> CompletableFuture.completedFuture(
+                new ChatHistoryPage(List.of(new ChatHistoryMessage(
+                        "m-b", "qq-b", "Bob", "B 的历史", T0,
+                        List.of(MessageSegment.text(0, "B 的历史")))), "200", false, 0));
+
+        AgentTool multi = new BotQqHistoryTool(Map.of("bot-a", providerA, "bot-b", providerB));
+        JsonNode selected = call(multi, Map.of("accountId", "bot-a",
+                "chatType", "GROUP", "targetId", "group-1"));
+        assertThat(selected.path("data").path("accountId").asText()).isEqualTo("bot-a");
+        assertThat(selected.path("data").path("nextCursor").asText()).isEqualTo("100");
+        assertThat(selected.path("data").path("messages").get(0).path("text").asText())
+                .isEqualTo("A 的历史");
+
+        ToolResult missing = failure(multi, Map.of("chatType", "GROUP", "targetId", "group-1"));
+        assertThat(missing.code()).isEqualTo("ACCOUNT_REQUIRED");
+
+        ToolResult unknown = failure(multi, Map.of("accountId", "bot-x",
+                "chatType", "GROUP", "targetId", "group-1"));
+        assertThat(unknown.code()).isEqualTo("ACCOUNT_UNAVAILABLE");
+
+        AgentTool partlySupported = new BotQqHistoryTool(providersWithUnsupported(
+                "bot-a", providerA, "bot-b"));
+        ToolResult unsupported = failure(partlySupported, Map.of("accountId", "bot-b",
+                "chatType", "GROUP", "targetId", "group-1"));
+        assertThat(unsupported.code()).isEqualTo("UNSUPPORTED_CHAT_HISTORY");
+    }
+
+    /** 构造含 null value（账号已注册但不支持该能力）的映射。 */
+    private static <T> Map<String, T> providersWithUnsupported(
+            String supportedAccount, T provider, String unsupportedAccount) {
+        java.util.LinkedHashMap<String, T> providers = new java.util.LinkedHashMap<>();
+        providers.put(supportedAccount, provider);
+        providers.put(unsupportedAccount, null);
+        return providers;
+    }
+
     private static ChatMessage inbound(String messageId, String replyTo) {
         return ChatMessage.inbound(GROUP, messageId, "qq-1", "Alice", T0, T0,
                 "正文-" + messageId, "", replyTo);
+    }
+
+    private static ToolResult failure(AgentTool tool, Map<String, Object> args) {
+        AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
+                .allow(tool.name())
+                .build();
+        return tool.execute(new ToolContext(
+                AccessToken.DEFAULT, permissions, Map.of(), args));
     }
 
     private static JsonNode call(AgentTool tool, Map<String, Object> args) throws Exception {

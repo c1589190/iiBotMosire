@@ -14,6 +14,9 @@ import io.mosire.iibot.connect.core.AccountInfoProvider;
 import io.mosire.iibot.connect.core.AccountRegistry;
 import io.mosire.iibot.connect.core.AdapterEventListener;
 import io.mosire.iibot.connect.core.AdapterStatus;
+import io.mosire.iibot.connect.core.FriendRequestCapability;
+import io.mosire.iibot.connect.core.FriendRequestEvent;
+import io.mosire.iibot.connect.core.FriendRequestHandler;
 import io.mosire.iibot.connect.core.InboundHandler;
 import io.mosire.iibot.connect.core.InboundMessage;
 import io.mosire.iibot.connect.core.MessagingAdapter;
@@ -245,6 +248,69 @@ class BotRuntimeE2ETest {
         assertThat(delegate.isClosed()).isTrue();
     }
 
+    @Test
+    void friendRequestsAreIsolatedPerAccountOverMcp() throws Exception {
+        FriendRequestAdapter adapterA = new FriendRequestAdapter("adapter-a");
+        FriendRequestAdapter adapterB = new FriendRequestAdapter("adapter-b");
+        AccountRegistry registry = new AccountRegistry();
+        registry.register("bot-a", adapterA);
+        registry.register("bot-b", adapterB);
+        BotInboxRuntimeOptions inboxOptions = new BotInboxRuntimeOptions(
+                tempDir.resolve("inbox-friend"), "bot-inbox-friend", "dsh-session-bot",
+                java.util.Set.of("qq"), 1L,
+                "127.0.0.1", 0, "127.0.0.1", 0, "/friend/mcp",
+                Duration.ofMillis(2_500), Duration.ofMillis(250));
+        BotRuntimeOptions options = new BotRuntimeOptions(
+                tempDir.resolve("data-friend"), "bot-a", "127.0.0.1", 0, CONTROL_PATH,
+                TOKEN, inboxOptions, 20L, 100, Duration.ofSeconds(2), null,
+                Duration.ZERO, WeightSettings.defaults(),
+                List.of(
+                        new BotRuntimeOptions.AccountOptions("alias-a", "bot-a", null),
+                        new BotRuntimeOptions.AccountOptions("alias-b", "bot-b", null)));
+        BotRuntime runtime = BotRuntime.start(registry, options);
+        McpSyncClient client = null;
+        try {
+            Instant t0 = Instant.parse("2026-10-28T12:30:00Z");
+            adapterA.deliverFriendRequest(new FriendRequestEvent(
+                    "flag-shared", "qq-9", "Carol", "来自 A", t0));
+            adapterB.deliverFriendRequest(new FriendRequestEvent(
+                    "flag-shared", "qq-9", "Carol", "来自 B", t0));
+
+            client = mcpClient(runtime);
+            assertThat(callFailure(client, "qq_friend_request_list", Map.of()))
+                    .contains("ACCOUNT_REQUIRED");
+
+            JsonNode listedA = call(client, "qq_friend_request_list",
+                    Map.of("accountId", "bot-a"));
+            JsonNode listedB = call(client, "qq_friend_request_list",
+                    Map.of("accountId", "bot-b"));
+            assertThat(listedA.path("data").path("accountId").asText()).isEqualTo("bot-a");
+            assertThat(listedA.path("data").path("requests")).hasSize(1);
+            assertThat(listedB.path("data").path("requests")).hasSize(1);
+            String requestA = listedA.path("data").path("requests").get(0)
+                    .path("requestId").asText();
+            String requestB = listedB.path("data").path("requests").get(0)
+                    .path("requestId").asText();
+            assertThat(requestA).isNotEqualTo(requestB);
+
+            JsonNode decided = call(client, "qq_friend_request_decide", Map.of(
+                    "accountId", "bot-a", "requestId", requestA, "approve", true));
+            assertThat(decided.path("data").path("status").asText()).isEqualTo("APPROVED");
+            assertThat(adapterA.decidedFlags()).containsExactly("flag-shared");
+            assertThat(adapterB.decidedFlags()).isEmpty();
+
+            assertThat(call(client, "qq_friend_request_list", Map.of("accountId", "bot-a"))
+                    .path("data").path("count").asInt()).isZero();
+            assertThat(call(client, "qq_friend_request_list", Map.of("accountId", "bot-b"))
+                    .path("data").path("count").asInt()).isEqualTo(1);
+        } finally {
+            if (client != null) {
+                client.closeGracefully();
+            }
+            runtime.close();
+        }
+    }
+
     private static String threadIdForAccount(JsonNode threads, String accountId) {
         for (JsonNode thread : threads.path("data").path("threads")) {
             if (accountId.equals(thread.path("accountId").asText())) {
@@ -354,6 +420,14 @@ class BotRuntimeE2ETest {
         return JSON.readTree(wireText(result));
     }
 
+    private static String callFailure(McpSyncClient client, String name,
+                                      Map<String, Object> args) {
+        McpSchema.CallToolResult result = client.callTool(
+                new McpSchema.CallToolRequest(name, args));
+        assertThat(result.isError()).as(name + " 意外成功").isTrue();
+        return wireText(result);
+    }
+
     private static String wireText(McpSchema.CallToolResult result) {
         return result.content().stream()
                 .filter(McpSchema.TextContent.class::isInstance)
@@ -362,6 +436,56 @@ class BotRuntimeE2ETest {
                 .findFirst()
                 .orElse("");
     }
+    private static final class FriendRequestAdapter
+            implements MessagingAdapter, FriendRequestCapability {
+        private final FakeMessagingAdapter delegate;
+        private final List<String> decidedFlags = new java.util.concurrent.CopyOnWriteArrayList<>();
+        private volatile FriendRequestHandler handler;
+
+        private FriendRequestAdapter(String adapterId) {
+            this.delegate = new FakeMessagingAdapter(adapterId);
+        }
+
+        void deliverFriendRequest(FriendRequestEvent event) {
+            FriendRequestHandler current = handler;
+            if (current == null) {
+                throw new IllegalStateException("好友申请 handler 尚未绑定");
+            }
+            current.onFriendRequest(event);
+        }
+
+        List<String> decidedFlags() {
+            return List.copyOf(decidedFlags);
+        }
+
+        @Override public String adapterId() { return delegate.adapterId(); }
+        @Override public void start(InboundHandler inboundHandler) {
+            delegate.start(inboundHandler);
+        }
+        @Override public CompletionStage<SendReceipt> send(OutboundMessage message) {
+            return delegate.send(message);
+        }
+        @Override public AdapterStatus status() { return delegate.status(); }
+        @Override public void addEventListener(AdapterEventListener listener) {
+            delegate.addEventListener(listener);
+        }
+        @Override public void removeEventListener(AdapterEventListener listener) {
+            delegate.removeEventListener(listener);
+        }
+        @Override public void close() { delegate.close(); }
+
+        @Override public void setFriendRequestHandler(FriendRequestHandler handler) {
+            this.handler = handler;
+        }
+
+        @Override public CompletionStage<SendReceipt> decideFriendRequest(
+                String flag, boolean approve, String remark) {
+            decidedFlags.add(flag);
+            return CompletableFuture.completedFuture(
+                    SendReceipt.sent(List.of("friend-decision-" + flag)));
+        }
+    }
+
     private static final class AccountInfoFakeAdapter
             implements MessagingAdapter, AccountInfoProvider {
         private final FakeMessagingAdapter delegate;

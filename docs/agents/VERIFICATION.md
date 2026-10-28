@@ -25,10 +25,10 @@ tools/gate.sh full
 
 ## 二、最近已运行基线
 
-- 2026-10-28 P6a 后源码基线：`tools/gate.sh full` **PASS，213 tests / 0 failures /
-  0 errors / 0 skipped**（connect 61、bot 83、app 69）；
+- 2026-10-28 P6b 后源码基线：`tools/gate.sh full` **PASS，225 tests / 0 failures /
+  0 errors / 0 skipped**（connect 61、bot 94、app 70）；
   `tools/gate.sh docs` PASS（modules=3 files=77 links=192）。
-- P2/P3 新增日志上下文/分级/轮转/脱敏、配置 schema/来源追踪/CLI/日志应用测试；P4 新增多账号 registry、入站隔离、出站路由和账号身份回滚测试；P5 新增 consumer 游标、read 预览/重复读、显式 ack、read/ack 间新消息保护、Inbox 归档与 cursor-only 测试；P6a 新增账号工具、tool-name 统一、Inbox 工具裁剪、回复可选幂等键与 simulation 命名测试；`iibot-connect` 保持无可编译期
+- P2/P3 新增日志上下文/分级/轮转/脱敏、配置 schema/来源追踪/CLI/日志应用测试；P4 新增多账号 registry、入站隔离、出站路由和账号身份回滚测试；P5 新增 consumer 游标、read 预览/重复读、显式 ack、read/ack 间新消息保护、Inbox 归档与 cursor-only 测试；P6a 新增账号工具、tool-name 统一、Inbox 工具裁剪、回复可选幂等键与 simulation 命名测试；P6b 新增多账号省略 accountId 的 ACCOUNT_REQUIRED、逐账号 recent/history、好友申请 v2 迁移、备注隔离测试；`iibot-connect` 保持无可编译期
   Log4j 依赖，`LogContext` 使用 SLF4J MDC。
 - 本结果仍包含待整合的 `iibot-connect-agent` 21 tests；P6 删除模块后测试基线会变化。
 - 真实 NapCat/DSH/QQ/MCP 长跑、日志真实轮转与崩溃恢复均 `NOT_RUN`。

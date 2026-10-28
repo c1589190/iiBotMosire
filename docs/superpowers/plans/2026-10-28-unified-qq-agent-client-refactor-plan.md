@@ -7,7 +7,7 @@
 > - [配置文件系统](../specs/2026-10-28-configuration-system.md)
 > - [用户需求原稿 D-025..D-028](../specs/2026-10-24-user-requirements-source.md)
 >
-> **当前执行状态**：P0–P5 已完成并推送；P6a 完成待提交；下一步 P6b direct-provider 逐账号化，然后 P7。
+> **当前执行状态**：P0–P6a 已完成并推送；P6b 完成待提交；下一步 P7 依赖与文档收口。
 > **禁止事项**：未经用户当次指令不启动真实 QQ、不挂载 Bot MCP、不执行真实外发、不 commit/push。
 
 ## 1. 目标
@@ -528,3 +528,4 @@ cd ../iiBotMosire
 - 2026-10-28 P4：新增 AccountRegistry 与多账号 runtime；BotMain 启动全部 enabled account，入站按绑定 accountId 隔离，出站按 thread.accountId 选独立 OutboxSender；账号身份校验、启动失败回滚、forward/media 按账号路由；`tools/gate.sh docs` PASS（files=78 links=195）；`tools/gate.sh full` PASS（221 tests / 0 failures / 0 errors / 0 skipped）；direct-provider 工具完整多账号化留 P6。
 - 2026-10-28 P5：新增 consumer_thread_state、qq_conversation_read/ack、InboxDigestService.ackThrough；read 只预览并记录 deliveredSeq，ack 只传 threadId，先同步 Inbox 再推进 readSeq；默认 MCP 不再注册 bot_thread_ack；`tools/gate.sh docs` PASS（files=78 links=195）；`tools/gate.sh full` PASS（229 tests / 0 failures / 0 errors / 0 skipped）。
 - 2026-10-28 P6a：默认 MCP 统一为 qq_*；新增 qq_account_list/status/login_info；qq_conversation_send 幂等键可选；默认 Inbox 仅保留 inbox_rest + qq_inbox_binding_descriptor；删除 iibot-connect-agent，reactor 3 模块；`tools/gate.sh docs` PASS（modules=3 files=77 links=192）；`tools/gate.sh full` PASS（213 tests / 0 failures / 0 errors / 0 skipped）。P6b 待办 direct-provider 逐账号化。
+- 2026-10-28 P6b：recent/history/friend request/user note 增加可选 accountId 与逐账号 provider/service；好友申请迁移到 account 分区 `friend_request_v2`；多账号未指定 accountId 返回 ACCOUNT_REQUIRED；`tools/gate.sh docs` PASS（modules=3 files=77 links=192）；`tools/gate.sh full` PASS（225 tests / 0 failures / 0 errors / 0 skipped）。

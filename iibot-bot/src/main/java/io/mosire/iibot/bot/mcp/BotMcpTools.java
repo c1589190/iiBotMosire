@@ -17,9 +17,11 @@ import io.mosire.iibot.connect.core.RecentQqProvider;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /** Bot-first MCP 工具集合。 */
 public final class BotMcpTools {
@@ -88,6 +90,11 @@ public final class BotMcpTools {
                 null);
     }
 
+    /**
+     * 单账号兼容入口：把每个直接 provider 包装为以 {@code defaultAccountId} 为唯一 key 的映射。
+     *
+     * <p>多账号装配请使用 {@link #allForAccounts} 的映射形式，避免跨账号串号。</p>
+     */
     public static List<AgentTool> all(
             MessageBoardStore board,
             UserNoteStore notes,
@@ -105,16 +112,18 @@ public final class BotMcpTools {
             forwardProviders.put(defaultAccountId, forwardProvider);
         }
         return allForAccounts(board, notes, inboxDigests, replies, defaultAccountId,
-                forwardProviders, recentProvider, friendRequests, inboxAuditStore,
-                historyProvider, sourceWeights);
+                forwardProviders, singleProvider(defaultAccountId, recentProvider),
+                singleProvider(defaultAccountId, friendRequests), inboxAuditStore,
+                singleProvider(defaultAccountId, historyProvider), sourceWeights,
+                new InMemoryConsumerConversationStore());
     }
 
     /**
      * 多账号工具装配：board 派生能力按消息 accountId 选择 provider。
      *
      * <p>{@code forwardProviders} 应包含所有已启动账号的 key；value 为 null 表示该账号在线
-     * 但不支持 forward。直接 provider 工具（recent/history/friend request）仍在 P4 使用单一
-     * active account，待 P6 统一工具面时多账号化。</p>
+     * 但不支持 forward。直接 provider 工具按同一 accountId 维度装配，省略参数时只有唯一可用
+     * provider 才会默认命中，否则返回 {@code ACCOUNT_REQUIRED}。</p>
      */
     public static List<AgentTool> allForAccounts(
             MessageBoardStore board,
@@ -123,18 +132,19 @@ public final class BotMcpTools {
             BotReplyService replies,
             String defaultAccountId,
             Map<String, ForwardCapability> forwardProviders,
-            RecentQqProvider recentProvider,
-            FriendRequestService friendRequests,
+            Map<String, RecentQqProvider> recentProviders,
+            Map<String, FriendRequestService> friendRequestServices,
             InboxDigestAuditStore inboxAuditStore,
-            ChatHistoryProvider historyProvider,
+            Map<String, ChatHistoryProvider> historyProviders,
             SourceWeightService sourceWeights) {
         return allForAccounts(board, notes, inboxDigests, replies, defaultAccountId,
-                forwardProviders, recentProvider, friendRequests, inboxAuditStore,
-                historyProvider, sourceWeights, new InMemoryConsumerConversationStore());
+                forwardProviders, recentProviders, friendRequestServices, inboxAuditStore,
+                historyProviders, sourceWeights, new InMemoryConsumerConversationStore());
     }
 
     /**
-     * 带 consumer 游标存储的装配入口；不注入账号注册表时只生成消息板工具。
+     * 带 consumer 游标存储的装配入口；不注入账号注册表时账号集合由 provider 映射和默认账号
+     * 推导。
      *
      * <p>{@code qq_conversation_read/ack} 是 Agent 默认工具；旧 {@code bot_thread_read}
      * / {@code bot_thread_ack} 仅保留内部兼容类，不进入默认清单。</p>
@@ -146,15 +156,15 @@ public final class BotMcpTools {
             BotReplyService replies,
             String defaultAccountId,
             Map<String, ForwardCapability> forwardProviders,
-            RecentQqProvider recentProvider,
-            FriendRequestService friendRequests,
+            Map<String, RecentQqProvider> recentProviders,
+            Map<String, FriendRequestService> friendRequestServices,
             InboxDigestAuditStore inboxAuditStore,
-            ChatHistoryProvider historyProvider,
+            Map<String, ChatHistoryProvider> historyProviders,
             SourceWeightService sourceWeights,
             ConsumerConversationStore consumers) {
         return allForAccounts(board, notes, inboxDigests, replies, defaultAccountId,
-                forwardProviders, recentProvider, friendRequests, inboxAuditStore,
-                historyProvider, sourceWeights, consumers, null);
+                forwardProviders, recentProviders, friendRequestServices, inboxAuditStore,
+                historyProviders, sourceWeights, consumers, null);
     }
 
     /**
@@ -170,10 +180,10 @@ public final class BotMcpTools {
             BotReplyService replies,
             String defaultAccountId,
             Map<String, ForwardCapability> forwardProviders,
-            RecentQqProvider recentProvider,
-            FriendRequestService friendRequests,
+            Map<String, RecentQqProvider> recentProviders,
+            Map<String, FriendRequestService> friendRequestServices,
             InboxDigestAuditStore inboxAuditStore,
-            ChatHistoryProvider historyProvider,
+            Map<String, ChatHistoryProvider> historyProviders,
             SourceWeightService sourceWeights,
             ConsumerConversationStore consumers,
             AccountRegistry accounts) {
@@ -188,6 +198,12 @@ public final class BotMcpTools {
             tools.add(new QqAccountStatusTool(accounts));
             tools.add(new QqAccountLoginInfoTool(accounts));
         }
+        BotAccountScope noteScope = BotAccountScope.of(knownAccountIds(accounts,
+                defaultAccountId,
+                List.of(forwardProviders == null ? Map.of() : forwardProviders,
+                        recentProviders == null ? Map.of() : recentProviders,
+                        friendRequestServices == null ? Map.of() : friendRequestServices,
+                        historyProviders == null ? Map.of() : historyProviders)));
         tools.addAll(List.of(
                 new BotThreadListTool(board, sourceWeights),
                 new BotThreadHistoryTool(board),
@@ -196,25 +212,24 @@ public final class BotMcpTools {
                 new BotReplyTool(replies),
                 new BotQqConversationReadTool(board, consumers),
                 new BotQqConversationAckTool(consumers, inboxDigests),
-                new BotUserNoteGetTool(notes, defaultAccountId),
-                new BotUserNoteListTool(notes, defaultAccountId),
-                new BotUserNoteUpsertTool(notes, defaultAccountId)));
-        if (forwardProviders != null
-                && forwardProviders.values().stream().anyMatch(Objects::nonNull)) {
+                new BotUserNoteGetTool(notes, noteScope),
+                new BotUserNoteListTool(notes, noteScope),
+                new BotUserNoteUpsertTool(notes, noteScope)));
+        if (hasCapability(forwardProviders)) {
             tools.add(new BotForwardReadTool(board, forwardProviders));
         }
-        if (recentProvider != null) {
-            tools.add(new BotQqRecentTool(recentProvider, defaultAccountId));
+        if (hasCapability(recentProviders)) {
+            tools.add(new BotQqRecentTool(recentProviders));
         }
-        if (friendRequests != null) {
-            tools.add(new BotFriendRequestListTool(friendRequests, defaultAccountId));
-            tools.add(new BotFriendRequestDecideTool(friendRequests, defaultAccountId));
+        if (hasCapability(friendRequestServices)) {
+            tools.add(new BotFriendRequestListTool(friendRequestServices));
+            tools.add(new BotFriendRequestDecideTool(friendRequestServices));
         }
         if (inboxAuditStore != null) {
             tools.add(new BotInboxHistoryTool(inboxAuditStore));
         }
-        if (historyProvider != null) {
-            tools.add(new BotQqHistoryTool(historyProvider, defaultAccountId));
+        if (hasCapability(historyProviders)) {
+            tools.add(new BotQqHistoryTool(historyProviders));
         }
         if (sourceWeights != null) {
             tools.add(new BotSourceWeightListTool(sourceWeights));
@@ -222,5 +237,41 @@ public final class BotMcpTools {
             tools.add(new BotSourceWeightSetTool(sourceWeights, inboxDigests));
         }
         return List.copyOf(tools);
+    }
+
+    private static <T> Map<String, T> singleProvider(String accountId, T provider) {
+        if (provider == null) {
+            return null;
+        }
+        if (accountId == null || accountId.isBlank()) {
+            throw new IllegalArgumentException("单 provider 装配需要非空白 defaultAccountId");
+        }
+        Map<String, T> providers = new LinkedHashMap<>();
+        providers.put(accountId.trim(), provider);
+        return providers;
+    }
+
+    private static boolean hasCapability(Map<String, ?> providers) {
+        return providers != null && providers.values().stream().anyMatch(Objects::nonNull);
+    }
+
+    /**
+     * 汇总本次装配已知的账号集合：注册表优先，其次各 provider 映射的 key，最后默认账号。
+     */
+    private static Set<String> knownAccountIds(
+            AccountRegistry accounts,
+            String defaultAccountId,
+            List<Map<String, ?>> maps) {
+        Set<String> known = new LinkedHashSet<>();
+        if (accounts != null) {
+            accounts.snapshot().forEach(account -> known.add(account.accountId()));
+        }
+        for (Map<String, ?> map : maps) {
+            known.addAll(map.keySet());
+        }
+        if (defaultAccountId != null && !defaultAccountId.isBlank()) {
+            known.add(defaultAccountId.trim());
+        }
+        return known;
     }
 }

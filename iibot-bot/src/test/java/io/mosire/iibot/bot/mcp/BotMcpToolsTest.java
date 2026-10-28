@@ -317,6 +317,48 @@ class BotMcpToolsTest {
                 "localSeq", "afterSeq");
     }
 
+    @Test
+    void multiAccountAssemblyRequiresAccountIdForDirectProviderAndNoteTools() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InboxDigestService digestService = new InboxDigestService(board, notes,
+                new InMemoryInboxDigestStateStore(), new FakeInboxPort());
+        java.util.Map<String, io.mosire.iibot.connect.core.ForwardCapability> known =
+                new java.util.LinkedHashMap<>();
+        known.put("bot-a", null);
+        known.put("bot-b", null);
+        List<AgentTool> tools = BotMcpTools.allForAccounts(
+                board, notes, digestService,
+                new BotReplyService(board, new FakeReplyPort(), CLOCK), "bot-a",
+                known, null, null, null, null, null,
+                new InMemoryConsumerConversationStore());
+
+        AgentTool noteUpsert = tool(tools, "qq_user_note_upsert");
+        AgentTool noteList = tool(tools, "qq_user_note_list");
+        ToolResult missing = noteUpsert.execute(context(noteUpsert,
+                Map.of("qqId", "qq-1", "note", "x")));
+        assertThat(missing.success()).isFalse();
+        assertThat(missing.code()).isEqualTo("ACCOUNT_REQUIRED");
+        ToolResult listMissing = noteList.execute(context(noteList, Map.of()));
+        assertThat(listMissing.code()).isEqualTo("ACCOUNT_REQUIRED");
+
+        JsonNode written = call(noteUpsert, Map.of("accountId", "bot-b",
+                "qqId", "qq-1", "note", "B 的备注"));
+        assertThat(written.path("data").path("accountId").asText()).isEqualTo("bot-b");
+        assertThat(notes.find("bot-b", "qq-1")).isPresent();
+        assertThat(notes.find("bot-a", "qq-1")).isEmpty();
+        // 直接 provider 工具在没有任何可用 provider 时不注册。
+        assertThat(tools).extracting(AgentTool::name)
+                .doesNotContain("qq_recent_messages", "qq_remote_history");
+    }
+
+    private static ToolContext context(AgentTool tool, Map<String, Object> args) {
+        AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
+                .allow(tool.name())
+                .build();
+        return new ToolContext(AccessToken.DEFAULT, permissions, Map.of(), args);
+    }
+
     private static AgentTool tool(List<AgentTool> tools, String name) {
         return tools.stream().filter(tool -> tool.name().equals(name)).findFirst().orElseThrow();
     }
