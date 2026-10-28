@@ -74,6 +74,8 @@
     `PUBLICATION_GAP` / `NOT_RUN`；不得用本机 `~/.m2` 冒充公开可复现。
   - 合并：iiBot feature `e6f012c` 已 fast-forward 到 `refactor/bot-first-main-agent`；
     Inbox dependency commit `f151a87` 已 fast-forward 到 `main`。
+  - 最终本机门禁：`tools/gate.sh docs` PASS、`tools/gate.sh selftest` PASS、
+    `tools/gate.sh full` PASS（225 tests）；Inbox `clean verify` PASS（37 tests）。
   - 真实 QQ/DSH/Inbox wake 闭环仍 `NOT_RUN`。
 - **本轮代码状态**：默认 reactor 3 模块（connect / bot / app）；`iibot-connect-agent`
   已删除；文游 MCP、taskflow class、旧 simulation/config legacy 已从默认工作树移除；
@@ -111,10 +113,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/bot-first-main-agent`（已合并 P0–P7b）；feature 分支保留 `refactor/unified-qq-agent-client` |
-| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；合并后分支见 git log |
+| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`；Inbox 依赖刷新 `f151a87`（main） |
 | Maven reactor | 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | clean（本状态提交除外）；无运行中 Java 进程 |
+| 工作树 | clean；无运行中 Java 进程 |
 | 模块目标 | 已完成：`iibot-connect-agent` 已删除，模块数为 3 |
 
 ## 3. 最近功能门禁
