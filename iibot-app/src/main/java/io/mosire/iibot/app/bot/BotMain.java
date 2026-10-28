@@ -18,9 +18,8 @@ import java.util.concurrent.CountDownLatch;
 /**
  * Bot-first CLI：{@code java -jar iibot-app.jar [--config <file-or-dir>]...}。
  *
- * <p>Bot 是默认运行模式，不再需要 {@code --mode bot}；legacy 模式由
- * {@code --mode legacy} 显式选择。多个配置源按参数顺序合并，目录源读取其中
- * 直接子级 {@code *.json} 并按文件名排序。</p>
+ * <p>默认且唯一的运行模式是 bot-first；多个配置源按参数顺序合并，目录源
+ * 读取其中直接子级 {@code *.json} 并按文件名排序。</p>
  */
 public final class BotMain {
 
@@ -37,7 +36,7 @@ public final class BotMain {
     public static void run(String[] args) {
         ConfigArguments.ParseResult parsed;
         try {
-            parsed = ConfigArguments.parse(ConfigArguments.withoutMode(args), DEFAULT_CONFIG);
+            parsed = ConfigArguments.parse(args, DEFAULT_CONFIG);
         } catch (ConfigException failure) {
             LOG.error("参数错误: {}", failure.getMessage());
             printUsage();
@@ -185,7 +184,7 @@ public final class BotMain {
 
     private static void printUsage() {
         System.err.println("用法: java -jar iibot-app.jar [--config <file-or-dir>]...");
-        System.err.println("      默认 bot 模式；省略配置时读取 config/bot/。");
+        System.err.println("      省略配置时读取 config/bot/。");
         System.err.println("      首次没有配置时会生成 config/bot/ 模板并退出。");
         System.err.println("      同一配置目录下的多个 JSON 按文件名排序合并。");
     }

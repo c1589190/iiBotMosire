@@ -3,9 +3,9 @@
 > **2026-10-28 规划中变更**：配置系统将按
 > [配置文件系统设计](../docs/superpowers/specs/2026-10-28-configuration-system.md)
 > 升级为多账号 schema、单文件首次生成、`--check-config` 和脱敏有效配置输出。
-> 本文件以下内容描述当前实现，实施 P3 后整体替换。
+> 本文件以下内容描述当前 P1 实现，实施 P3 后整体替换。
 
-运行配置目录。Bot 是默认启动模式：
+运行配置目录。Bot 是唯一启动模式：
 
 ```bash
 java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar
@@ -16,11 +16,7 @@ java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar
 四个模板并退出（exit 2），不会启动 QQ/Inbox/MCP。编辑模板并设置环境变量后，
 再次执行同一命令即可启动。已有 JSON 不会被覆盖。
 
-不带 `--config` 时读取 `config/bot/`；legacy 必须显式：
-
-```bash
-java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar --mode legacy
-```
+不带 `--config` 时读取 `config/bot/`。
 
 ## 日志
 
@@ -34,6 +30,9 @@ logs/iibot-ops.log    # event=... 运维事件流
 可通过 `-Diibot.log.dir=/path` 或环境变量 `IIBOT_LOG_DIR=/path` 改目录。
 两个文件均按天和 20 MB 滚动，归档 gzip 压缩，最多保留 30 个。
 日志只记录 ID、状态、计数、错误码与耗时，不记录聊天正文、token 或完整协议 JSON。
+
+完整目标设计见
+[日志分级与诊断](../docs/superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md)。
 
 ## 多文件规则
 
@@ -81,22 +80,18 @@ Inbox item 只保存每个来源的最后 `n` 条未读摘要作为预览；完�
 上例有效预览上限为 20。item content 还会返回 `unreadCount` 与
 `hasMoreUnread`；预览不足时 Agent 必须读取完整来源历史，不能把预览当全文。
 
-## 推荐布局
+## 当前布局
 
 ```text
 config/
   bot/
-    00-base.json
-    10-napcat.json
-    20-control-inbox.json
-    30-summary-outbox-weighting.json
-  legacy/
-    ... legacy 配置源 ...
+    README.md
   examples/
     bot/       # 可复制到 config/bot/ 的示例片段
 ```
 
-示例片段在 `config/examples/bot/`，不是默认运行配置；先复制并改掉占位账号/环境变量名。
+当前实际运行配置由首次启动生成到 `config/bot/`。示例片段在
+`config/examples/bot/`，不是默认运行配置；先复制并改掉占位账号/环境变量名。
 
 ## 显式示例
 

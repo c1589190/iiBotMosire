@@ -10,13 +10,12 @@
   <packaging>pom</packaging>
 
   <name>iiBotMosire</name>
-  <description>Bot-first QQ message board and external Agent bridge; legacy turn-based taskflow remains during migration.</description>
+  <description>Agent-agnostic unified QQ client: OneBot transport, message board, embedded Inbox and Bot MCP.</description>
 
   <modules>
     <module>iibot-connect</module>
     <module>iibot-connect-agent</module>
     <module>iibot-bot</module>
-    <module>iibot-taskflow</module>
     <module>iibot-app</module>
   </modules>
 
@@ -56,16 +55,6 @@
       <dependency>
         <groupId>io.mosire</groupId>
         <artifactId>agentlib-mosire</artifactId>
-        <version>${agentlib.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>io.mosire</groupId>
-        <artifactId>workspace-mosire</artifactId>
-        <version>${agentlib.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>io.mosire</groupId>
-        <artifactId>docs-mosire</artifactId>
         <version>${agentlib.version}</version>
       </dependency>
       <dependency>

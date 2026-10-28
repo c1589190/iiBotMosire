@@ -1,10 +1,8 @@
 package io.mosire.iibot.app.delivery;
 
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
-import io.mosire.iibot.app.support.TestSupport;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.connect.core.SendReceipt;
-import io.mosire.iibot.taskflow.agent.InteractionReply;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -17,20 +15,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 class OutboxSenderTest {
 
     @Test
-    void sendsPrivateRepliesWithStableKeysAndOriginalUserTarget() {
+    void sendsPrivateMessagesWithStableKeysAndTarget() {
         FakeMessagingAdapter adapter = new FakeMessagingAdapter();
         OutboxSender outbox = new OutboxSender(adapter, Duration.ofSeconds(2));
-        var inbound = TestSupport.privateMessage("qq-p1", "hello", "dedupe-1");
-        List<InteractionReply> replies = List.of(new InteractionReply("reply-a"),
-                new InteractionReply("reply-b"));
 
-        List<SendOutcome> first = outbox.sendReplies(inbound, replies);
-        List<SendOutcome> second = outbox.sendReplies(inbound, replies);
+        List<SendOutcome> first = outbox.sendPrivateToUser(
+                "qq-p1", List.of("reply-a", "reply-b"), "dedupe-1");
+        List<SendOutcome> second = outbox.sendPrivateToUser(
+                "qq-p1", List.of("reply-a", "reply-b"), "dedupe-1");
 
         assertThat(first).extracting(SendOutcome::state)
                 .containsExactly(SendReceipt.State.SENT, SendReceipt.State.SENT);
         assertThat(first).extracting(SendOutcome::idempotencyKey)
-                .containsExactly("inbound:dedupe-1:reply:0", "inbound:dedupe-1:reply:1");
+                .containsExactly("private:dedupe-1:reply:0", "private:dedupe-1:reply:1");
         assertThat(second).extracting(SendOutcome::idempotencyKey)
                 .isEqualTo(first.stream().map(SendOutcome::idempotencyKey).toList());
         assertThat(adapter.sent()).hasSize(4);
@@ -53,29 +50,28 @@ class OutboxSenderTest {
                 **请发送** `/确认 K7Q2M9`
                 """;
 
-        outbox.sendReplies(TestSupport.privateMessage("qq-p1", "hello", "dedupe-safe"),
-                List.of(new InteractionReply(raw)));
+        outbox.sendPrivateToUser("qq-p1", List.of(raw), "dedupe-safe");
 
         assertThat(adapter.sent()).hasSize(1);
-        String sent = adapter.sent().get(0).textSegments().get(0);
-        assertThat(sent).isEqualTo(raw);
+        assertThat(adapter.sent().get(0).textSegments().get(0)).isEqualTo(raw);
     }
 
     @Test
     void publicBroadcastPreservesRawText() {
         FakeMessagingAdapter adapter = new FakeMessagingAdapter();
         OutboxSender outbox = new OutboxSender(adapter, Duration.ofSeconds(2));
-
         String raw = """
                 **世界公告**
                 城外的车队开始入城。
                 ticketId: 11111111-1111-1111-1111-111111111111
                 """;
+
         outbox.broadcastToPublicGroup("group-public", List.of(raw), "public-safe");
 
         assertThat(adapter.sent()).hasSize(1);
-        String sent = adapter.sent().get(0).textSegments().get(0);
-        assertThat(sent).isEqualTo(raw);
+        assertThat(adapter.sent().get(0).targetType())
+                .isEqualTo(OutboundMessage.TargetType.GROUP);
+        assertThat(adapter.sent().get(0).textSegments().get(0)).isEqualTo(raw);
     }
 
     @Test
@@ -127,9 +123,8 @@ class OutboxSenderTest {
                 CompletableFuture.completedFuture(SendReceipt.failed("NAP", "server rejected")));
         OutboxSender outbox = new OutboxSender(adapter, Duration.ofSeconds(2));
 
-        List<SendOutcome> outcomes = outbox.sendReplies(
-                TestSupport.privateMessage("qq-p1", "x", "dedupe-fail"),
-                List.of(new InteractionReply("reply")));
+        List<SendOutcome> outcomes = outbox.sendPrivateToUser(
+                "qq-p1", List.of("x"), "dedupe-fail");
 
         assertThat(outcomes).hasSize(1);
         assertThat(outcomes.get(0).state()).isEqualTo(SendReceipt.State.FAILED_BEFORE_SEND);
@@ -143,9 +138,8 @@ class OutboxSenderTest {
                 CompletableFuture.completedFuture(SendReceipt.unknown("TIMEOUT", "no ack")));
         OutboxSender outbox = new OutboxSender(adapter, Duration.ofSeconds(2));
 
-        List<SendOutcome> outcomes = outbox.sendReplies(
-                TestSupport.privateMessage("qq-p1", "x", "dedupe-unknown"),
-                List.of(new InteractionReply("reply")));
+        List<SendOutcome> outcomes = outbox.sendPrivateToUser(
+                "qq-p1", List.of("x"), "dedupe-unknown");
 
         assertThat(outcomes.get(0).state()).isEqualTo(SendReceipt.State.UNKNOWN);
         assertThat(outcomes.get(0).unknown()).isTrue();
@@ -158,9 +152,8 @@ class OutboxSenderTest {
                 message -> new CompletableFuture<>());
         OutboxSender outbox = new OutboxSender(adapter, Duration.ofMillis(80));
 
-        List<SendOutcome> outcomes = outbox.sendReplies(
-                TestSupport.privateMessage("qq-p1", "x", "dedupe-timeout"),
-                List.of(new InteractionReply("reply")));
+        List<SendOutcome> outcomes = outbox.sendPrivateToUser(
+                "qq-p1", List.of("x"), "dedupe-timeout");
 
         assertThat(outcomes.get(0).state()).isEqualTo(SendReceipt.State.UNKNOWN);
         assertThat(outcomes.get(0).errorCode()).isEqualTo("SEND_TIMEOUT");

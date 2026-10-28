@@ -1,34 +1,39 @@
-# iibot-app —— 局部 AGENTS
+# iibot-app —— QQ 客户端组合根
 
 ## 职责
 
-组合根：配置、连接、Taskflow、存储、MCP、InboxMosire Mode A 生命周期与可运行入口的唯一装配点。
+- 加载配置并创建 QQ Adapter；
+- 装配 SQLite 消息板、embedded Inbox 与 Bot MCP；
+- 管理进程生命周期、日志和安全创建；
+- 提供唯一可运行入口 `io.mosire.iibot.app.Main`。
+
+## 索引
+
+- 当前状态：[`../docs/agents/STATUS.md`](../docs/agents/STATUS.md)
+- 设计入口：[`../docs/superpowers/AGENTS.md`](../docs/superpowers/AGENTS.md)
 
 ## 边界
 
-- 根路由与常驻红线见 [../../AGENTS.md](../AGENTS.md)。
-- 项目设计见 [../../docs/superpowers/AGENTS.md](../docs/superpowers/AGENTS.md)。
-- 当前状态见 [../../docs/agents/STATUS.md](../docs/agents/STATUS.md)。
-- 不得跳过 `ToolCallAuthorizer`（如模块依赖 AgentLib）；不得把 OneBot/NapCat 类型泄漏到 `iibot-taskflow` 以外/业务层。
-- 本模块只改自己的代码与测试；跨模块契约先修改设计文档。
-- InboxMode A 只在 `iibot-app` 组合：embedded server/token/descriptor/通知桥不得下沉到业务域；
-  notification payload 只能含业务引用，不得包含正文、路径或 token。
-- `app/media` 只保存受控图片资产并把 `ToolAsset` 注入 Bot MCP；不得把 raw URL/字节写入日志或工具文本。
-- `BotConfig.weighting` 只保存权重默认值和关键词策略；来源权重状态在 `bot.db`，
-  不写入 raw token/正文。
-- 根 `config/` 是默认启动配置入口；`--config` 可重复接收文件/目录，同一目录内
-  `*.json` 按文件名排序深合并。`--mode` 省略时默认 bot，legacy 必须显式
-  `--mode legacy`。
-- `BotConfig.Inbox` 的 apiHost/apiPort/mcpHost/mcpPort/mcpPath/heartbeatMillis/
-  claimSweepIntervalMillis 直接传给 inbox-embedded；host 只允许 loopback，
-  port=0 表示随机端口，固定端口冲突必须 fail-closed。
-- 默认 `config/bot/` 完全没有 `*.json` 时，首次启动只生成内置模板并退出；
-  已有配置不得覆盖，也不得在首次生成阶段启动 QQ/Inbox/MCP。
+- 默认产品只做统一 QQ Agent 客户端，不包含文游服务。
+- 不承载玩家、秘书、回合、Ticket、Publication、世界等业务。
+- 不直接实现 OneBot 协议；协议在 `iibot-connect`。
+- 不绕过 `iibot-bot` 的消息板直接向 Adapter 发送业务消息。
+- Agent 内部标记（revision/snapshot/itemId/seq）由服务维护，不进入 Agent 必填参数。
+- 配置/日志目标见：
+  - [`docs/superpowers/specs/2026-10-28-configuration-system.md`](../docs/superpowers/specs/2026-10-28-configuration-system.md)
+  - [`docs/superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md`](../docs/superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md)
+
+## 入口
+
+- `src/main/java/io/mosire/iibot/app/Main.java`
+- `src/main/java/io/mosire/iibot/app/bot/BotMain.java`
+- `src/main/java/io/mosire/iibot/app/bot/BotRuntime.java`
+- `src/main/java/io/mosire/iibot/app/inbox/BotInboxRuntime.java`
 
 ## 验证
 
 ```bash
-mvn -B -ntp -pl iibot-app -am test
+tools/gate.sh focused iibot-app test
 ```
 
-> 未实际运行的命令不得在报告里写成通过。
+> 未实际运行的命令不得在报告里写成通过；真实 QQ/DSH 联调未跑写 `NOT_RUN`。

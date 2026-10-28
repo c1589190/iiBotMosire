@@ -25,12 +25,11 @@ tools/gate.sh full
 
 ## 二、最近已运行基线
 
-- 2026-10-28 核对：`STATUS.md` 记录的最近一次源码 full gate 为 D-024 的
-  **730 tests / 0 failures / 0 errors / 0 skipped**；该结果包含即将删除的
-  taskflow/legacy app 测试，不能作为重构后的固定基线。
-- 2026-10-28 本轮只新增/更新规划文档；生产代码未改，Maven 未重跑，
-  因此当前结论为 `NOT_RUN`。
-- `tools/gate.sh docs` 本轮实际运行并通过。
+- 2026-10-28 P1a 后源码基线：`tools/gate.sh full` **PASS，174 tests / 0 failures /
+  0 errors / 0 skipped**（connect 46、connect-agent 21、bot 67、app 40）；
+  `tools/gate.sh docs` PASS（modules=4 files=520 links=225）。
+- P1a focused `tools/gate.sh focused iibot-app -am test`：153 tests / 0 failures / 0 errors。
+- 本结果仍包含待整合的 `iibot-connect-agent` 21 tests；P6 删除模块后测试基线会变化。
 - 真实 NapCat/DSH/QQ/MCP 长跑、日志真实轮转与崩溃恢复均 `NOT_RUN`。
 
 ## 三、证据规则

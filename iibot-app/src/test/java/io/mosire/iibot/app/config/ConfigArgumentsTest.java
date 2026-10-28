@@ -31,16 +31,6 @@ class ConfigArgumentsTest {
     }
 
     @Test
-    void stripsModeForCompatibility() {
-        assertThat(ConfigArguments.withoutMode(
-                new String[]{"--mode", "bot", "--config", "a.json"}))
-                .containsExactly("--config", "a.json");
-        assertThat(ConfigArguments.withoutMode(
-                new String[]{"--mode=legacy", "--config", "a.json"}))
-                .containsExactly("--config", "a.json");
-    }
-
-    @Test
     void helpDoesNotRequireConfig() {
         ConfigArguments.ParseResult parsed = ConfigArguments.parse(
                 new String[]{"--help"}, DEFAULT);

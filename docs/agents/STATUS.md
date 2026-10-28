@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-28 19:35（Asia/Shanghai）
+> **更新时间**：2026-10-28 20:00（Asia/Shanghai）
 > **本文是唯一实时状态入口。** `docs/superpowers/status/*` 都只是某时点的历史快照。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -10,6 +10,15 @@
   文游模块退出默认产品，消息板服务端维护内部游标/幂等/Inbox 同步，Agent 不维护额外标记。
 - **执行分支**：`refactor/unified-qq-agent-client`；按责任区分批实现、测试、提交、推送，
   全部确认后再合并（M-005）。
+- **P1a 已完成（待提交）**：删除 `iibot-taskflow` 与 `iibot-app` 旧文游/legacy 代码；
+  `iibot-app` 从 151 个 main 源文件收缩到 20 个，测试源文件保留 12 个；根 reactor 当前
+  4 模块（connect / connect-agent / bot / app）。
+  - `tools/gate.sh focused iibot-app -am test`：153 tests / 0 failures / 0 errors。
+  - `tools/gate.sh full`：**174 tests / 0 failures / 0 errors / 0 skipped**（connect 46、
+    connect-agent 21、bot 67、app 40），BUILD SUCCESS。
+  - `tools/gate.sh docs`：PASS（modules=4 files=520 links=225）。
+  - 默认 jar 已不再包含 taskflow class；`iibot-app` 直接声明 `inbox-server` 并排除
+    `slf4j-simple`，避免双 provider。
 - **已冻结选择**：
   - AgentLib 继续固定 `agentlib-mosire:0.2.4`，不降级；
   - `iibot-connect-agent` 整合进正式模块后删除；
@@ -24,8 +33,8 @@
   `PUBLICATION_GAP` 记录；干净仓库复现前不得宣称可公开构建。
 - **本次动作**：新增/更新规划文档，作为 P0 独立 checkpoint 提交；未改生产代码、
   未删除模块、未跑 Maven、未启动 QQ/Inbox/MCP、未执行外发。
-- **状态**：`P0_IN_PROGRESS`；版本/读取语义/模块整合策略已确认，正在建立分支 checkpoint
-  与提交规划文档；尚未进入 P1 删除。
+- **状态**：`P1_IN_PROGRESS`；P0 决策和基线 checkpoint 已推送，P1a 代码收缩完成待提交；
+  下一步删除旧 `simulation/`、legacy config/examples 与文游文档引用，再进入 P2 日志。
 
 ## 0.1 历史更新：D-024 Inbox 改为 QQ 式未读列表（2026-10-28 00:05）
 
@@ -566,20 +575,19 @@
 
 ## 7. 下一步
 
-0. **先审阅并冻结本轮规划**：确认 AgentLib 0.2.4 发布/降级策略、dirty worktree
-   处理方式、文游物理删除边界和 `iibot-connect-agent` 去留；确认后按计划 P0 开始。
-1. **启动新 jar（需用户当次指令）**：当前旧进程已停止、新 jar 已部署且
-   Release 资产已同步；用户要求启动时再运行 `java -jar iibot-app-0.1.0-SNAPSHOT.jar`，
-   并检查 `bot/logs/iibot.log` 与 `bot/logs/iibot-ops.log` 是否出现
-   `process_start`、`bot_runtime_ready`、`mcp_started`、`adapter_event`。
-2. **首次启动/参数化验收**：空目录模板生成已实测；下一步用真实配置在干净
-   runtime 启动新 jar，确认 embedded Inbox 与 Bot MCP 同时就绪，再按用户授权
-   部署并绑定 DSH。
-2. **Inbox Mode A 真实联调**：先停/备份当前运行面，再把本轮 target jar 以用户确认的方式
-   部署到 `simulation/dist`；启动后用 `tf_inbox_binding_descriptor` → `inbox_adapter_bind`
-   重建绑定，验证真实 DSH 唤醒、occupancy、宿主桥 item 与真实审核/外发边界。
-3. **玩家体验真实 playtest**：先用新 target jar 在干净 runtime 上按 `simulation/player-experience/09-playtest-and-acceptance.md` 做 5 人 playtest；未通过前不进入多玩家长跑。下列 D-014/P8 项仍有效。
-4. **D-014 收口**：在用户明确授权后，用新构建 jar 替换 `simulation/dist` 前先停/备份并按用户确认执行；不要在本轮自动重启 app。
-5. **真实 NapCat 历史验证**：只对用户指定/已注册 QQ 和当前公共群调用 `tf_qq_history_read`，记录真实游标、临时会话、超时/1200 结果；未跑前保持 `NOT_RUN`。
-6. **P8 真实模拟**：真实 DSH/Hermes MCP、真实 LLM/NapCat/QQ，零玩家公共开场→审核发布→动态注册玩家→多玩家/多工单/多批次/发布/记录全链路；真实外部发送按 M-004 先与用户确认。
-7. P7 已跳过；P8-A 独立评审未完成，需在真实模拟前决定是否补评审；未跑项继续标 `NOT_RUN`，不得用 Mock/loopback 代替真实联调结论。
+1. **提交并推送 P1a checkpoint**：当前分支 `refactor/unified-qq-agent-client`；
+   提交信息写明 taskflow/legacy app 删除、174 tests full PASS、真实 QQ/DSH `NOT_RUN`。
+2. **P1b 清理运行区和旧配置/文档引用**：删除 `simulation/`、旧 `config` 示例和文游文档入口；
+   修复 README/AGENTS/docs 链接，重跑 focused/full/docs，再提交推送。
+3. **P2 日志基础设施**：按
+   [`2026-10-28-logging-levels-and-diagnostics.md`](../superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md)
+   实现 INFO/DEBUG 分级、关联 ID、配置化轮转、脱敏和测试。
+4. **P3 配置系统 v2**：按
+   [`2026-10-28-configuration-system.md`](../superpowers/specs/2026-10-28-configuration-system.md)
+   实现多账号 schema、`--check-config`、首次单文件生成和迁移。
+5. **P4–P6**：多 Adapter/账号路由 → consumer 读游标与 Inbox 同步 → 统一 `qq_*` MCP 工具，
+   整合并删除 `iibot-connect-agent`。
+6. **P7**：依赖 patch 升级、JUnit 6 独立迁移、文档全量重写、干净 Maven 仓库验证；
+   AgentLib 0.2.4 公开发布仍未完成，P7 该项保持 `BLOCKED` / `NOT_RUN`。
+7. **真实运行验收**：真实 QQ/DSH/OpenCode、Inbox wake、长跑和日志轮转必须在用户当次授权下
+   单独执行；未跑前不得写 PASS。

@@ -1,12 +1,10 @@
 package io.mosire.iibot.app.delivery;
 
-import io.mosire.iibot.connect.core.InboundMessage;
 import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.connect.core.OutboundSegment;
 import io.mosire.iibot.connect.core.SendReceipt;
 import io.mosire.iibot.connect.ops.OpsLog;
-import io.mosire.iibot.taskflow.agent.InteractionReply;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,12 +17,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * 把任务流返回的 {@link InteractionReply} 转成 {@link OutboundMessage} 并通过
- * {@link MessagingAdapter} 发送。
+ * 统一出站发送适配器：把 bot core 的发送请求转换成 {@link OutboundMessage} 并交给
+ * {@link MessagingAdapter}。
  *
- * <p><b>唯一外发出口</b>：taskflow/agent 不直接调用 adapter；所有回复正文都经本类。私聊回复
- * 回到原 userId；群聊当前 service 返回空，但 {@link #broadcastToPublicGroup} 保留公共群广播
- * 方法。每条发送使用稳定幂等键 {@code inbound:<dedupeKey>:reply:<index>}。</p>
+ * <p><b>唯一外发出口</b>：上层不直接调用 adapter；私聊、群聊和富文本回复都经本类，
+ * 共享最小发送间隔与三态回执语义。</p>
  *
  * <p><b>三态语义</b>：SENT 正常返回；FAILED_BEFORE_SEND 明确记录；UNKNOWN（超时、线程中断、
  * future 异常等）只记录，<b>绝不自动重发</b>。等待回执有上限，不会无限阻塞。</p>
@@ -79,42 +76,6 @@ public final class OutboxSender {
                 ? OutboundMessage.privateMessage(userId, List.of(text), key)
                 : OutboundMessage.privateTemporaryMessage(userId, temporaryGroupId,
                         List.of(text), key);
-    }
-
-    /**
-     * 发送一次入站处理产生的全部回复。
-     *
-     * @return 与 replies 一一对应的结果；空回复返回空列表
-     */
-    public List<SendOutcome> sendReplies(InboundMessage inbound, List<InteractionReply> replies) {
-        Objects.requireNonNull(inbound, "inbound");
-        Objects.requireNonNull(replies, "replies");
-        List<SendOutcome> outcomes = new ArrayList<>(replies.size());
-        for (int index = 0; index < replies.size(); index++) {
-            InteractionReply reply = replies.get(index);
-            if (reply == null) {
-                continue;
-            }
-            String idempotencyKey = "inbound:" + inbound.dedupeKey() + ":reply:" + index;
-            String playerText = reply.text();
-            OutboundMessage outbound;
-            try {
-                outbound = switch (inbound.sessionType()) {
-                    case PRIVATE -> privateOutbound(inbound.userId(), playerText,
-                            idempotencyKey);
-                    case GROUP -> OutboundMessage.groupMessage(
-                            inbound.groupId() == null ? inbound.userId() : inbound.groupId(),
-                            List.of(playerText), idempotencyKey);
-                };
-            } catch (RuntimeException invalid) {
-                outcomes.add(new SendOutcome(index, idempotencyKey,
-                        SendReceipt.State.FAILED_BEFORE_SEND, List.of(),
-                        "OUTBOX_INVALID_MESSAGE", "回复无法构造成发送请求（未发送）"));
-                continue;
-            }
-            outcomes.add(send(index, idempotencyKey, outbound));
-        }
-        return List.copyOf(outcomes);
     }
 
     /** 使用配置的临时会话来源群发送富文本私聊回复。 */

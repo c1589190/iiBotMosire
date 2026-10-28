@@ -7,7 +7,7 @@
 > - [配置文件系统](../specs/2026-10-28-configuration-system.md)
 > - [用户需求原稿 D-025..D-028](../specs/2026-10-24-user-requirements-source.md)
 >
-> **当前执行状态**：仅完成文档规划；源码、依赖、构建和运行配置均未按本计划改动。
+> **当前执行状态**：P0 完成；P1a（taskflow/legacy app 删除）完成并待提交；P1b 运行区/旧配置/文档清理待执行。
 > **禁止事项**：未经用户当次指令不启动真实 QQ、不挂载 Bot MCP、不执行真实外发、不 commit/push。
 
 ## 1. 目标
@@ -521,3 +521,4 @@ cd ../iiBotMosire
 - 2026-10-28：完成本计划及三份设计文档，作为独立 P0 checkpoint 提交；未改生产代码、未跑 Maven、未启动 QQ/Inbox/MCP。
 
 - 2026-10-28：用户确认继续使用 AgentLib 0.2.4；采用新分支按责任区提交/推送；整合并删除 `iibot-connect-agent`；读取只预览、处理完显式 ack。
+- 2026-10-28 P1a：删除 `iibot-taskflow` 与 app 旧文游/legacy 包；`iibot-app` 收缩为 20 个 main、12 个 test 源文件；根 reactor 4 模块；`tools/gate.sh docs` PASS；`tools/gate.sh full` PASS（174 tests / 0 failures / 0 errors / 0 skipped）。

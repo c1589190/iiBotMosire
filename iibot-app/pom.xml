@@ -10,21 +10,11 @@
   </parent>
   <artifactId>iibot-app</artifactId>
   <name>iibot-app</name>
-  <description>Legacy composition root; bot-first runtime migration in progress.</description>
+  <description>Bot-first QQ client composition root: config, adapters, embedded Inbox and Bot MCP.</description>
   <dependencies>
     <dependency>
       <groupId>io.mosire.iibot</groupId>
-      <artifactId>iibot-taskflow</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>io.mosire.iibot</groupId>
       <artifactId>iibot-bot</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>io.mosire.iibot</groupId>
-      <artifactId>iibot-connect-agent</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
@@ -40,13 +30,28 @@
     </dependency>
     <dependency>
       <groupId>io.mosire</groupId>
+      <artifactId>inbox-server</artifactId>
+      <version>${inbox.version}</version>
+      <exclusions>
+        <!-- 组合根统一使用 log4j-slf4j2-impl，避免 slf4j-simple 双 provider。 -->
+        <exclusion>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-simple</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>io.mosire</groupId>
       <artifactId>inbox-client</artifactId>
     </dependency>
     <dependency>
       <groupId>io.mosire</groupId>
       <artifactId>inbox-mcp-tools-client</artifactId>
     </dependency>
-    <!-- Taskflow 快照持久化需要 Instant 的 ISO-8601 支持；版本由根 Jackson BOM 管理。 -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.datatype</groupId>
       <artifactId>jackson-datatype-jsr310</artifactId>
@@ -65,12 +70,6 @@
     <dependency>
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <!-- App 级真实 NapCatAdapter E2E：本地 Mock WS server。版本由根 dependencyManagement 管。 -->
-    <dependency>
-      <groupId>org.java-websocket</groupId>
-      <artifactId>Java-WebSocket</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

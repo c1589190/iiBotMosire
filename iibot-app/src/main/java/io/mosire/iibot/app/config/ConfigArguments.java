@@ -50,26 +50,6 @@ public final class ConfigArguments {
         return new ParseResult(List.copyOf(sources), help, explicitConfig);
     }
 
-    /** 去掉兼容用的 --mode 参数；模式本身由 Main 先解析。 */
-    public static String[] withoutMode(String[] args) {
-        if (args == null || args.length == 0) {
-            return new String[0];
-        }
-        List<String> result = new ArrayList<>();
-        for (int index = 0; index < args.length; index++) {
-            String arg = args[index];
-            if ("--mode".equals(arg)) {
-                index++;
-                continue;
-            }
-            if (arg.startsWith("--mode=")) {
-                continue;
-            }
-            result.add(arg);
-        }
-        return result.toArray(String[]::new);
-    }
-
     public record ParseResult(List<Path> sources, boolean helpRequested,
                               boolean explicitConfig) {
         public ParseResult {
