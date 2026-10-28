@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-28 23:15（Asia/Shanghai）
+> **更新时间**：2026-10-28 23:25（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -90,6 +90,8 @@
   - `tools/gate.sh full`：PASS，**235 tests / 0 failures / 0 errors / 0 skipped**
     （connect 61、bot 104、app 70）。
   - `tools/gate.sh docs`：PASS（modules=3 files=41 links=103）；selftest PASS。
+  - 合并：iiBot `77c1f2b` 已 fast-forward 到 `refactor/bot-first-main-agent`；
+    Inbox `a040f25` 已 fast-forward 到 `main`；DSH `bef43ed` 已 fast-forward 到 `main`。
 - **P7b 文档收口完成并合并**：旧文游 specs/plans/status/reports 已归档到
   `docs/archive/legacy-game/`；当前设计索引/README/AGENTS/config/handoff 已更新；
   docs checker 排除归档目录；`tools/gate.sh selftest` PASS。
@@ -122,8 +124,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 当前进行中：
 
-- P1b–P7b 已完成并合并；P8.1–P8.4 已完成并推送；
-- 剩余：P8 三分支最终合并，以及真实外部联调与 AgentLib 0.2.4 公开发布。
+- P1b–P8.4 已完成；iiBot / Inbox / DSH 三分支已合并到各自基线；
+- 剩余：真实外部联调与 AgentLib 0.2.4 公开发布。
 
 非目标：
 
@@ -137,7 +139,7 @@ OneBot 11 / NapCat / LLBot（可多个）
 | 项 | 当前事实 |
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
-| 分支 | `feat/p8-source-address`（P8 已完成待合并）；`refactor/bot-first-main-agent` 为 P0–P7b 基线 |
+| 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.4）；feature 分支保留 `feat/p8-source-address` |
 | 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main） |
 | Maven reactor | 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
@@ -217,9 +219,9 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 ## 7. 下一步
 
-1. **合并 P8 分支**：iiBot `feat/p8-source-address`、Inbox `feat/p8-source-metadata`、
-   DSH `feat/p8-source-wake` 到各自基线并推送。
-2. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
+1. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。
-3. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
+2. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
    `PUBLICATION_GAP` / `BLOCKED`。
+3. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack；
+   当前均未实施。
