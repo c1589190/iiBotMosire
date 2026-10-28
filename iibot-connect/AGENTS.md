@@ -9,7 +9,7 @@
 - 根路由与常驻红线见 [../../AGENTS.md](../AGENTS.md)。
 - 项目设计见 [../../docs/superpowers/AGENTS.md](../docs/superpowers/AGENTS.md)。
 - 当前状态见 [../../docs/agents/STATUS.md](../docs/agents/STATUS.md)。
-- 不得跳过 `ToolCallAuthorizer`（如模块依赖 AgentLib）；不得把 OneBot/NapCat 类型泄漏到 `iibot-taskflow` 以外/业务层。
+- 本模块不依赖 AgentLib、SQLite、Inbox 或业务域；OneBot/NapCat 类型只能出现在接入层，不得泄漏到 `iibot-bot` 业务模型。
 - 本模块只改自己的代码与测试；跨模块契约先修改设计文档。
 
 ## 验证

@@ -1,12 +1,9 @@
 # 验证维护手册
 
-> **2026-10-28 状态**：项目正在从文游宿主重构为统一 QQ Agent 客户端。本文下方
-> 部分测试分层和负向判据仍是 legacy 文游口径，将在改造计划 P1/P7 重写；当前最新
-> 门禁事实只以 [`STATUS.md`](STATUS.md) §3 和本轮证据为准。
+> **本文件属于项目维护。** 只记录当前统一 QQ Agent 客户端的验证入口、证据规则与已知边界。
+> 最新实际门禁摘要见 [`STATUS.md`](STATUS.md) §3；没跑的命令必须写 `NOT_RUN`。
 
-> **本文件属于项目维护。** 命令、证据规则与已知门禁边界以本文件为准。
-
-## 一、第一入口
+## 一、门禁入口
 
 ```bash
 tools/gate.sh pre
@@ -16,69 +13,66 @@ tools/gate.sh focused <module> [args...]
 tools/gate.sh full
 ```
 
-- `docs`：`check-docs.py` + `skills-lint.py`，只检查文档/Skill 结构。
-- `selftest`：两个检查器的 selftest，不跑 Maven。
-- `pre`：docs + `./mvnw -v`；开工自检。
-- `focused`：`./mvnw -B -ntp -pl <module> -am <args...>`；结论只能写 `FOCUSED TEST PASSED (NOT a full gate)`。
-- `full`：`./mvnw -B -ntp clean verify`；全 reactor 测试 + 打包 + shade。
-- 当前 `verify` 尚未接入 Spotless/Checkstyle/SpotBugs；不得把 `full` 冒充完整静态质量门禁。
+- `docs`：文档相对链接、目录结构、STATUS 字段与 Skill 登记。
+- `selftest`：`check-docs.py` / `skills-lint.py` 的自测；不跑 Maven。
+- `pre`：docs + Maven/Java 环境自检。
+- `focused`：`./mvnw -B -ntp -pl <module> -am <args...>`，只能写 `FOCUSED TEST PASSED`。
+- `full`：`./mvnw -B -ntp clean verify`，全 reactor 测试、打包与 shade。
 
-## 二、最近已运行基线
+当前 `verify` 未接入 SpotBugs/Checkstyle 静态门禁；`full` 只代表构建与测试通过。
 
-- 2026-10-28 P7b 后源码基线：`./mvnw -B -ntp clean verify` **PASS，225 tests / 0 failures /
-  0 errors / 0 skipped**（connect 61、bot 94、app 70）；
-  `tools/gate.sh docs` PASS（modules=3 files=39 links=96）；
-  `tools/gate.sh selftest` PASS（check-docs 11/11、skills-lint 6/6）。
-- P7a 依赖：Jackson 2.22.4、SLF4J 2.0.20、JUnit 6.1.3、Java-WebSocket 1.6.0；
-  shaded jar 成功，Jackson BOM 解析一致。
-- P7b 归档：旧文游 specs/plans/status/reports 移入 `docs/archive/legacy-game/`，
-  docs checker 排除 archive；当前 docs 文件数从 77 降至 39。
-- 干净空 Maven 仓库：`NOT_RUN` / `PUBLICATION_GAP`（公开 AgentLib 0.2.4 缺失；
-  Maven 全量下载 300 秒超时）。
-- P2/P3 新增日志上下文/分级/轮转/脱敏、配置 schema/来源追踪/CLI/日志应用测试；P4 新增多账号 registry、入站隔离、出站路由和账号身份回滚测试；P5 新增 consumer 游标、read 预览/重复读、显式 ack、read/ack 间新消息保护、Inbox 归档与 cursor-only 测试；P6a 新增账号工具、tool-name 统一、Inbox 工具裁剪、回复可选幂等键与 simulation 命名测试；P6b 新增多账号省略 accountId 的 ACCOUNT_REQUIRED、逐账号 recent/history、好友申请 v2 迁移、备注隔离测试；`iibot-connect` 保持无可编译期
-  Log4j 依赖，`LogContext` 使用 SLF4J MDC。
-- 本结果仍包含待整合的 `iibot-connect-agent` 21 tests；P6 删除模块后测试基线会变化。
-- 真实 NapCat/DSH/QQ/MCP 长跑、日志真实轮转与崩溃恢复均 `NOT_RUN`。
+## 二、当前基线
+
+- 2026-10-28 最终基线：`tools/gate.sh full` PASS，**225 tests / 0 failures / 0 errors /
+  0 skipped**（connect 61、bot 94、app 70）；`tools/gate.sh docs` PASS
+  （modules=3 files=39 links=96）；`tools/gate.sh selftest` PASS
+  （check-docs 11/11、skills-lint 6/6）。
+- 依赖：Jackson 2.22.4、SLF4J 2.0.20、JUnit 6.1.3、Java-WebSocket 1.6.0；
+  `iibot-app` shaded jar 构建成功。
+- Inbox 依赖刷新后 `./mvnw -B -ntp clean verify` PASS：37 tests / 0 failures / 0 errors。
+- 干净空 Maven 仓库：`PUBLICATION_GAP` / `NOT_RUN`。公开 AgentLib 0.2.4 尚未发布，
+  空仓全量下载也在 300 秒超时；不得用本机 `~/.m2` 冒充公开可复现。
+- 真实 QQ/NapCat/DSH/OpenCode/MCP/Inbox 外部闭环、日志真实轮转与崩溃恢复：
+  `NOT_RUN`。
 
 ## 三、证据规则
 
-- PASS = 命令实际执行 + 退出码符合预期 + 关键输出/报告核对。
-- `rc=0` 不充分；必须核对 Surefire 汇总或 XML。
+- PASS = 命令实际执行 + 退出码符合预期 + Surefire 汇总/XML 与关键输出核对。
 - 管道取 `${PIPESTATUS[0]}`，不得拿 `tail` 的退出码。
-- 每轮门禁尽量留 run-bound 证据：source SHA（有 Git 后）、开始时间、命令、输出、报告路径。
-- 旧报告不得混入本轮；没跑写 `NOT_RUN`，证据不足写 `EVIDENCE_INCOMPLETE`。
-- 外部副作用类测试（NapCat 发送、QQ 消息）必须使用隔离账号/实例或 Mock，不得对真实玩家群发。
+- 关键证据保留 source SHA、命令、时间、测试数、报告路径与 run 边界。
+- 旧报告、Mock、进程内回环测试不得混写成真实外部验收。
+- 外部副作用测试（QQ 发送、好友审批、MCP/Inbox 外部连接）必须使用隔离实例或 fake；
+  真实操作需用户当次授权。
 
-## 四、测试分层
+## 四、当前测试分层
 
 | 层 | 目的 | 当前状态 |
 |---|---|---|
-| 领域单测 | 状态机、可见性、决策解析、事件回放、纯函数 | 已有；事件回放未实现 |
-| 契约测试 | QQ 事件/动作 JSON、MCP 工具 schema、存储重放 | 已有；真实协议未验 |
-| 应用集成 | 真实 `NapCatAdapter` + 本地 Mock NapCat + Fake LLM + SQLite/Docs | 已有（连续 5 次通过） |
-| 真模型 E2E | 真实 provider 的 tool calling/输出约束 | NOT_RUN |
-| 真 NapCat E2E | 真实私聊/群聊 | NOT_RUN |
-| 崩溃/重放 | 快照原子写、seq 不一致 fail-closed、重启续跑 | 已有领域/app 测试；逐事件回放与真实进程崩溃注入 NOT_RUN |
-| 长跑 | 多回合、多玩家、内存/速率/泄漏 | NOT_RUN |
+| 领域单测 | 消息板、thread、备注、好友申请、来源权重、consumer 游标 | 已有 |
+| 契约测试 | OneBot 事件/动作 JSON、MCP schema、SQLite 迁移与重开 | 已有 |
+| 应用集成 | BotRuntime + fake Adapter + embedded loopback Inbox/MCP | 已有 |
+| 真实 NapCat E2E | 真实私聊/群聊入站与发送 | `NOT_RUN` |
+| 真实 DSH/OpenCode wake | 真实 wake/ack 闭环 | `NOT_RUN` |
+| 长跑/崩溃恢复 | 多账号、日志轮转、进程崩溃与重启 | `NOT_RUN` |
 
-## 五、关键负向判据（持续保留）
+## 五、当前负向判据
 
-1. 未登记 QQ 用户发消息 ⇒ 不进入 Agent，不回敏感内容。
-2. 玩家自称推演/系统管理员 ⇒ 角色不变。
-3. 秘书上下文与工具结果不含该玩家不可见事实。
-4. 回合关闭后提交/确认决策 ⇒ 拒绝且记录原因。
-5. 重复 QQ `message_id` ⇒ 只处理一次。
-6. 重复 `idempotencyKey` ⇒ 不重复开回合/冻结/发布/世界变更。
-7. 外部 MCP 伪造玩家决策 ⇒ 工具不存在或拒绝。
-8. 中央 Agent 非法 schema/未知实体/过期世界版本 ⇒ 零落盘，转可重试失败态。
-9. 同一回合重复提交/重复发布 ⇒ 不产生两份世界变更或重复出站。
-10. QQ 发送超时 → `UNKNOWN`，不得自动重发。
-11. 非回环 MCP host/无 Bearer/错 Bearer ⇒ 启动或请求拒绝。
+1. 重复 QQ `message_id` ⇒ 只入库/通知一次。
+2. 入站 accountId 与绑定账号不一致 ⇒ `inbound_account_mismatch` fail-closed。
+3. 出站 thread 的 accountId 无对应 Adapter ⇒ 不得改投其他账号。
+4. 发送超时/`UNKNOWN` ⇒ 不得自动重试。
+5. `qq_conversation_read` 不得推进 `readSeq`；重复读取返回同一 delivered 批次。
+6. 未显式 ack 前新到消息不得被上一批 ack 吃掉。
+7. ack 必须先成功同步 Inbox，再推进 consumer `readSeq`。
+8. 多账号下 recent/history/friend request/user note 未指定 `accountId` ⇒ `ACCOUNT_REQUIRED`。
+9. 重复 `idempotencyKey` ⇒ 不重复发送；省略时服务端生成并回传。
+10. 日志/MCP 结果不得出现 raw token、Authorization、完整协议 JSON 或聊天正文。
+11. 非回环监听、错误 Bearer、未知工具/参数 ⇒ fail-closed。
+12. 配置 JSON 错误必须给来源文件与 JSON pointer；`--print-effective-config` 必须脱敏。
 
-## 六、未验证项的表达
+## 六、未验证表达
 
 - “第三方文档说可以” ⇒ `文档结论（未实测）`。
 - “本机源码存在 API” ⇒ `源码核实（未编译）`。
-- “Mock 通过” ≠ “真实 NapCat 通过”。
-- “真实模型回了一次” ≠ “行为稳定/统计提升”。
-- “事件库能读” ≠ “引擎已恢复”。
+- “Mock/回环通过” ≠ “真实 NapCat/DSH/OpenCode 通过”。
+- “构建通过” ≠ “长跑稳定”或“真实外部副作用已验证”。

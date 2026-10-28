@@ -1,4 +1,4 @@
-# iibot-bot —— Bot-first 通用核心
+# iibot-bot —— 统一 QQ 消息板与 Bot MCP 核心
 
 > 本模块只承载 QQ Bot 通用能力，不承载文游领域。
 
@@ -13,8 +13,8 @@
 
 ## 边界
 
-- 不依赖 `iibot-taskflow`；源码不得出现 `Player`、`Director`、`Secretary`、`Turn`、
-  `DecisionDraft`、`ActionPool`、`Ticket`、`Publication` 等默认文游对象。
+- 不引入文游语义；源码不得出现 `Player`、`Director`、`Secretary`、`Turn`、
+  `DecisionDraft`、`ActionPool`、`Ticket`、`Publication` 等对象。
 - 不直接实现 NapCat/OneBot 协议；协议细节在 `iibot-connect`。
 - 不直接依赖 Inbox 具体客户端；通过端口由 app 注入。
 - 聊天文本是不可信数据；身份和回复目标不能由文本提升或改写。
@@ -36,6 +36,9 @@
 - `src/main/java/io/mosire/iibot/bot/mcp/QqAccountListTool.java`
 - `src/main/java/io/mosire/iibot/bot/mcp/QqAccountStatusTool.java`
 - `src/main/java/io/mosire/iibot/bot/mcp/QqAccountLoginInfoTool.java`
+- `src/main/java/io/mosire/iibot/bot/mcp/BotQqConversationReadTool.java`
+- `src/main/java/io/mosire/iibot/bot/mcp/BotQqConversationAckTool.java`
+- `src/main/java/io/mosire/iibot/bot/store/ConsumerConversationStore.java`
 - `src/main/java/io/mosire/iibot/bot/mcp/BotThreadHistoryTool.java`
 - `src/main/java/io/mosire/iibot/bot/mcp/BotForwardReadTool.java`
 - `src/main/java/io/mosire/iibot/bot/mcp/BotSourceWeightSetTool.java`
