@@ -14,7 +14,6 @@
 
   <modules>
     <module>iibot-connect</module>
-    <module>iibot-connect-agent</module>
     <module>iibot-bot</module>
     <module>iibot-app</module>
   </modules>

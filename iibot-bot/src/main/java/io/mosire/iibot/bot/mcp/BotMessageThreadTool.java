@@ -20,7 +20,7 @@ import java.util.Set;
 /** 沿 replyToMessageId 读取引用回复链。 */
 public final class BotMessageThreadTool implements AgentTool {
 
-    public static final String NAME = "bot_message_thread";
+    public static final String NAME = "qq_message_thread";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

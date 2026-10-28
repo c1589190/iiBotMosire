@@ -2,31 +2,28 @@
 
 面向各类 Agent 软件的**统一 QQ 消息客户端**：通过 OneBot 11 接入 QQ，把私聊/群聊写入消息板，提供统一 MCP 工具，并用 Inbox 唤醒外部 Agent。
 
-> **当前阶段**：P1 代码收缩进行中。文游模块 `iibot-taskflow` 与旧文游 app 代码已删除；多账号路由、统一 `qq_*` 工具面、服务端读游标和 Inbox 自动同步仍在后续阶段实施。当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
+> **当前阶段**：P6a 已收敛默认 Agent MCP 为统一 `qq_*` 工具面、账号工具与可选回复幂等键；direct-provider 工具的完整多账号化留待 P6b。当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
 
 ## 当前模块
 
 | 模块 | 职责 |
 |---|---|
 | `iibot-connect` | OneBot 11 / NapCat / LLBot 接入、重连、去重、限速、发送三态 |
-| `iibot-connect-agent` | 通用 QQ AgentTool 适配层；计划整合进正式模块后删除 |
-| `iibot-bot` | QQ 消息板、thread、用户备注、摘要、Inbox digest、Bot MCP 工具 |
+| `iibot-bot` | QQ 消息板、thread、用户备注、摘要、Inbox digest、账号与 Bot MCP 工具 |
 | `iibot-app` | 可运行组合根：配置、Adapter、embedded Inbox、Bot MCP、日志 |
 
-最终目标模块为：
+当前依赖图：
 
 ```text
 iibot-connect -> iibot-bot -> iibot-app
 ```
-
-`iibot-connect-agent` 的 Adapter Registry 与账号工具将迁入正式模块，原独立模块在 P6 删除。
 
 ## 当前能力
 
 - OneBot 11 事件 WebSocket + HTTP Action；
 - QQ 私聊/群聊入库、thread、历史、用户备注、媒体读取、好友申请；
 - Inbox 来源未读预览与唤醒；
-- 回环 Bot MCP，支持会话读取、回复、ack、媒体和 Inbox 工具；
+- 回环 Bot MCP，默认暴露统一 `qq_*` 业务工具、`inbox_rest` 与宿主交接 descriptor；
 - 出站三态：`SENT` / `FAILED_BEFORE_SEND` / `UNKNOWN`，`UNKNOWN` 不自动重发；
 - 默认只监听回环地址，token 只来自环境变量。
 
@@ -58,7 +55,7 @@ http://127.0.0.1:8765/mcp/bot
 Authorization: Bearer <IIBOT_CONTROL_TOKEN>
 ```
 
-当前 MCP 是 `bot_* + inbox_* + tf_*` 的过渡工具面；P6 将收敛为统一 `qq_*` 业务工具，并把 Agent 不应维护的 revision/snapshot 等内部标记移出模型接口。
+默认 MCP 只暴露统一 `qq_*` 业务工具（含账号、会话、消息、媒体、好友申请、用户备注和来源权重）、唯一通用 Inbox 工具 `inbox_rest`，以及暂留宿主交接的 `qq_inbox_binding_descriptor`。不再全量暴露通用 `inbox_*` 工具，也不保留绕过消息板的公开直接发送工具。
 
 ## 目标设计
 

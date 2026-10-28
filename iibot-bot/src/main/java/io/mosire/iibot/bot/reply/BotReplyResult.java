@@ -5,7 +5,7 @@ import io.mosire.iibot.bot.chat.DeliveryState;
 
 import java.util.List;
 
-/** 一次 bot_reply 的可审计结果。 */
+/** 一次 qq_conversation_send 的可审计结果。 */
 public record BotReplyResult(
         ChatMessage message,
         boolean alreadyAttempted,

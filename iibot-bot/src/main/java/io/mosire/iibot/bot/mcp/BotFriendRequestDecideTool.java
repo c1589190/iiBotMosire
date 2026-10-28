@@ -16,7 +16,7 @@ import java.util.Set;
 /** 审批入站好友申请；不提供主动加好友。 */
 public final class BotFriendRequestDecideTool implements AgentTool {
 
-    public static final String NAME = "bot_friend_request_decide";
+    public static final String NAME = "qq_friend_request_decide";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

@@ -17,7 +17,7 @@ import java.util.Set;
 /** 按 priority 列出用户备注，可选 tag 过滤。 */
 public final class BotUserNoteListTool implements AgentTool {
 
-    public static final String NAME = "bot_user_note_list";
+    public static final String NAME = "qq_user_note_list";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

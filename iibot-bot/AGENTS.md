@@ -9,7 +9,7 @@
 - QQ 用户备注、标签与优先级（内存 + SQLite）；
 - bounded 消息摘要与 Inbox 来源大框；
 - Inbox digest 发布/更新/归档端口、游标与防抖调度；
-- Bot MCP 的 thread 读取、正文恢复、按 thread 回复与用户备注工具。
+- 统一 `qq_*` Bot MCP 工具：账号、会话读取/ack、回复、消息、媒体、用户备注、来源权重与好友申请。
 
 ## 边界
 
@@ -33,6 +33,9 @@
 - `src/main/java/io/mosire/iibot/bot/friend/FriendRequestService.java`
 - `src/main/java/io/mosire/iibot/bot/weight/SourceWeightService.java`
 - `src/main/java/io/mosire/iibot/bot/mcp/BotMcpTools.java`
+- `src/main/java/io/mosire/iibot/bot/mcp/QqAccountListTool.java`
+- `src/main/java/io/mosire/iibot/bot/mcp/QqAccountStatusTool.java`
+- `src/main/java/io/mosire/iibot/bot/mcp/QqAccountLoginInfoTool.java`
 - `src/main/java/io/mosire/iibot/bot/mcp/BotThreadHistoryTool.java`
 - `src/main/java/io/mosire/iibot/bot/mcp/BotForwardReadTool.java`
 - `src/main/java/io/mosire/iibot/bot/mcp/BotSourceWeightSetTool.java`

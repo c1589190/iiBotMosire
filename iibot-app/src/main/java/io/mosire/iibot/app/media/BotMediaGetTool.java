@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 /** 按需把消息中的图片取回为 MCP ImageContent。 */
 public final class BotMediaGetTool implements AgentTool {
 
-    public static final String NAME = "bot_media_get";
+    public static final String NAME = "qq_media_get";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private static final Map<String, Object> SCHEMA = Map.of(

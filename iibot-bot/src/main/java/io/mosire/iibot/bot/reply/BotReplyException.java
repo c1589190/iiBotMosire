@@ -1,6 +1,6 @@
 package io.mosire.iibot.bot.reply;
 
-/** bot_reply 的稳定拒绝/未知错误。 */
+/** qq_conversation_send 的稳定拒绝/未知错误。 */
 public final class BotReplyException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;

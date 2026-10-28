@@ -19,7 +19,7 @@ import java.util.Set;
 /** 新建或更新 QQ 用户备注/标签/priority。 */
 public final class BotUserNoteUpsertTool implements AgentTool {
 
-    public static final String NAME = "bot_user_note_upsert";
+    public static final String NAME = "qq_user_note_upsert";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

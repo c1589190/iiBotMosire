@@ -18,7 +18,7 @@ import java.util.Set;
 /** 向后翻页读取 thread 历史；bot_thread_read 继续负责向前读未读上下文。 */
 public final class BotThreadHistoryTool implements AgentTool {
 
-    public static final String NAME = "bot_thread_history";
+    public static final String NAME = "qq_conversation_history";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

@@ -16,7 +16,7 @@ import java.util.Set;
 /** 按 messageKey 读取一条完整消息。 */
 public final class BotMessageGetTool implements AgentTool {
 
-    public static final String NAME = "bot_message_get";
+    public static final String NAME = "qq_message_get";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

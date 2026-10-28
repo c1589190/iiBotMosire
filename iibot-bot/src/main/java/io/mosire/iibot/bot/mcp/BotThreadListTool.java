@@ -18,7 +18,7 @@ import java.util.Set;
 /** 列出消息板来源 thread。 */
 public final class BotThreadListTool implements AgentTool {
 
-    public static final String NAME = "bot_thread_list";
+    public static final String NAME = "qq_conversation_list";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

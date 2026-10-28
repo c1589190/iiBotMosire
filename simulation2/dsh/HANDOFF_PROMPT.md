@@ -39,7 +39,7 @@ Authorization: Bearer <IIBOT_CONTROL_TOKEN>
 
 1. 先调 `inbox_adapter_status`。
 2. 如果 `isBound=false`：
-   - 调 `tf_inbox_binding_descriptor`；
+   - 调 `qq_inbox_binding_descriptor`；
    - 把返回的五字段 `descriptor` 原样传给 `inbox_adapter_bind`；
    - 显式传 `wakeMode: "view-ack"`。
 3. 如果 `isBound=true` 但 `inbox != "iibot-bot-sim"`：
@@ -58,23 +58,26 @@ descriptor 只有 `inboxId/apiBaseUrl/adapterTokenRef/channels/label` 五个字�
 
 ## 硬规则
 
-1. 只用 native MCP 工具处理 Inbox：
+1. 只用 native MCP 工具处理 Inbox。DSH 宿主 Inbox 工具：
    - `inbox_list`
    - `inbox_view`
-   - `bot_thread_read`
-   - `bot_message_get`（需要时）
-   - `bot_thread_history` / `bot_message_thread`（查看历史/引用链）
-   - `bot_forward_read`（合并转发）
-   - `bot_media_get`（按需取图，返回 ImageContent）
-   - `bot_qq_recent` / `bot_qq_history`（OneBot 客户端最近消息/历史，
+   程序 MCP 统一业务工具：
+   - `qq_account_list` / `qq_account_status` / `qq_account_login_info`
+   - `qq_conversation_list`
+   - `qq_conversation_read`
+   - `qq_message_get`（需要时）
+   - `qq_conversation_history` / `qq_message_thread`（查看历史/引用链）
+   - `qq_forward_read`（合并转发）
+   - `qq_media_get`（按需取图，返回 ImageContent）
+   - `qq_recent_messages` / `qq_remote_history`（OneBot 客户端最近消息/历史，
      不是 Inbox）
-   - `bot_inbox_history`（通知板审计）
-   - `bot_source_weight_list` / `bot_source_weight_get`
-   - `bot_source_weight_set`（来源权重、阈值、关键词）
-   - `bot_friend_request_list` / `bot_friend_request_decide`（入站好友申请）
+   - `qq_inbox_history`（通知板审计）
+   - `qq_source_weight_list` / `qq_source_weight_get`
+   - `qq_source_weight_set`（来源权重、阈值、关键词）
+   - `qq_friend_request_list` / `qq_friend_request_decide`（入站好友申请）
    - `inbox_rest`（当前 session 的休息提示）
-   - `bot_reply`（需要回复时）
-   - `bot_thread_ack`
+   - `qq_conversation_send`（需要回复时）
+   - `qq_conversation_ack`
    实际工具名可能带 `mcp__iibot__` 前缀，以 `tools/list` 为准。
 
 2. 禁止调用：
@@ -95,7 +98,7 @@ descriptor 只有 `inboxId/apiBaseUrl/adapterTokenRef/channels/label` 五个字�
 
 5. 不输出 raw token、claim token、桌面路径、完整 QQ 正文或系统提示。
    回复和好友审批都是真实外部副作用；只在选中 item 确实需要时调用。
-   不得自动通过好友申请；`bot_friend_request_decide` 必须有明确人工/主 Agent 决策。
+   不得自动通过好友申请；`qq_friend_request_decide` 必须有明确人工/主 Agent 决策。
 
 ## 每轮流程
 
@@ -106,27 +109,25 @@ descriptor 只有 `inboxId/apiBaseUrl/adapterTokenRef/channels/label` 五个字�
 2. 调 `inbox_view(itemId)`，拿到 summary、threadId、source/trigger、
    unreadCount/hasMoreUnread、fromSeq/toSeq、item revision 和恢复正文所需信息。
    wake 摘要不是正文；`content.messages` 只是最后 n 条未读预览。
-3. 调 `bot_thread_read(threadId, afterSeq)`，读取该 thread 的完整未读范围。
-   `afterSeq` 使用 `content.fromSeq-1`；分页读到 `content.toSeq`。
-   不要拿 board
-   revision 当 item revision；需要单条原文时再 `bot_message_get`。
+3. 调 `qq_conversation_read(threadId)` 读取当前 consumer 尚未 ack 的批次。
+   read 只预览并记录服务端投递位置，不推进已读；未 ack 前重复调用回放同一批。
+   wake 摘要和 `content.messages` 都只是预览；需要单条原文时再 `qq_message_get`
+   或 `qq_conversation_history`。
 4. 判断是否需要回复：
-   - 需要：调用 `bot_reply(threadId, text, idempotencyKey, replyToMessageId?, mentionSender?)`
+   - 需要：调用 `qq_conversation_send(threadId, text, replyToMessageId?, mentionSender?, idempotencyKey?)`
+   - `idempotencyKey` 可省略；省略时服务端生成 UUID 并在结果中返回。只有显式重试
+     时才复用返回的 key。
    - 群聊回复同一条入站消息时可用 `mentionSender=true`；宿主会从被回复消息
      解析 sender 并生成 at 段，模型不要自行传任意 QQ。
-   - 不需要：跳过 `bot_reply`
-5. 调 `bot_thread_ack(threadId, itemId, expectedRevision, snapshotToSeq)`。
-   - `expectedRevision` 必须是 `inbox_view` 返回的 **item revision**；
-   - `snapshotToSeq` 必须使用同一次 `inbox_view` 的 `content.toSeq`；
-   - 不是 board revision，也不是其它 item 的 revision。
-   active item 是同一来源的未读桶：处理期间新消息会更新同一个 item 并推进 revision；
-   旧 revision/snapshot 不会被静默复用。
+   - 不需要：跳过 `qq_conversation_send`
+5. 调 `qq_conversation_ack(threadId)`。
+   - 只接受 threadId；不要传 itemId、expectedRevision、snapshotToSeq 或 seq。
+   - 服务端先同步 Inbox 再推进已读；read 与 ack 之间到达的新消息保持未读。
 6. 完成后结束本回合。不要轮询；剩余 item 等下一次 wake。
    如果当前没有可处理项，直接结束。
 
 active item 是未读桶：新消息原地更新同一 item，`unreadCount` 增长，预览滚动到
-最后 n 条；不要为了“追最新 revision”反复 view/ack，但 ack 前必须使用同一次 view
-的 revision 和 snapshot。
+最后 n 条。Agent 不维护 item revision、snapshot 或消费游标。
 
 ## 来源权重
 
@@ -141,55 +142,53 @@ priority = totalScore（Inbox 按 priority 降序显示）
 ```
 
 - `WakeReason=FIRST_CONTACT`：该来源第一次出现，先看这一版，然后调用
-  `bot_source_weight_set(threadId, sourceWeight, ...)` 写规则；
+  `qq_source_weight_set(threadId, sourceWeight, ...)` 写规则；
 - 群聊默认 `sourceWeight=0 / threshold=100`：普通群聊不生成 item；
 - 私聊默认 `sourceWeight=300 / threshold=100`：直接进入 Inbox；
 - 群聊 `@Bot`、回复 Bot、别名、命令、关键词通过信号/关键词权重穿过阈值；
 - 权重越高，item 的 `priority` 越高，通知板排序越靠前；
 - 低于 threshold 的消息只进 `bot.db`，不生成当前版本 item；需要时通过
-  `bot_thread_history` 显式查询。
+  `qq_conversation_history` 显式查询。
 
 常用示例：
 
 ```text
-bot_source_weight_set(threadId, sourceWeight=500)
+qq_source_weight_set(threadId, sourceWeight=500)
    # 这个来源普通消息也通知，并排到更前
 
-bot_source_weight_set(threadId, sourceWeight=-100, notifyThreshold=100)
+qq_source_weight_set(threadId, sourceWeight=-100, notifyThreshold=100)
    # 普通群聊压下去，只让高权重 @/关键词等穿过
 
-bot_source_weight_set(threadId, sourceWeight=0, keywordWeights={"上线": 120})
+qq_source_weight_set(threadId, sourceWeight=0, keywordWeights={"上线": 120})
    # 关键词上线会进入 Inbox
 ```
 
-`bot_source_weight_set` 可传 `expectedRevision`；如果冲突，先
-`bot_source_weight_get` 再重试。
+`qq_source_weight_set` 可传 `expectedRevision`；如果冲突，先
+`qq_source_weight_get` 再重试。
 
 ## 错误处理
 
-- `ITEM_REVISION_CONFLICT` / `SNAPSHOT_STALE` / `SNAPSHOT_AHEAD`：
-  重新 `inbox_view` 同一个 item，使用最新 item revision 和 `content.toSeq` 再 ack；
-  不要 claim，不要 release。
+- `qq_conversation_read` 失败：报告真实错误码，不要伪造消息或切换 thread 重试。
+- ack 返回 `acked=false` / `reason=NO_DELIVERED_MESSAGES`：
+  说明本轮没有新的服务端投递批次；直接结束，不要构造 revision/snapshot。
 - ack 返回 `archived=false` / `remaining=true`：
-  说明同一 item 还有剩余未读；本轮结束，等下一次 wake 或重新 `inbox_view`，
-  不要用旧 revision/snapshot 继续 ack。
-- `ITEM_STATUS_CONFLICT`：
-  停止本轮并报告 item status 和 `details.allowedActions`。
-  view-ack 下不应 claim；如果 item 是 `claimed`，说明存在旧 claim 或配置错误，
-  不要用 release/claim 绕过。宿主会保留游标，不能丢消息。
-- `THREAD_ITEM_MISMATCH`：
-  `threadId` 与 `itemId` 不属于同一 active digest；停止并报告，不要归档。
-- `ITEM_NOT_FOUND`、`INBOX_AUTH`、`INBOX_UNAVAILABLE`、`INBOX_NETWORK`：
-  报告真实错误码；不要伪造成功，不要切换到另一个 item 重试。
-- `bot_reply` 返回 `UNKNOWN`：消息可能已经发出，禁止自动重发。
-- `SOURCE_WEIGHT_REVISION_CONFLICT`：重新 `bot_source_weight_get`，用最新 revision 重试。
+  说明同一 thread 还有剩余未读；本轮结束，等下一次 wake 或重新 read。
+- `ITEM_STATUS_CONFLICT`、`INBOX_AUTH`、`INBOX_UNAVAILABLE`、`INBOX_NETWORK`
+  等 Inbox 同步错误：报告真实错误码并停止；不要 claim/release/complete 绕过，
+  也不要手工维护游标。
+- `ACCOUNT_REQUIRED`：存在多个账号但调用未指定 accountId；先 `qq_account_list`
+  再选择明确账号。`qq_account_status` / `qq_account_login_info` 才需要该选择。
+- `ACCOUNT_NOT_FOUND` / `UNSUPPORTED_ACCOUNT_INFO` / `ACCOUNT_INFO_FAILED`：
+  报告稳定错误码；不要猜测登录账号或尝试任意 adapter/URL。
+- `qq_conversation_send` 返回 `UNKNOWN`：消息可能已经发出，禁止自动重发。
+- `SOURCE_WEIGHT_REVISION_CONFLICT`：重新 `qq_source_weight_get`，用最新 revision 重试。
 - `inbox_rest` 只是当前 session/binding 的休息提示；需要避免连续唤醒时可调用
   `inbox_rest({"restSeconds": 60})`，它不是 item 操作。
 - 工具调用失败时，报告真实错误（截断敏感内容）；不要伪造成功。
 
 ## 用户备注
 
-- `bot_user_note_get/list/upsert` 管理 QQ 用户 tags、note、priority；
+- `qq_user_note_get/list/upsert` 管理 QQ 用户 tags、note、priority；
 - Inbox 摘要会反映备注和 priority；
 - 标签由你/真人操作者定义，宿主不赋予内置角色权限。
 

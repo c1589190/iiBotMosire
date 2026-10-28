@@ -57,17 +57,19 @@ class BotMcpToolsTest {
                 new FakeReplyPort(), CLOCK);
         List<AgentTool> tools = BotMcpTools.all(board, notes, digestService, replyService, "bot-1");
         assertThat(tools).extracting(AgentTool::name).containsExactly(
-                "bot_thread_list", "bot_thread_read", "bot_thread_history",
-                "bot_message_get", "bot_message_thread", "bot_reply",
+                "qq_conversation_list", "qq_conversation_history",
+                "qq_message_get", "qq_message_thread", "qq_conversation_send",
                 "qq_conversation_read", "qq_conversation_ack",
-                "bot_user_note_get", "bot_user_note_list", "bot_user_note_upsert");
-        assertThat(tools).extracting(AgentTool::name).doesNotContain("bot_thread_ack");
+                "qq_user_note_get", "qq_user_note_list", "qq_user_note_upsert");
+        assertThat(tools).extracting(AgentTool::name).allMatch(name -> name.startsWith("qq_"));
+        assertThat(tools).extracting(AgentTool::name)
+                .doesNotContain("bot_thread_read", "bot_thread_ack");
 
-        JsonNode listed = call(tool(tools, "bot_thread_list"), Map.of());
+        JsonNode listed = call(tool(tools, "qq_conversation_list"), Map.of());
         assertThat(listed.path("data").path("threads")).hasSize(1);
         String threadId = listed.path("data").path("threads").get(0).path("threadId").asText();
 
-        JsonNode read = call(tool(tools, "bot_thread_read"),
+        JsonNode read = call(tool(tools, "qq_conversation_read"),
                 Map.of("threadId", threadId, "limit", 10));
         assertThat(read.path("data").path("messages")).hasSize(1);
         assertThat(read.path("data").path("messages").get(0).path("text").asText())
@@ -75,11 +77,11 @@ class BotMcpToolsTest {
         assertThat(read.path("data").path("messages").get(0).path("nonTextSummary").asText())
                 .isEqualTo("[图片×1]");
 
-        JsonNode message = call(tool(tools, "bot_message_get"),
+        JsonNode message = call(tool(tools, "qq_message_get"),
                 Map.of("messageKey", ChatMessage.inboundKey(GROUP, "m-1")));
         assertThat(message.path("data").path("senderName").asText()).isEqualTo("Alice");
 
-        JsonNode replied = call(tool(tools, "bot_reply"), Map.of(
+        JsonNode replied = call(tool(tools, "qq_conversation_send"), Map.of(
                 "threadId", threadId,
                 "text", "收到",
                 "idempotencyKey", "reply-1"));
@@ -87,18 +89,28 @@ class BotMcpToolsTest {
         assertThat(replied.path("data").path("alreadyAttempted").asBoolean()).isFalse();
         assertThat(board.readThread(threadId, 1L, 10)).hasSize(1);
 
-        JsonNode replay = call(tool(tools, "bot_reply"), Map.of(
+        JsonNode replay = call(tool(tools, "qq_conversation_send"), Map.of(
                 "threadId", threadId,
                 "text", "收到",
                 "idempotencyKey", "reply-1"));
         assertThat(replay.path("data").path("alreadyAttempted").asBoolean()).isTrue();
+        assertThat(replay.path("data").path("idempotencyKey").asText())
+                .isEqualTo("reply-1");
 
-        JsonNode saved = call(tool(tools, "bot_user_note_upsert"), Map.of(
+        JsonNode generated = call(tool(tools, "qq_conversation_send"), Map.of(
+                "threadId", threadId,
+                "text", "服务端生成幂等键"));
+        String generatedKey = generated.path("data").path("idempotencyKey").asText();
+        assertThat(generated.path("data").path("alreadyAttempted").asBoolean()).isFalse();
+        assertThat(generatedKey).isNotBlank();
+        java.util.UUID.fromString(generatedKey);
+
+        JsonNode saved = call(tool(tools, "qq_user_note_upsert"), Map.of(
                 "qqId", "qq-1", "tags", List.of("vip"), "note", "重点", "priority", 80));
         assertThat(saved.path("data").path("revision").asLong()).isEqualTo(1L);
-        JsonNode fetched = call(tool(tools, "bot_user_note_get"), Map.of("qqId", "qq-1"));
+        JsonNode fetched = call(tool(tools, "qq_user_note_get"), Map.of("qqId", "qq-1"));
         assertThat(fetched.path("data").path("tags")).hasSize(1);
-        JsonNode noteList = call(tool(tools, "bot_user_note_list"),
+        JsonNode noteList = call(tool(tools, "qq_user_note_list"),
                 Map.of("tag", "vip"));
         assertThat(noteList.path("data").path("notes")).hasSize(1);
     }
@@ -285,20 +297,24 @@ class BotMcpToolsTest {
 
         AgentTool read = tool(tools, "qq_conversation_read");
         AgentTool ack = tool(tools, "qq_conversation_ack");
-        String readSchema = JSON.writeValueAsString(read.jsonSchema());
-        String ackSchema = JSON.writeValueAsString(ack.jsonSchema());
+        AgentTool send = tool(tools, "qq_conversation_send");
+        String schema = JSON.writeValueAsString(read.jsonSchema())
+                + JSON.writeValueAsString(ack.jsonSchema())
+                + JSON.writeValueAsString(send.jsonSchema());
 
         JsonNode readRequired = JSON.valueToTree(read.jsonSchema()).path("required");
         JsonNode ackRequired = JSON.valueToTree(ack.jsonSchema()).path("required");
+        JsonNode sendRequired = JSON.valueToTree(send.jsonSchema()).path("required");
         assertThat(readRequired.size()).isEqualTo(1);
         assertThat(ackRequired.size()).isEqualTo(1);
         assertThat(readRequired.get(0).asText()).isEqualTo("threadId");
         assertThat(ackRequired.get(0).asText()).isEqualTo("threadId");
+        assertThat(sendRequired).extracting(JsonNode::asText)
+                .containsExactly("threadId", "text");
         assertThat(JSON.valueToTree(read.jsonSchema()).path("properties")
                 .path("limit").path("maximum").asInt()).isEqualTo(100);
-        assertThat(readSchema + ackSchema)
-                .doesNotContain("expectedRevision", "snapshotToSeq", "itemId",
-                        "localSeq", "afterSeq");
+        assertThat(schema).doesNotContain("expectedRevision", "snapshotToSeq", "itemId",
+                "localSeq", "afterSeq");
     }
 
     private static AgentTool tool(List<AgentTool> tools, String name) {

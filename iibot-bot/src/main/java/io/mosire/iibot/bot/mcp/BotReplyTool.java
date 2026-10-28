@@ -14,11 +14,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 /** 按 thread 回复，目标由宿主反解。 */
 public final class BotReplyTool implements AgentTool {
 
-    public static final String NAME = "bot_reply";
+    public static final String NAME = "qq_conversation_send";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",
@@ -28,8 +29,9 @@ public final class BotReplyTool implements AgentTool {
                     "replyToMessageId", Map.of("type", "string"),
                     "mentionSender", Map.of("type", "boolean",
                             "description", "群聊中回复时 @ 被回复消息的发送者"),
-                    "idempotencyKey", Map.of("type", "string", "minLength", 1)),
-            "required", List.of("threadId", "text", "idempotencyKey"),
+                    "idempotencyKey", Map.of("type", "string", "minLength", 1,
+                            "description", "可选；仅在调用方需要重试时显式传入。省略时服务端生成 UUID。")),
+            "required", List.of("threadId", "text"),
             "additionalProperties", false);
 
     private final BotReplyService service;
@@ -55,15 +57,20 @@ public final class BotReplyTool implements AgentTool {
 
     @Override public ToolResult execute(ToolContext context) {
         try {
+            String idempotencyKey = context.arguments().containsKey("idempotencyKey")
+                    ? BotToolSupport.requiredText(
+                            context.arguments(), "idempotencyKey", 200)
+                    : UUID.randomUUID().toString();
             BotReplyResult result = service.reply(
                     BotToolSupport.requiredText(context.arguments(), "threadId", 512),
                     BotToolSupport.requiredText(context.arguments(), "text", 4000),
                     BotToolSupport.optionalText(context.arguments(), "replyToMessageId", 256),
                     BotToolSupport.optionalBoolean(context.arguments(), "mentionSender", false),
-                    BotToolSupport.requiredText(context.arguments(), "idempotencyKey", 200));
+                    idempotencyKey);
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("messageKey", result.message().messageKey());
             data.put("threadId", result.message().source().threadId());
+            data.put("idempotencyKey", result.message().idempotencyKey());
             data.put("deliveryState", result.deliveryState().name());
             data.put("messageIds", result.messageIds());
             data.put("errorCode", result.errorCode());

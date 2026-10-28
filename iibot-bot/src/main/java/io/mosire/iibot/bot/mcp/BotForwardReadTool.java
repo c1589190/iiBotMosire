@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** 按消息中的 forward 段读取有界合并转发树。 */
 public final class BotForwardReadTool implements AgentTool {
 
-    public static final String NAME = "bot_forward_read";
+    public static final String NAME = "qq_forward_read";
     private static final int MAX_NODES = 200;
     private static final long TIMEOUT_SECONDS = 20L;
 

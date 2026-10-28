@@ -72,7 +72,23 @@ class BotRuntimeE2ETest {
             assertThat(itemId).startsWith("itm_");
 
             client = mcpClient(runtime);
-            JsonNode threads = call(client, "bot_thread_list", Map.of());
+            List<String> toolNames = client.listTools().tools().stream()
+                    .map(McpSchema.Tool::name).toList();
+            assertThat(toolNames).contains(
+                    "qq_account_list", "qq_account_status", "qq_account_login_info",
+                    "qq_conversation_list", "qq_conversation_read",
+                    "qq_conversation_history", "qq_conversation_send",
+                    "qq_message_get", "qq_message_thread",
+                    "qq_inbox_history", "qq_user_note_get", "qq_user_note_list",
+                    "qq_user_note_upsert", "qq_source_weight_list",
+                    "qq_source_weight_get", "qq_source_weight_set",
+                    "inbox_rest", "qq_inbox_binding_descriptor");
+            assertThat(toolNames).allMatch(name -> name.startsWith("qq_")
+                    || "inbox_rest".equals(name));
+            assertThat(toolNames).noneMatch(name -> name.startsWith("bot_")
+                    || name.startsWith("tf_")
+                    || (name.startsWith("inbox_") && !"inbox_rest".equals(name)));
+            JsonNode threads = call(client, "qq_conversation_list", Map.of());
             assertThat(threads.path("data").path("threads")).hasSize(1);
             String threadId = threads.path("data").path("threads").get(0)
                     .path("threadId").asText();
@@ -92,17 +108,19 @@ class BotRuntimeE2ETest {
             assertThat(runtime.inboxRuntime().programClient()
                     .list("bot-inbox", java.util.Set.of("qq"), 10).items()).isEmpty();
 
-            // 完整历史读取不受已读/ack 状态影响。
-            JsonNode history = call(client, "bot_thread_read",
+            // 历史读取不受已读/ack 状态影响。
+            JsonNode history = call(client, "qq_conversation_history",
                     Map.of("threadId", threadId, "limit", 10));
             assertThat(history.path("data").path("messages").get(0).path("text").asText())
                     .isEqualTo("你好");
 
-            JsonNode reply = call(client, "bot_reply", Map.of(
+            JsonNode reply = call(client, "qq_conversation_send", Map.of(
                     "threadId", threadId,
-                    "text", "收到",
-                    "idempotencyKey", "reply-e2e-1"));
+                    "text", "收到"));
             assertThat(reply.path("data").path("deliveryState").asText()).isEqualTo("SENT");
+            String generatedKey = reply.path("data").path("idempotencyKey").asText();
+            assertThat(generatedKey).isNotBlank();
+            java.util.UUID.fromString(generatedKey);
             assertThat(adapter.sent()).hasSize(1);
             assertThat(adapter.sent().getFirst().textSegments()).containsExactly("收到");
         } finally {
@@ -148,14 +166,14 @@ class BotRuntimeE2ETest {
                     .containsExactlyInAnyOrder("bot-a", "bot-b");
 
             client = mcpClient(runtime);
-            JsonNode threads = call(client, "bot_thread_list", Map.of("limit", 10));
+            JsonNode threads = call(client, "qq_conversation_list", Map.of("limit", 10));
             String threadA = threadIdForAccount(threads, "bot-a");
             String threadB = threadIdForAccount(threads, "bot-b");
 
-            JsonNode replyA = call(client, "bot_reply", Map.of(
+            JsonNode replyA = call(client, "qq_conversation_send", Map.of(
                     "threadId", threadA, "text", "回复 A",
                     "idempotencyKey", "multi-reply-a"));
-            JsonNode replyB = call(client, "bot_reply", Map.of(
+            JsonNode replyB = call(client, "qq_conversation_send", Map.of(
                     "threadId", threadB, "text", "回复 B",
                     "idempotencyKey", "multi-reply-b"));
             assertThat(replyA.path("data").path("deliveryState").asText())

@@ -83,14 +83,15 @@ simulation2/dsh/HANDOFF_PROMPT.md
 
 或直接：
 
-1. 调 `tf_inbox_binding_descriptor`；
+1. 调 `qq_inbox_binding_descriptor`；
 2. 把 descriptor 原样传给 `inbox_adapter_bind`，并显式传
    `wakeMode: "view-ack"`；
 3. 用 `inbox_adapter_status` 确认 `isBound=true`、`wakeMode=view-ack`、
    `programMcp=available`、SSE/occupancy 正常；
-4. 后续从 Inbox summary 进入 `inbox_view`，再用 `bot_thread_read` 恢复正文，
-   最后用 `bot_thread_ack(..., expectedRevision, snapshotToSeq=content.toSeq)` 归档。
-   active item 发布后冻结；处理期间的新消息在 ack 后形成下一版 item。
+4. 后续从 Inbox summary 进入 `inbox_view`，再用 `qq_conversation_read(threadId)`
+   读取未 ack 批次；处理完成后调 `qq_conversation_ack(threadId)`。
+   Agent 不传 revision/snapshot/itemId 等内部标记；read 只记录服务端 delivered
+   位置，ack 才推进已读并同步 Inbox。处理期间的新消息留到下一次未读批次。
 
 view-ack 不使用 `claim/release/complete`。当前唤醒摘要会按 view-ack 模式生成；
 程序 MCP 的工具名可能带 `mcp__iibot__` 前缀。
@@ -105,51 +106,65 @@ simulation2/scripts/03-stop.sh
 
 ## 6. 当前工具面
 
-view-ack 主流程只使用：
+DSH 宿主提供的 Inbox 工具用于绑定和查看 summary：
 
 ```text
 inbox_adapter_status
-inbox_status
 inbox_list
 inbox_view
-bot_thread_read
-bot_thread_history
-bot_message_get
-bot_message_thread
-bot_forward_read
-bot_media_get
-bot_qq_recent
-bot_qq_history
-bot_inbox_history
-bot_friend_request_list
-bot_friend_request_decide
-bot_source_weight_list
-bot_source_weight_get
-bot_source_weight_set
-inbox_rest
-bot_reply
-bot_thread_ack
-tf_inbox_binding_descriptor
 ```
 
-`bot_qq_recent` / `bot_qq_history` 读取 OneBot 客户端侧消息，和 Inbox 通知板
-不是同一来源；`bot_inbox_history` 读取 Bot 侧通知审计。`inbox_view` 的
+Bot MCP 默认只暴露统一业务工具、唯一通用 Inbox 工具和暂留宿主交接的
+descriptor 工具：
+
+```text
+qq_account_list
+qq_account_status
+qq_account_login_info
+qq_conversation_list
+qq_conversation_read
+qq_conversation_ack
+qq_conversation_history
+qq_conversation_send
+qq_message_get
+qq_message_thread
+qq_forward_read
+qq_media_get
+qq_recent_messages
+qq_remote_history
+qq_inbox_history
+qq_friend_request_list
+qq_friend_request_decide
+qq_user_note_get
+qq_user_note_list
+qq_user_note_upsert
+qq_source_weight_list
+qq_source_weight_get
+qq_source_weight_set
+inbox_rest
+qq_inbox_binding_descriptor
+```
+
+`qq_recent_messages` / `qq_remote_history` 读取 OneBot 客户端侧消息，和 Inbox 通知板
+不是同一来源；`qq_inbox_history` 读取 Bot 侧通知审计。`inbox_view` 的
 `content.context` 默认带最近 6 条 IN/OUT 摘要。
+
+`qq_inbox_binding_descriptor` 只返回五字段 descriptor 与本地文件路径，不返回
+raw token；它暂留作宿主交接用途。真实绑定仍由 DSH adapter 完成。
 
 ## 6.1 来源权重
 
 - 每个来源有 `sourceWeight`、`notifyThreshold`、结构信号权重和关键词权重；
 - `priority` 使用总分，Inbox 按 priority 降序展示；
 - 新来源第一次出现产生 `FIRST_CONTACT` item，Agent 可调用
-  `bot_source_weight_set` 写规则；
+  `qq_source_weight_set` 写规则；
 - 群聊默认 `sourceWeight=0 / threshold=100`，普通消息只存档；
 - 私聊默认 `sourceWeight=300 / threshold=100`；
 - 低于 threshold 的消息不生成 Inbox item，但仍在 `bot.db`；
 - `inbox_rest` 是 session 级休息提示，不修改 item。
 
-Bot MCP 仍会暴露通用 `inbox_*` 工具和其他 bot 工具，但外部主 Agent 不得使用
-`inbox_claim/release/complete`。这些工具留给其他 claim-based 程序，不属于本
-view-ack 程序的生命周期。
+Bot MCP 不再全量暴露通用 `inbox_*` 工具；只保留 `inbox_rest`。DSH 的
+claim/release/complete 也不属于本 view-ack 程序的生命周期。
 
 不包含任何 `tf_ticket_*`、`tf_action_*`、秘书或回合工具。
 
@@ -157,17 +172,18 @@ view-ack 程序的生命周期。
 
 - 这是 bot-first 真实运行区，连接 LLBot（当前）或 NapCat 的 OneBot 11 接口；
   启动本身不代表已授权群发。
-- 外部主 Agent 的 `bot_reply` 是真实 QQ 外发；未知投递状态 `UNKNOWN` 不自动重发。
+- 外部主 Agent 的 `qq_conversation_send` 是真实 QQ 外发；未知投递状态 `UNKNOWN` 不自动重发。
 - app 重启后 embedded Inbox 端口会变化，必须重新 bind。
-- 本程序固定使用 view-ack：不要 claim；`ITEM_REVISION_CONFLICT` 时重新 view
-  并带上新的 `snapshotToSeq`，`ITEM_STATUS_CONFLICT` 时停止并报告，不要用
+- 本程序固定使用 view-ack：不要 claim。`qq_conversation_ack(threadId)` 不接受
+  revision/snapshot；Inbox 同步失败时报告真实错误，不要手工维护游标或用
   release/claim 绕过。
 - `programMcp=missing` 表示 DSH 会话没有挂程序 MCP，不是 Inbox 鉴权失败；
   此时应停止，不要回退到 `scripts/06-mcp.sh` 绕过。
-- `bot_friend_request_decide` 是真实外部副作用；不得自动通过好友申请。
-- `bot_qq_recent` / `bot_qq_history` 是 OneBot 客户端侧读取，不是 Inbox；
+- `qq_friend_request_decide` 是真实外部副作用；不得自动通过好友申请。
+- `qq_recent_messages` / `qq_remote_history` 是 OneBot 客户端侧读取，不是 Inbox；
   历史扩展是否可用取决于 LLBot/NapCat provider。
-- `bot_media_get` 对旧的无本地 segment 图片会按 messageId 调 `get_msg` 回退；
+- `qq_media_get` 对旧的无本地 segment 图片会按 messageId 调 `get_msg` 回退；
   旧消息仍可用，但可能比新消息慢。
-- `bot_reply` 的正文先规范化再落库，保证本地 board 与 QQ 实际正文一致。
+- `qq_conversation_send` 将调用方原文落库并发送；`idempotencyKey` 可省略，省略时
+  服务端生成 UUID 并在结果中返回，调用方仅在显式重试时复用该键。
 - `simulation2/runtime` 和 `simulation2/logs` 不提交、不对外暴露。

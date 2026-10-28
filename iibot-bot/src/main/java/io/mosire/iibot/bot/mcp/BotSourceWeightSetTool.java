@@ -20,7 +20,7 @@ import java.util.Set;
 /** 调整来源权重；首次接触后 Agent 用它写规则。 */
 public final class BotSourceWeightSetTool implements AgentTool {
 
-    public static final String NAME = "bot_source_weight_set";
+    public static final String NAME = "qq_source_weight_set";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

@@ -16,7 +16,7 @@ import java.util.Set;
 /** 列出来源权重策略。 */
 public final class BotSourceWeightListTool implements AgentTool {
 
-    public static final String NAME = "bot_source_weight_list";
+    public static final String NAME = "qq_source_weight_list";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

@@ -19,7 +19,7 @@ import java.util.Objects;
  */
 public final class InboxBindingDescriptorTool implements AgentTool {
 
-    public static final String NAME = "tf_inbox_binding_descriptor";
+    public static final String NAME = "qq_inbox_binding_descriptor";
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

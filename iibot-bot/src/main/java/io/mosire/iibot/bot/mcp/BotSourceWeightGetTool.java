@@ -15,7 +15,7 @@ import java.util.Set;
 /** 读取一个来源的权重策略。 */
 public final class BotSourceWeightGetTool implements AgentTool {
 
-    public static final String NAME = "bot_source_weight_get";
+    public static final String NAME = "qq_source_weight_get";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

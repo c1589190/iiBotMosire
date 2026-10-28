@@ -15,8 +15,8 @@ cleanup() { rm -f "$RAW" "$ERR"; }
 trap cleanup EXIT
 : > "$RAW"; : > "$ERR"; chmod 600 "$RAW" "$ERR"
 
-if ! "$SIM2_ROOT/scripts/06-mcp.sh" tf_inbox_binding_descriptor '{}' >"$RAW" 2>"$ERR"; then
-    echo "ERROR: tf_inbox_binding_descriptor 调用失败" >&2
+if ! "$SIM2_ROOT/scripts/06-mcp.sh" qq_inbox_binding_descriptor '{}' >"$RAW" 2>"$ERR"; then
+    echo "ERROR: qq_inbox_binding_descriptor 调用失败" >&2
     tail -30 "$ERR" >&2 || true
     exit 1
 fi
@@ -31,7 +31,7 @@ if "IS_ERROR=true" in text:
     raise SystemExit("ERROR: MCP 返回 IS_ERROR=true")
 lines = [line.strip() for line in text.splitlines() if line.strip().startswith("{")]
 if not lines:
-    raise SystemExit("ERROR: tf_inbox_binding_descriptor 未返回 JSON")
+    raise SystemExit("ERROR: qq_inbox_binding_descriptor 未返回 JSON")
 payload = json.loads(lines[-1])
 if set(payload) != {"descriptor", "descriptorFile"}:
     raise SystemExit(f"ERROR: descriptor 工具输出字段异常: {sorted(payload)}")

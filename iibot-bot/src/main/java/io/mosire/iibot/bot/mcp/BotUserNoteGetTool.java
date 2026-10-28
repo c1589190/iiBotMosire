@@ -16,7 +16,7 @@ import java.util.Set;
 /** 读取一个 QQ 用户的备注/标签。 */
 public final class BotUserNoteGetTool implements AgentTool {
 
-    public static final String NAME = "bot_user_note_get";
+    public static final String NAME = "qq_user_note_get";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

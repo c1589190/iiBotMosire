@@ -16,7 +16,7 @@ import java.util.Set;
 /** 列出待处理好友申请，不返回 raw flag。 */
 public final class BotFriendRequestListTool implements AgentTool {
 
-    public static final String NAME = "bot_friend_request_list";
+    public static final String NAME = "qq_friend_request_list";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

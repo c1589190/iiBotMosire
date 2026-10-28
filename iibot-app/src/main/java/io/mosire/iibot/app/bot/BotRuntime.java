@@ -3,6 +3,7 @@ package io.mosire.iibot.app.bot;
 import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.iibot.app.delivery.OutboxSender;
 import io.mosire.iibot.app.inbox.BotInboxRuntime;
+import io.mosire.iibot.app.inbox.InboxBindingDescriptorTool;
 import io.mosire.iibot.app.media.BotMediaGetTool;
 import io.mosire.iibot.app.media.BotMediaStore;
 import io.mosire.iibot.app.reply.BotOutboxReplyPort;
@@ -219,12 +220,18 @@ public final class BotRuntime implements AutoCloseable {
             List<AgentTool> tools = new ArrayList<>(BotMcpTools.allForAccounts(
                     board, notes, digestService, replies, options.accountId(),
                     forwardByAccount, activeRecent, friendService, inboxAudit,
-                    activeHistory, weightService, consumerStates));
+                    activeHistory, weightService, consumerStates, accountRegistry));
             BotMediaStore mediaStore = new BotMediaStore(dataDir);
             if (mediaByAccount.values().stream().anyMatch(Objects::nonNull)) {
                 tools.add(new BotMediaGetTool(board, mediaByAccount, mediaStore));
             }
-            tools.addAll(inboxRuntime.mcpTools());
+            // 默认 Agent MCP 只暴露统一 qq_* 业务工具、唯一通用 Inbox 工具
+            // inbox_rest，以及暂留宿主交接的 descriptor 工具；不得全量倒入 16 个
+            // Inbox claim/append/update 工具。
+            tools.addAll(inboxRuntime.mcpTools().stream()
+                    .filter(tool -> "inbox_rest".equals(tool.name())
+                            || InboxBindingDescriptorTool.NAME.equals(tool.name()))
+                    .toList());
             OpsLog.info("event=bot_tools_prepared tools={} digestLimit={}",
                     tools.size(), digestLimit);
             mcpServer = new BotMcpServer(options.controlHost(), options.controlPort(),

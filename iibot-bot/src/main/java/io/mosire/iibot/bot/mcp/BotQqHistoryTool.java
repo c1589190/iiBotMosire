@@ -18,10 +18,10 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-/** 直接读取 OneBot 历史扩展；与 bot_thread_history 的本地权威板分开。 */
+/** 直接读取 OneBot 历史扩展；与 qq_conversation_history 的本地权威板分开。 */
 public final class BotQqHistoryTool implements AgentTool {
 
-    public static final String NAME = "bot_qq_history";
+    public static final String NAME = "qq_remote_history";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

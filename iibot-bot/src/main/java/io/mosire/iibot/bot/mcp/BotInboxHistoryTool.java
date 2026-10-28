@@ -16,7 +16,7 @@ import java.util.Set;
 /** 查看 Bot 侧 Inbox 通知板审计；不是 OneBot 客户端最近消息。 */
 public final class BotInboxHistoryTool implements AgentTool {
 
-    public static final String NAME = "bot_inbox_history";
+    public static final String NAME = "qq_inbox_history";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",

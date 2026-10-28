@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
 /** 读取 OneBot 客户端侧最近会话消息，独立于 Bot Inbox。 */
 public final class BotQqRecentTool implements AgentTool {
 
-    public static final String NAME = "bot_qq_recent";
+    public static final String NAME = "qq_recent_messages";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",
