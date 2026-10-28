@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-28 22:05（Asia/Shanghai）
+> **更新时间**：2026-10-28 22:15（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -113,7 +113,7 @@ OneBot 11 / NapCat / LLBot（可多个）
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/bot-first-main-agent`（已合并 P0–P7b）；feature 分支保留 `refactor/unified-qq-agent-client` |
-| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`；Inbox 依赖刷新 `f151a87`（main） |
+| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main） |
 | Maven reactor | 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
 | 工作树 | clean；无运行中 Java 进程 |
@@ -173,15 +173,13 @@ OneBot 11 / NapCat / LLBot（可多个）
 1. **AgentLib 0.2.4 公开可解析性**：源码主线最新为 0.2.4，但公开 tag/Pages 最新仍为
    0.2.3，0.2.4 公开 POM 404；当前依赖本机已安装 artifact。P7 干净仓库验证在公开发布前
    只能 `BLOCKED` / `NOT_RUN`。
-2. **direct-provider 工具仍未完全多账号化**：`bot_qq_recent`、`bot_qq_history`、
-   `bot_friend_request_*` 仍绑定 active account；P6 完成统一 `qq_*` 工具面时处理。
-3. **consumer 维度仍固定 `default`**：P5 已实现 read/ack 服务端游标，但多 Agent 并发
+2. **consumer 维度仍固定 `default`**：P5 已实现 read/ack 服务端游标，但多 Agent 并发
    consumer 隔离尚未启用；当前不宣称多 consumer 已验收。
-4. **多账号省略 accountId 会失败**：P6b 设计要求多账号必须显式指定 accountId；
-   Agent 必须先调 `qq_account_list`。这是行为变更，P7 文档必须写清。
-5. **旧文游文档历史**：旧 specs/plans/status 仍由 Git 保留；当前导航已移除，P7 做最终
-   归档/清理，不得据旧文档开工。
-6. **真实外部验收未跑**：真实 QQ → Inbox → DSH/OpenCode wake → Bot MCP 闭环、
+3. **多账号省略 accountId 会失败**：P6b 设计要求多账号必须显式指定 accountId；
+   Agent 必须先调 `qq_account_list`；单账号可省略。
+4. **descriptor 仍暂留 Agent MCP / 自动 ack 未实现**：`qq_inbox_binding_descriptor`
+   尚未改成纯宿主 handoff；回复成功后仍要求显式 `qq_conversation_ack(threadId)`。
+5. **真实外部验收未跑**：真实 QQ → Inbox → DSH/OpenCode wake → Bot MCP 闭环、
    真实发送、日志轮转、长跑和崩溃恢复均 `NOT_RUN`。
 
 ## 7. 下一步
