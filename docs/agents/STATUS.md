@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-28 21:55（Asia/Shanghai）
+> **更新时间**：2026-10-28 22:05（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -65,13 +65,15 @@
   `iibot-connect` 使用父 POM 统一 SLF4J 版本。
   - `./mvnw -B -ntp clean verify` PASS，**225 tests / 0 failures / 0 errors / 0 skipped**。
   - `iibot-app` shaded jar 成功，Jackson 解析为 2.22.4。
-- **P7b 文档收口完成**：旧文游 specs/plans/status/reports 已归档到
+- **P7b 文档收口完成并合并**：旧文游 specs/plans/status/reports 已归档到
   `docs/archive/legacy-game/`；当前设计索引/README/AGENTS/config/handoff 已更新；
   docs checker 排除归档目录；`tools/gate.sh selftest` PASS。
   - `tools/gate.sh docs`：PASS（modules=3 files=39 links=96）。
   - `tools/gate.sh full`：PASS，**225 tests / 0 failures / 0 errors / 0 skipped**。
   - 干净空 Maven 仓库验证因公开 AgentLib 0.2.4 不存在且依赖下载超时，结果只能
     `PUBLICATION_GAP` / `NOT_RUN`；不得用本机 `~/.m2` 冒充公开可复现。
+  - 合并：iiBot feature `e6f012c` 已 fast-forward 到 `refactor/bot-first-main-agent`；
+    Inbox dependency commit `f151a87` 已 fast-forward 到 `main`。
   - 真实 QQ/DSH/Inbox wake 闭环仍 `NOT_RUN`。
 - **本轮代码状态**：默认 reactor 3 模块（connect / bot / app）；`iibot-connect-agent`
   已删除；文游 MCP、taskflow class、旧 simulation/config legacy 已从默认工作树移除；
@@ -93,8 +95,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 当前进行中：
 
-- P1b–P6b、P7a、P7b 已完成；
-- 剩余：最终合并前确认、分支合并与推送；真实外部联调仍待用户授权。
+- P1b–P6b、P7a、P7b 已完成并合并；
+- 剩余：真实外部联调与 AgentLib 0.2.4 公开发布；均不阻塞本地源码状态。
 
 非目标：
 
@@ -108,11 +110,11 @@ OneBot 11 / NapCat / LLBot（可多个）
 | 项 | 当前事实 |
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
-| 分支 | `refactor/unified-qq-agent-client`，跟踪 `origin/refactor/unified-qq-agent-client` |
-| 已推送提交 | `12ca813` docs、`de19c46` baseline、`0acd0a0` P1a、`207a41e` P1a evidence、`bdef235` P1b、`e84c679` P2、`d81442a` P3、`7293b5b` P4、`b501eea` P5、`8910c7b` P6a、`5117f21` P6b、`138737c` P7a |
+| 分支 | `refactor/bot-first-main-agent`（已合并 P0–P7b）；feature 分支保留 `refactor/unified-qq-agent-client` |
+| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；合并后分支见 git log |
 | Maven reactor | 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | P7b 文档变更待提交；无运行中 Java 进程 |
+| 工作树 | clean（本状态提交除外）；无运行中 Java 进程 |
 | 模块目标 | 已完成：`iibot-connect-agent` 已删除，模块数为 3 |
 
 ## 3. 最近功能门禁
@@ -182,8 +184,9 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 ## 7. 下一步
 
-1. **提交并推送 P7b checkpoint**：当前分支 `refactor/unified-qq-agent-client`。
-2. **最终合并确认**：检查两个仓库分支/远端/无未提交文件，合并 Inbox 与 iiBot 的
-   `refactor/unified-qq-agent-client` 回各自基线并推送。
-3. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
+1. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。
+2. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
+   `PUBLICATION_GAP` / `BLOCKED`。
+3. **后续功能裁定**：多 consumer、`qq_account_use`、descriptor 完全移出 Agent MCP、
+   回复后自动 ack；当前均未裁定/未实施。
