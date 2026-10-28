@@ -23,7 +23,8 @@
 | `~/SimulatorMosire` | 文档系统格式参考、三库消费者参考 | 仅采用 2026-10-23 文档系统层级；不复制其业务设计 |
 
 - 上游库坐标与发布页：`https://c1589190.github.io/ProjectMosire/`。2026-10-28 核对公开 Pages metadata 最新为 `0.2.3`；`0.2.4` 只在源码主线/本机 Maven 仓，公开 POM 为 404。
-- iiBot/Inbox 当前 POM 固定 `agentlib-mosire:0.2.4`；干净 Maven 仓库复现前必须先完成上游 0.2.4 发布，或由用户裁定回退到公开的 0.2.3 并跑兼容测试。不得用 `~/.m2` 手工安装冒充可复现发布。
+- iiBot/Inbox 当前 POM 固定 `agentlib-mosire:0.2.4`；干净 Maven 仓库复现前必须先完成上游 0.2.4 发布。不得用 `~/.m2` 手工安装冒充可复现发布。用户已裁定不降级到 0.2.3。
+- 2026-10-28 依赖基线：Jackson `2.22.4`（BOM）、SLF4J `2.0.20`、JUnit `6.1.3`、Java-WebSocket `1.6.0`、SQLite JDBC `3.53.4.0`。
 
 ## 三、工作树与 Maven 规则
 
