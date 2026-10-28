@@ -387,7 +387,7 @@ Agent 面保留语义明确的 `inbox_rest` 和 `qq_conversation_ack`；不暴�
 3. ~~读取即已读还是显式 ack~~：2026-10-28 用户已选择 **读取只预览，处理完显式 ack**。
 4. ~~connect-agent 独立还是合并~~：2026-10-28 用户已选择 **整合并删除独立模块**；`AdapterRegistry` 与账号工具进入 iibot 正式运行时/MCP 层。
 5. 文游文档是物理删除还是移入 `docs/archive/legacy-game/` 后不参与门禁。
-6. 第一版 `qq_conversation_ack` 是否仅在成功回复后自动执行，还是始终要求显式 ack；本文建议回复成功可自动 ack，无回复时必须显式 ack。
+6. 发送回复成功后是否自动 ack：P5 第一版统一要求显式 `qq_conversation_ack(threadId)`；自动 ack 规则仍待后续裁定。
 
 ## 13. 修订记录
 

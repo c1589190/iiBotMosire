@@ -8,6 +8,8 @@ import io.mosire.iibot.bot.inbox.InboxDigestService;
 import io.mosire.iibot.bot.note.UserNoteStore;
 import io.mosire.iibot.bot.reply.BotReplyService;
 import io.mosire.iibot.bot.weight.SourceWeightService;
+import io.mosire.iibot.bot.store.ConsumerConversationStore;
+import io.mosire.iibot.bot.store.InMemoryConsumerConversationStore;
 import io.mosire.iibot.bot.store.MessageBoardStore;
 import io.mosire.iibot.connect.core.ForwardCapability;
 import io.mosire.iibot.connect.core.RecentQqProvider;
@@ -125,10 +127,35 @@ public final class BotMcpTools {
             InboxDigestAuditStore inboxAuditStore,
             ChatHistoryProvider historyProvider,
             SourceWeightService sourceWeights) {
+        return allForAccounts(board, notes, inboxDigests, replies, defaultAccountId,
+                forwardProviders, recentProvider, friendRequests, inboxAuditStore,
+                historyProvider, sourceWeights, new InMemoryConsumerConversationStore());
+    }
+
+    /**
+     * 带 consumer 游标存储的完整装配入口。
+     *
+     * <p>{@code qq_conversation_read/ack} 是 Agent 默认工具；旧 {@code bot_thread_ack}
+     * 仅保留内部兼容类，不进入默认清单。</p>
+     */
+    public static List<AgentTool> allForAccounts(
+            MessageBoardStore board,
+            UserNoteStore notes,
+            InboxDigestService inboxDigests,
+            BotReplyService replies,
+            String defaultAccountId,
+            Map<String, ForwardCapability> forwardProviders,
+            RecentQqProvider recentProvider,
+            FriendRequestService friendRequests,
+            InboxDigestAuditStore inboxAuditStore,
+            ChatHistoryProvider historyProvider,
+            SourceWeightService sourceWeights,
+            ConsumerConversationStore consumers) {
         Objects.requireNonNull(board, "board");
         Objects.requireNonNull(notes, "notes");
         Objects.requireNonNull(inboxDigests, "inboxDigests");
         Objects.requireNonNull(replies, "replies");
+        Objects.requireNonNull(consumers, "consumers");
         List<AgentTool> tools = new ArrayList<>(List.of(
                 new BotThreadListTool(board, sourceWeights),
                 new BotThreadReadTool(board),
@@ -136,7 +163,8 @@ public final class BotMcpTools {
                 new BotMessageGetTool(board),
                 new BotMessageThreadTool(board),
                 new BotReplyTool(replies),
-                new BotThreadAckTool(inboxDigests),
+                new BotQqConversationReadTool(board, consumers),
+                new BotQqConversationAckTool(consumers, inboxDigests),
                 new BotUserNoteGetTool(notes, defaultAccountId),
                 new BotUserNoteListTool(notes, defaultAccountId),
                 new BotUserNoteUpsertTool(notes, defaultAccountId)));

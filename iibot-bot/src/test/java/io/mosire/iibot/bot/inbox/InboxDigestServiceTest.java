@@ -204,6 +204,59 @@ class InboxDigestServiceTest {
     }
 
     @Test
+    void ackThroughDerivesActiveItemAndConsumesOnlyDeliveredRange() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(board, notes, states, port);
+        board.append(inbound("m-1", "qq-1", "Alice", "第一条"));
+        board.append(inbound("m-2", "qq-1", "Alice", "第二条"));
+        InboxDigestService.FlushResult first = service.flushThread(GROUP.threadId());
+
+        board.append(inbound("m-3", "qq-1", "Alice", "第三条"));
+        InboxDigestService.AckResult partial = service.ackThrough(GROUP.threadId(), 1L);
+
+        assertThat(partial.archived()).isFalse();
+        assertThat(states.find(GROUP.threadId())).get()
+                .extracting(InboxDigestState::itemId, InboxDigestState::lastSeq)
+                .containsExactly(first.itemId(), 3L);
+        assertThat(port.digests.get(first.itemId()).messages())
+                .extracting(MessageSummary::localSeq)
+                .containsExactly(2L, 3L);
+
+        InboxDigestService.AckResult complete = service.ackThrough(GROUP.threadId(), 3L);
+
+        assertThat(complete.archived()).isTrue();
+        assertThat(states.find(GROUP.threadId())).get()
+                .extracting(InboxDigestState::itemId, InboxDigestState::lastSeq)
+                .containsExactly("", 3L);
+    }
+
+    @Test
+    void ackThroughDeliveredBeyondActiveItemArchivesAndAdvancesCursor() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(board, notes, states, port);
+        board.append(inbound("m-1", "qq-1", "Alice", "第一条"));
+        board.append(inbound("m-2", "qq-1", "Alice", "第二条"));
+        service.flushThread(GROUP.threadId());
+
+        // 新消息尚未 flush，consumer 已读取到 m-4；ack 不能留下永远未读的新 item。
+        board.append(inbound("m-3", "qq-1", "Alice", "第三条"));
+        board.append(inbound("m-4", "qq-1", "Alice", "第四条"));
+        InboxDigestService.AckResult result = service.ackThrough(GROUP.threadId(), 4L);
+
+        assertThat(result.archived()).isTrue();
+        assertThat(states.find(GROUP.threadId())).get()
+                .extracting(InboxDigestState::itemId, InboxDigestState::lastSeq)
+                .containsExactly("", 4L);
+        assertThat(service.flushThread(GROUP.threadId()).published()).isFalse();
+    }
+
+    @Test
     void snapshotAckLeavesNewerMessagesInTheSameItem() {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);

@@ -195,6 +195,51 @@ class InboxClientDigestPortTest {
     }
 
     @Test
+    void ackThroughConsumesOnlyDeliveredRangeAndArchivesAfterExplicitAck() throws Exception {
+        try (EmbeddedInboxServer inbox = EmbeddedInboxServer.start(
+                EmbeddedInboxOptions.builder()
+                        .dataDir(tempDir.resolve("inbox-ack-through"))
+                        .inboxId("app-ack-through")
+                        .deleteDataOnClose(true)
+                        .build())) {
+            InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+            InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+            InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+            InboxDigestService service = new InboxDigestService(
+                    board, notes, states,
+                    new InboxClientDigestPort(inbox.client(), "app-ack-through"));
+            board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice", T0, T0,
+                    "第一条", "", ""));
+            board.append(ChatMessage.inbound(GROUP, "m-2", "qq-1", "Alice", T0, T0,
+                    "第二条", "", ""));
+            InboxDigestService.FlushResult first = service.flushThread(GROUP.threadId());
+
+            board.append(ChatMessage.inbound(GROUP, "m-3", "qq-1", "Alice", T0, T0,
+                    "第三条", "", ""));
+            InboxDigestService.AckResult partial = service.ackThrough(GROUP.threadId(), 1L);
+
+            assertThat(partial.archived()).isFalse();
+            InboxDigestState remaining = states.find(GROUP.threadId()).orElseThrow();
+            assertThat(remaining.itemId()).isEqualTo(first.itemId());
+            JsonNode partialContent = (JsonNode) inbox.client()
+                    .view("app-ack-through", remaining.itemId()).content();
+            assertThat(partialContent.path("messages"))
+                    .extracting(value -> value.path("summary").asText())
+                    .anyMatch(value -> value.contains("第二条"))
+                    .anyMatch(value -> value.contains("第三条"));
+            assertThat(partialContent.path("unreadCount").asInt()).isEqualTo(2);
+
+            InboxDigestService.AckResult complete = service.ackThrough(GROUP.threadId(), 3L);
+
+            assertThat(complete.archived()).isTrue();
+            assertThat(states.find(GROUP.threadId()).orElseThrow().hasActiveItem())
+                    .isFalse();
+            assertThat(inbox.client().list("app-ack-through", Set.of("qq"), 10).items())
+                    .isEmpty();
+        }
+    }
+
+    @Test
     void readsLegacyContentWithoutNewUnreadMetadata() throws Exception {
         try (EmbeddedInboxServer inbox = EmbeddedInboxServer.start(
                 EmbeddedInboxOptions.builder()

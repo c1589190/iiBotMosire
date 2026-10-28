@@ -13,7 +13,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** 主 Agent 按 snapshot 消费 Inbox 未读桶；完整消费后归档。 */
+/**
+ * 旧版 snapshot ack 工具。
+ *
+ * @deprecated Agent 面请使用 {@link BotQqConversationAckTool}；本类仅保留给内部兼容和
+ *     迁移期测试，不得默认注册到 Bot MCP 工具清单。
+ */
+@Deprecated
 public final class BotThreadAckTool implements AgentTool {
 
     public static final String NAME = "bot_thread_ack";

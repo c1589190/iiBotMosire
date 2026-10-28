@@ -486,6 +486,89 @@ public final class InboxDigestService {
                 threadId, available.itemId(), available.priority(), priority, revision);
     }
 
+    /**
+     * 按 consumer 已投递到的位置显式 ack Inbox。
+     *
+     * <p>Agent 只提供 {@code deliveredSeq} 这个服务端事实；itemId、revision 和 snapshot
+     * 都从当前 {@code inbox_digest_state} 与 Inbox item 内部推导。deliveredSeq 早于当前
+     * active item 范围时不改动 item；落在范围内时复用现有 partial/full ack 逻辑；新于
+     * item 范围时先 flushThread 拉平。没有 active item 时只推进 digest cursor，避免
+     * 已读消息以后再次生成未读 item。</p>
+     */
+    public synchronized AckResult ackThrough(String threadId, long deliveredSeq) {
+        if (threadId == null || threadId.isBlank()) {
+            throw new IllegalArgumentException("threadId 不能为空");
+        }
+        if (deliveredSeq < 0L) {
+            throw new IllegalArgumentException("deliveredSeq 不能为负");
+        }
+        try {
+            Optional<InboxDigestState> initial = states.find(threadId);
+            if (initial.isPresent() && initial.orElseThrow().hasActiveItem()) {
+                InboxDigestItem item = viewAvailable(initial.orElseThrow().itemId());
+                if (deliveredSeq > item.toSeq()) {
+                    // 消息板可能已有未 flush 的消息；先把 active item 拉平到最新范围。
+                    flushThread(threadId);
+                }
+            }
+
+            InboxDigestState state = states.find(threadId)
+                    .orElseGet(() -> InboxDigestState.cursorOnly(threadId, 0L));
+            if (!state.hasActiveItem()) {
+                long cursor = Math.max(state.lastSeq(), deliveredSeq);
+                if (cursor > state.lastSeq()) {
+                    states.save(InboxDigestState.cursorOnly(threadId, cursor));
+                }
+                OpsLog.info("event=inbox_ack_through threadId={} deliveredSeq={} "
+                                + "outcome=cursor_only cursor={}",
+                        threadId, deliveredSeq, cursor);
+                return new AckResult(deliveredSeq, false, "", 0L);
+            }
+
+            InboxDigestItem item = viewAvailable(state.itemId());
+            if (deliveredSeq <= 0L || deliveredSeq < item.fromSeq()) {
+                // delivered 范围早于 active unread item；不能为了 ack 丢掉更新的未读。
+                OpsLog.info("event=inbox_ack_through threadId={} deliveredSeq={} "
+                                + "outcome=before_active_range itemId={} itemFromSeq={} "
+                                + "itemToSeq={}", threadId, deliveredSeq, item.itemId(),
+                        item.fromSeq(), item.toSeq());
+                return new AckResult(deliveredSeq, false, item.itemId(), item.toSeq());
+            }
+
+            if (deliveredSeq >= item.toSeq()) {
+                // CONSUMER 已处理到 item 末尾之后：以 deliveredSeq 作为 cursor 归档，
+                // 让后续 flush 只为 deliveredSeq 之后的新消息建立未读 item。
+                archiveAndCursor(threadId, item.itemId(), item.revision(), deliveredSeq);
+                InboxDigestState after = states.find(threadId)
+                        .orElseGet(() -> InboxDigestState.cursorOnly(threadId, 0L));
+                if (after.hasActiveItem()) {
+                    InboxDigestItem remainingItem = viewAvailable(after.itemId());
+                    OpsLog.info("event=inbox_ack_through threadId={} deliveredSeq={} "
+                                    + "outcome=archived_with_remaining remainingItemId={} "
+                                    + "remainingToSeq={}", threadId, deliveredSeq,
+                            remainingItem.itemId(), remainingItem.toSeq());
+                    return new AckResult(deliveredSeq, true, remainingItem.itemId(),
+                            remainingItem.toSeq());
+                }
+                OpsLog.info("event=inbox_ack_through threadId={} deliveredSeq={} "
+                                + "outcome=archived cursor={}", threadId, deliveredSeq,
+                        deliveredSeq);
+                return new AckResult(deliveredSeq, true, "", 0L);
+            }
+
+            AckResult result = consumeSnapshot(threadId, item.itemId(), item.revision(),
+                    deliveredSeq, state.lastSeq());
+            OpsLog.info("event=inbox_ack_through threadId={} deliveredSeq={} "
+                            + "outcome=applied archived={} remainingToSeq={}",
+                    threadId, deliveredSeq, result.archived(), result.remainingToSeq());
+            return result;
+        } catch (InboxDigestException failure) {
+            OpsLog.warn("event=inbox_ack_through_failed threadId={} deliveredSeq={} "
+                            + "code={}", threadId, deliveredSeq, failure.code());
+            throw failure;
+        }
+    }
+
     /** 主 Agent 处理完一个 digest 后归档，并保留已处理到的 thread 游标。 */
     public synchronized AckResult markHandled(String threadId, String itemId,
                                                long expectedRevision) {

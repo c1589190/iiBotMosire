@@ -20,6 +20,9 @@ import io.mosire.iibot.bot.note.InMemoryUserNoteStore;
 import io.mosire.iibot.bot.reply.BotReplyPort;
 import io.mosire.iibot.bot.reply.BotReplySendResult;
 import io.mosire.iibot.bot.reply.BotReplyService;
+import io.mosire.iibot.bot.store.ConsumerConversationState;
+import io.mosire.iibot.bot.store.ConsumerConversationStore;
+import io.mosire.iibot.bot.store.InMemoryConsumerConversationStore;
 import io.mosire.iibot.bot.store.InMemoryMessageBoardStore;
 import io.mosire.iibot.connect.core.MessageSegment;
 import org.junit.jupiter.api.Test;
@@ -56,8 +59,9 @@ class BotMcpToolsTest {
         assertThat(tools).extracting(AgentTool::name).containsExactly(
                 "bot_thread_list", "bot_thread_read", "bot_thread_history",
                 "bot_message_get", "bot_message_thread", "bot_reply",
-                "bot_thread_ack", "bot_user_note_get", "bot_user_note_list",
-                "bot_user_note_upsert");
+                "qq_conversation_read", "qq_conversation_ack",
+                "bot_user_note_get", "bot_user_note_list", "bot_user_note_upsert");
+        assertThat(tools).extracting(AgentTool::name).doesNotContain("bot_thread_ack");
 
         JsonNode listed = call(tool(tools, "bot_thread_list"), Map.of());
         assertThat(listed.path("data").path("threads")).hasSize(1);
@@ -132,32 +136,169 @@ class BotMcpToolsTest {
     }
 
     @Test
-    void ackArchivesActiveDigest() throws Exception {
+    void readIsPreviewOnlyRepeatableAndAckConsumesOnlyDeliveredBatch() throws Exception {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice", T0, T0,
-                "待处理", "", ""));
+                "第一条", "", ""));
+        board.append(ChatMessage.inbound(GROUP, "m-2", "qq-1", "Alice", T0, T0,
+                "第二条", "", ""));
         InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
         FakeInboxPort inboxPort = new FakeInboxPort();
-        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
-        InboxDigestService digestService = new InboxDigestService(board, notes, states, inboxPort);
-        BotMcpTools.all(board, notes, digestService,
-                new BotReplyService(board, new FakeReplyPort(), CLOCK), "bot-1");
-        InboxDigestService.FlushResult flush = digestService.flushThread(GROUP.threadId());
-        AgentTool ack = new BotThreadAckTool(digestService);
+        InMemoryInboxDigestStateStore digestStates = new InMemoryInboxDigestStateStore();
+        InboxDigestService digestService =
+                new InboxDigestService(board, notes, digestStates, inboxPort);
+        digestService.flushThread(GROUP.threadId());
+        InMemoryConsumerConversationStore consumers = new InMemoryConsumerConversationStore();
+        List<AgentTool> tools = BotMcpTools.allForAccounts(
+                board, notes, digestService,
+                new BotReplyService(board, new FakeReplyPort(), CLOCK), "bot-1",
+                null, null, null, null, null, null, consumers);
 
-        JsonNode result = call(ack, Map.of(
-                "threadId", GROUP.threadId(),
-                "itemId", flush.itemId(),
-                "expectedRevision", states.find(GROUP.threadId()).orElseThrow().revision(),
-                "snapshotToSeq", 1));
+        JsonNode firstRead = call(tool(tools, "qq_conversation_read"),
+                Map.of("threadId", GROUP.threadId(), "limit", 1));
+        assertThat(firstRead.path("data").path("accountId").asText()).isEqualTo("bot-1");
+        assertThat(firstRead.path("data").path("count").asInt()).isEqualTo(1);
+        assertThat(firstRead.path("data").path("messages").get(0).path("text").asText())
+                .isEqualTo("第一条");
+        assertThat(firstRead.path("data").path("deliveredSeq").asLong()).isEqualTo(1L);
+        assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
+                GROUP.threadId())).get()
+                .extracting(ConsumerConversationState::readSeq,
+                        ConsumerConversationState::deliveredSeq)
+                .containsExactly(0L, 1L);
+        assertThat(inboxPort.items.get(inboxPort.lastItemId).status())
+                .isEqualTo("available");
+        assertThat(inboxPort.digests.get(inboxPort.lastItemId).unreadCount())
+                .isEqualTo(2);
 
-        assertThat(result.path("data").path("archived").asBoolean()).isTrue();
-        assertThat(result.path("data").path("digestedThroughSeq").asLong()).isEqualTo(1L);
-        assertThat(result.path("data").path("snapshotToSeq").asLong()).isEqualTo(1L);
-        assertThat(states.find(GROUP.threadId())).get()
+        JsonNode repeatedRead = call(tool(tools, "qq_conversation_read"),
+                Map.of("threadId", GROUP.threadId(), "limit", 1));
+        assertThat(repeatedRead.path("data").path("messages")).hasSize(1);
+        assertThat(repeatedRead.path("data").path("messages").get(0)
+                .path("messageId").asText()).isEqualTo("m-1");
+        assertThat(repeatedRead.path("data").path("deliveredSeq").asLong()).isEqualTo(1L);
+        assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
+                GROUP.threadId()).orElseThrow().readSeq()).isZero();
+
+        // read 与 ack 之间到达的新消息不能进入上一批，也不能被 ack 吃掉。
+        board.append(ChatMessage.inbound(GROUP, "m-3", "qq-1", "Alice", T0, T0,
+                "第三条", "", ""));
+        JsonNode ack = call(tool(tools, "qq_conversation_ack"),
+                Map.of("threadId", GROUP.threadId()));
+        assertThat(ack.path("data").path("acked").asBoolean()).isTrue();
+        assertThat(ack.path("data").path("readSeq").asLong()).isEqualTo(1L);
+        assertThat(ack.path("data").path("inboxArchived").asBoolean()).isFalse();
+        assertThat(ack.path("data").path("remaining").asBoolean()).isTrue();
+        assertThat(board.readThread(GROUP.threadId(), 0L, 10))
+                .extracting(ChatMessage::localSeq)
+                .containsExactly(1L, 2L, 3L);
+        assertThat(inboxPort.digests.get(inboxPort.lastItemId).messages())
+                .extracting(summary -> summary.localSeq())
+                .containsExactly(2L, 3L);
+
+        JsonNode secondRead = call(tool(tools, "qq_conversation_read"),
+                Map.of("threadId", GROUP.threadId(), "limit", 10));
+        assertThat(secondRead.path("data").path("messages"))
+                .extracting(value -> value.path("localSeq").asLong())
+                .containsExactly(2L, 3L);
+        assertThat(secondRead.path("data").path("deliveredSeq").asLong()).isEqualTo(3L);
+
+        JsonNode secondAck = call(tool(tools, "qq_conversation_ack"),
+                Map.of("threadId", GROUP.threadId()));
+        assertThat(secondAck.path("data").path("acked").asBoolean()).isTrue();
+        assertThat(secondAck.path("data").path("readSeq").asLong()).isEqualTo(3L);
+        assertThat(secondAck.path("data").path("inboxArchived").asBoolean()).isTrue();
+        assertThat(digestStates.find(GROUP.threadId()).orElseThrow().hasActiveItem())
+                .isFalse();
+
+        JsonNode noOp = call(tool(tools, "qq_conversation_ack"),
+                Map.of("threadId", GROUP.threadId()));
+        assertThat(noOp.path("data").path("acked").asBoolean()).isFalse();
+        assertThat(noOp.path("data").path("reason").asText())
+                .isEqualTo("NO_DELIVERED_MESSAGES");
+    }
+
+    @Test
+    void readReplayDoesNotTruncateDeliveredBatch() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        for (int index = 1; index <= 3; index++) {
+            board.append(ChatMessage.inbound(GROUP, "m-" + index, "qq-1", "Alice",
+                    T0, T0, "消息" + index, "", ""));
+        }
+        InMemoryConsumerConversationStore consumers = new InMemoryConsumerConversationStore();
+        BotQqConversationReadTool read = new BotQqConversationReadTool(
+                board, consumers, CLOCK);
+
+        JsonNode first = call(read, Map.of("threadId", GROUP.threadId(), "limit", 3));
+        JsonNode replay = call(read, Map.of("threadId", GROUP.threadId(), "limit", 1));
+
+        assertThat(first.path("data").path("count").asInt()).isEqualTo(3);
+        assertThat(first.path("data").path("deliveredSeq").asLong()).isEqualTo(3L);
+        assertThat(replay.path("data").path("count").asInt()).isEqualTo(3);
+        assertThat(replay.path("data").path("deliveredSeq").asLong()).isEqualTo(3L);
+        assertThat(replay.path("data").path("messages"))
+                .extracting(value -> value.path("localSeq").asLong())
+                .containsExactly(1L, 2L, 3L);
+    }
+
+    @Test
+    void ackWithoutActiveInboxItemAdvancesDigestCursorOnly() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice", T0, T0,
+                "第一条", "", ""));
+        board.append(ChatMessage.inbound(GROUP, "m-2", "qq-1", "Alice", T0, T0,
+                "第二条", "", ""));
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        FakeInboxPort inboxPort = new FakeInboxPort();
+        InMemoryInboxDigestStateStore digestStates = new InMemoryInboxDigestStateStore();
+        InboxDigestService digestService =
+                new InboxDigestService(board, notes, digestStates, inboxPort);
+        InMemoryConsumerConversationStore consumers = new InMemoryConsumerConversationStore();
+        BotQqConversationReadTool read = new BotQqConversationReadTool(
+                board, consumers, CLOCK);
+        BotQqConversationAckTool ack = new BotQqConversationAckTool(
+                consumers, digestService, CLOCK);
+
+        call(read, Map.of("threadId", GROUP.threadId()));
+        call(ack, Map.of("threadId", GROUP.threadId()));
+
+        assertThat(inboxPort.items).isEmpty();
+        assertThat(digestStates.find(GROUP.threadId())).get()
                 .extracting(InboxDigestState::itemId, InboxDigestState::lastSeq)
-                .containsExactly("", 1L);
-        assertThat(inboxPort.archived).isTrue();
+                .containsExactly("", 2L);
+        InboxDigestService.FlushResult flush = digestService.flushThread(GROUP.threadId());
+        assertThat(flush.published()).isFalse();
+        assertThat(inboxPort.items).isEmpty();
+    }
+
+    @Test
+    void qqConversationSchemasExposeNoInternalSynchronizationMarkers() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InboxDigestService digestService = new InboxDigestService(board, notes,
+                new InMemoryInboxDigestStateStore(), new FakeInboxPort());
+        List<AgentTool> tools = BotMcpTools.allForAccounts(
+                board, notes, digestService,
+                new BotReplyService(board, new FakeReplyPort(), CLOCK), "bot-1",
+                null, null, null, null, null, null,
+                new InMemoryConsumerConversationStore());
+
+        AgentTool read = tool(tools, "qq_conversation_read");
+        AgentTool ack = tool(tools, "qq_conversation_ack");
+        String readSchema = JSON.writeValueAsString(read.jsonSchema());
+        String ackSchema = JSON.writeValueAsString(ack.jsonSchema());
+
+        JsonNode readRequired = JSON.valueToTree(read.jsonSchema()).path("required");
+        JsonNode ackRequired = JSON.valueToTree(ack.jsonSchema()).path("required");
+        assertThat(readRequired.size()).isEqualTo(1);
+        assertThat(ackRequired.size()).isEqualTo(1);
+        assertThat(readRequired.get(0).asText()).isEqualTo("threadId");
+        assertThat(ackRequired.get(0).asText()).isEqualTo("threadId");
+        assertThat(JSON.valueToTree(read.jsonSchema()).path("properties")
+                .path("limit").path("maximum").asInt()).isEqualTo(100);
+        assertThat(readSchema + ackSchema)
+                .doesNotContain("expectedRevision", "snapshotToSeq", "itemId",
+                        "localSeq", "afterSeq");
     }
 
     private static AgentTool tool(List<AgentTool> tools, String name) {
@@ -192,27 +333,55 @@ class BotMcpToolsTest {
     }
 
     private static final class FakeInboxPort implements InboxDigestPort {
-        private boolean archived;
+        private final Map<String, InboxDigestItem> items = new java.util.LinkedHashMap<>();
+        private final Map<String, InboxDigest> digests = new java.util.LinkedHashMap<>();
+        private long nextItem = 1L;
+        private String lastItemId = "";
 
         @Override
         public InboxDigestItem push(String dedupeKey, InboxDigest digest) {
-            return new InboxDigestItem("itm-1", 1L, "available");
+            String itemId = "itm-" + nextItem++;
+            InboxDigestItem item = new InboxDigestItem(
+                    itemId, 1L, "available", digest.toSeq(), digest.fromSeq(),
+                    digest.priority(), digest);
+            items.put(itemId, item);
+            digests.put(itemId, digest);
+            lastItemId = itemId;
+            return item;
         }
 
         @Override
         public Optional<InboxDigestItem> view(String itemId) {
-            return Optional.of(new InboxDigestItem("itm-1", 1L, "available"));
+            return Optional.ofNullable(items.get(itemId));
         }
 
         @Override
         public InboxDigestItem update(String itemId, long expectedRevision,
                                       InboxDigest digest) {
-            return new InboxDigestItem(itemId, expectedRevision + 1L, "available");
+            InboxDigestItem current = items.get(itemId);
+            if (current == null || current.revision() != expectedRevision
+                    || !current.available()) {
+                throw new io.mosire.iibot.bot.inbox.InboxDigestConflictException(
+                        "revision conflict");
+            }
+            InboxDigestItem next = new InboxDigestItem(itemId,
+                    current.revision() + 1L, "available", digest.toSeq(),
+                    digest.fromSeq(), digest.priority(), digest);
+            items.put(itemId, next);
+            digests.put(itemId, digest);
+            return next;
         }
 
         @Override
         public void archive(String itemId, long expectedRevision) {
-            archived = true;
+            InboxDigestItem current = items.get(itemId);
+            if (current == null || current.revision() != expectedRevision) {
+                throw new io.mosire.iibot.bot.inbox.InboxDigestConflictException(
+                        "archive conflict");
+            }
+            items.put(itemId, new InboxDigestItem(itemId,
+                    current.revision() + 1L, "done", current.toSeq(),
+                    current.fromSeq(), current.priority(), current.digest()));
         }
     }
 }

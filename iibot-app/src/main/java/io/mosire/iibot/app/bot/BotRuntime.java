@@ -17,6 +17,7 @@ import io.mosire.iibot.bot.mcp.BotMcpServer;
 import io.mosire.iibot.bot.mcp.BotMcpTools;
 import io.mosire.iibot.bot.note.SqliteUserNoteStore;
 import io.mosire.iibot.bot.reply.BotReplyService;
+import io.mosire.iibot.bot.store.SqliteConsumerConversationStore;
 import io.mosire.iibot.bot.store.SqliteMessageBoardStore;
 import io.mosire.iibot.bot.weight.SourceWeightService;
 import io.mosire.iibot.bot.weight.SqliteSourceWeightStore;
@@ -72,6 +73,7 @@ public final class BotRuntime implements AutoCloseable {
     private final SqliteMessageBoardStore board;
     private final SqliteUserNoteStore notes;
     private final SqliteInboxDigestStateStore digestStates;
+    private final SqliteConsumerConversationStore consumerStates;
     private final BotInboxRuntime inboxRuntime;
     private final InboxDigestScheduler digestScheduler;
     private final BotIngestionService ingestion;
@@ -84,7 +86,9 @@ public final class BotRuntime implements AutoCloseable {
     private BotRuntime(BotRuntimeOptions options, AccountRegistry accountRegistry,
                        List<AdapterBinding> bindings, Map<String, OutboxSender> outboxes,
                        SqliteMessageBoardStore board, SqliteUserNoteStore notes,
-                       SqliteInboxDigestStateStore digestStates, BotInboxRuntime inboxRuntime,
+                       SqliteInboxDigestStateStore digestStates,
+                       SqliteConsumerConversationStore consumerStates,
+                       BotInboxRuntime inboxRuntime,
                        InboxDigestScheduler digestScheduler, BotIngestionService ingestion,
                        BotMcpServer mcpServer, SqliteFriendRequestStore friendRequests,
                        SqliteInboxDigestAuditStore inboxAudit,
@@ -96,6 +100,7 @@ public final class BotRuntime implements AutoCloseable {
         this.board = board;
         this.notes = notes;
         this.digestStates = digestStates;
+        this.consumerStates = consumerStates;
         this.inboxRuntime = inboxRuntime;
         this.digestScheduler = digestScheduler;
         this.ingestion = ingestion;
@@ -147,6 +152,7 @@ public final class BotRuntime implements AutoCloseable {
         SqliteMessageBoardStore board = null;
         SqliteUserNoteStore notes = null;
         SqliteInboxDigestStateStore digestStates = null;
+        SqliteConsumerConversationStore consumerStates = null;
         BotInboxRuntime inboxRuntime = null;
         InboxDigestScheduler digestScheduler = null;
         BotMcpServer mcpServer = null;
@@ -160,6 +166,7 @@ public final class BotRuntime implements AutoCloseable {
             sourceWeights = new SqliteSourceWeightStore(dataDir.resolve("bot.db"));
             notes = new SqliteUserNoteStore(dataDir.resolve("bot.db"), clock);
             digestStates = new SqliteInboxDigestStateStore(dataDir.resolve("bot.db"));
+            consumerStates = new SqliteConsumerConversationStore(dataDir.resolve("bot.db"));
             LOG.debug("event=bot_datastores_ready dataDir={} dbFile={}",
                     dataDir, dataDir.resolve("bot.db"));
             OpsLog.info("event=bot_runtime_starting accountCount={} dataDir={} "
@@ -212,7 +219,7 @@ public final class BotRuntime implements AutoCloseable {
             List<AgentTool> tools = new ArrayList<>(BotMcpTools.allForAccounts(
                     board, notes, digestService, replies, options.accountId(),
                     forwardByAccount, activeRecent, friendService, inboxAudit,
-                    activeHistory, weightService));
+                    activeHistory, weightService, consumerStates));
             BotMediaStore mediaStore = new BotMediaStore(dataDir);
             if (mediaByAccount.values().stream().anyMatch(Objects::nonNull)) {
                 tools.add(new BotMediaGetTool(board, mediaByAccount, mediaStore));
@@ -257,8 +264,9 @@ public final class BotRuntime implements AutoCloseable {
                     bindings.size(), mcpServer.boundPort(), inboxRuntime.apiPort(),
                     inboxRuntime.mcpPort(), tools.size());
             return new BotRuntime(options, accountRegistry, bindings, outboxes,
-                    board, notes, digestStates, inboxRuntime, digestScheduler, ingestion,
-                    mcpServer, friendRequests, inboxAudit, sourceWeights);
+                    board, notes, digestStates, consumerStates, inboxRuntime,
+                    digestScheduler, ingestion, mcpServer, friendRequests, inboxAudit,
+                    sourceWeights);
         } catch (IOException | RuntimeException failure) {
             OpsLog.error("event=bot_runtime_start_failed errorType={}",
                     failure.getClass().getSimpleName());
@@ -269,6 +277,7 @@ public final class BotRuntime implements AutoCloseable {
             closeQuietly(sourceWeights);
             closeQuietly(digestScheduler);
             closeQuietly(inboxRuntime);
+            closeQuietly(consumerStates);
             closeQuietly(digestStates);
             closeQuietly(notes);
             closeQuietly(board);
@@ -393,6 +402,10 @@ public final class BotRuntime implements AutoCloseable {
         return notes;
     }
 
+    public SqliteConsumerConversationStore consumerStateStore() {
+        return consumerStates;
+    }
+
     public BotInboxRuntime inboxRuntime() {
         return inboxRuntime;
     }
@@ -424,6 +437,7 @@ public final class BotRuntime implements AutoCloseable {
         closeQuietly(sourceWeights);
         closeQuietly(digestScheduler);
         closeQuietly(inboxRuntime);
+        closeQuietly(consumerStates);
         closeQuietly(digestStates);
         closeQuietly(notes);
         closeQuietly(board);
