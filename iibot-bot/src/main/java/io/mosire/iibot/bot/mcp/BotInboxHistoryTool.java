@@ -55,6 +55,7 @@ public final class BotInboxHistoryTool implements AgentTool {
             List<Map<String, Object>> rows = store.list(threadId, limit).stream()
                     .map(BotInboxHistoryTool::row).toList();
             Map<String, Object> data = new LinkedHashMap<>();
+            data.put("source", BotToolSupport.sourceOf(threadId));
             data.put("threadId", threadId);
             data.put("count", rows.size());
             data.put("items", rows);
@@ -69,6 +70,7 @@ public final class BotInboxHistoryTool implements AgentTool {
 
     private static Map<String, Object> row(InboxDigestAudit audit) {
         Map<String, Object> row = new LinkedHashMap<>();
+        row.put("source", BotToolSupport.sourceOf(audit.threadId()));
         row.put("threadId", audit.threadId());
         row.put("itemId", audit.itemId());
         row.put("fromSeq", audit.fromSeq());

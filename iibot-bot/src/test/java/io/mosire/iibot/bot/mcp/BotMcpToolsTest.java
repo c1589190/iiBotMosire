@@ -67,11 +67,17 @@ class BotMcpToolsTest {
 
         JsonNode listed = call(tool(tools, "qq_conversation_list"), Map.of());
         assertThat(listed.path("data").path("threads")).hasSize(1);
+        assertThat(listed.path("data").path("threads").get(0).path("source").asText())
+                .isEqualTo("qq_group/bot-1/group-9");
         String threadId = listed.path("data").path("threads").get(0).path("threadId").asText();
 
         JsonNode read = call(tool(tools, "qq_conversation_read"),
                 Map.of("threadId", threadId, "limit", 10));
+        assertThat(read.path("data").path("source").asText())
+                .isEqualTo("qq_group/bot-1/group-9");
         assertThat(read.path("data").path("messages")).hasSize(1);
+        assertThat(read.path("data").path("messages").get(0).path("source").asText())
+                .isEqualTo("qq_group/bot-1/group-9");
         assertThat(read.path("data").path("messages").get(0).path("text").asText())
                 .isEqualTo("第一句");
         assertThat(read.path("data").path("messages").get(0).path("nonTextSummary").asText())

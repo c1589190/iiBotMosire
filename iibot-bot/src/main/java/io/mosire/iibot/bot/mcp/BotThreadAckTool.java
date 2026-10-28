@@ -71,6 +71,7 @@ public final class BotThreadAckTool implements AgentTool {
             InboxDigestService.AckResult ack = service.markHandled(
                     threadId, itemId, revision, snapshotToSeq);
             Map<String, Object> data = new LinkedHashMap<>();
+            data.put("source", BotToolSupport.sourceOf(threadId));
             data.put("threadId", threadId);
             data.put("itemId", itemId);
             data.put("archived", ack.archived());

@@ -67,6 +67,7 @@ public final class BotThreadReadTool implements AgentTool {
             long lastSeq = messages.isEmpty()
                     ? afterSeq : ((Number) messages.getLast().get("localSeq")).longValue();
             Map<String, Object> data = new LinkedHashMap<>();
+            data.put("source", BotToolSupport.sourceOf(threadId));
             data.put("threadId", threadId);
             data.put("afterSeq", afterSeq);
             data.put("lastSeq", lastSeq);

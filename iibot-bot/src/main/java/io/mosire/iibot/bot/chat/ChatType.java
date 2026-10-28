@@ -15,4 +15,14 @@ public enum ChatType {
     public String wire() {
         return wire;
     }
+
+    /** 解析稳定的线格式；未知值 fail-closed。 */
+    public static ChatType fromWire(String value) {
+        for (ChatType type : values()) {
+            if (type.wire.equals(value)) {
+                return type;
+            }
+        }
+        throw new IllegalArgumentException("未知 chatType: " + value);
+    }
 }

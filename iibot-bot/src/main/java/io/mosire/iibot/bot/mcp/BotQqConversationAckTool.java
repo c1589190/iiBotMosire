@@ -74,6 +74,7 @@ public final class BotQqConversationAckTool implements AgentTool {
                     || found.orElseThrow().deliveredSeq() <= found.orElseThrow().readSeq()) {
                 ConsumerConversationState state = found.orElse(null);
                 Map<String, Object> data = new LinkedHashMap<>();
+                data.put("source", BotToolSupport.sourceOf(threadId));
                 data.put("threadId", threadId);
                 data.put("acked", false);
                 data.put("reason", NO_DELIVERED_REASON);
@@ -93,6 +94,7 @@ public final class BotQqConversationAckTool implements AgentTool {
                     deliveredSeq, clock.instant());
 
             Map<String, Object> data = new LinkedHashMap<>();
+            data.put("source", BotToolSupport.sourceOf(threadId));
             data.put("threadId", threadId);
             data.put("acked", true);
             data.put("reason", "ACKED");

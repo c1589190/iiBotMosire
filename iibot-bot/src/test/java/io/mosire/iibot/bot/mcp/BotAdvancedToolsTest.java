@@ -163,7 +163,7 @@ class BotAdvancedToolsTest {
                 "limit", 10, "includePrivate", true, "includeGroups", false));
 
         assertThat(result.path("data").path("accountId").asText()).isEqualTo("bot-1");
-        assertThat(result.path("data").path("source").asText())
+        assertThat(result.path("data").path("origin").asText())
                 .isEqualTo("onebot-client-recent");
         assertThat(result.path("data").path("count").asInt()).isEqualTo(1);
         assertThat(result.path("data").path("recent").get(0).path("sessionType").asText())

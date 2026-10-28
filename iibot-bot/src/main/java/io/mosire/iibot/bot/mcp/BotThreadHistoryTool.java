@@ -75,6 +75,7 @@ public final class BotThreadHistoryTool implements AgentTool {
                         message, board.segments(message.messageKey())));
             }
             Map<String, Object> data = new LinkedHashMap<>();
+            data.put("source", BotToolSupport.sourceOf(threadId));
             data.put("threadId", threadId);
             data.put("beforeSeq", beforeSeq);
             data.put("nextBeforeSeq", page.isEmpty() ? null : page.getFirst().localSeq());

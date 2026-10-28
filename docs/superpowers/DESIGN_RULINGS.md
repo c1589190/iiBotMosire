@@ -20,6 +20,7 @@
 | D-026 | 多账号路由、服务端 read/ack、统一 `qq_*` MCP | 已实施 P4–P6 | [需求原稿](specs/2026-10-24-user-requirements-source.md)；[目标架构](specs/2026-10-28-unified-qq-agent-client-architecture.md) |
 | D-027 | debug/info 日志与易用配置系统 | 已实施 P2/P3 | [需求原稿](specs/2026-10-24-user-requirements-source.md)；[日志](specs/2026-10-28-logging-levels-and-diagnostics.md)；[配置](specs/2026-10-28-configuration-system.md) |
 | D-028 | 依赖最新且可复现、文档一致 | P7a 已升级；AgentLib 0.2.4 发布待补 | [需求原稿](specs/2026-10-24-user-requirements-source.md)；[计划](plans/2026-10-28-unified-qq-agent-client-refactor-plan.md) |
+| D-029 | 全唤醒 + 统一来源地址（qq_group/qq_private/qq_system/app_system） | P8 实施中 | [来源地址设计](specs/2026-10-28-unified-message-source-address.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
 
 ## 二、当前专题入口
 
@@ -31,6 +32,7 @@
 | OneBot 11 富消息与历史 | [`specs/2026-10-27-onebot11-rich-messaging-history-media-and-requests.md`](specs/2026-10-27-onebot11-rich-messaging-history-media-and-requests.md) | 消息段、历史、媒体、好友申请契约 |
 | Inbox Mode A 接入 | [`specs/2026-10-25-inbox-mode-a-notification-workflow.md`](specs/2026-10-25-inbox-mode-a-notification-workflow.md) | 程序嵌入 Inbox 的通知/唤醒接线 |
 | 当前实施计划 | [`plans/2026-10-28-unified-qq-agent-client-refactor-plan.md`](plans/2026-10-28-unified-qq-agent-client-refactor-plan.md) | P0–P7 责任区、验收、风险 |
+| P8 来源地址与 wake | [`plans/2026-10-28-p8-source-address-and-wake-contract.md`](plans/2026-10-28-p8-source-address-and-wake-contract.md)；[`specs/2026-10-28-unified-message-source-address.md`](specs/2026-10-28-unified-message-source-address.md) | 全唤醒、source 地址、wake 契约 |
 
 ## 三、当前未裁定
 

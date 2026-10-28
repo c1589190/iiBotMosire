@@ -136,10 +136,11 @@ public final class BotMediaGetTool implements AgentTool {
                 return ToolResult.error("MEDIA_UNAVAILABLE", "图片读取失败（内部原因已脱敏）");
             }
             Map<String, Object> data = new LinkedHashMap<>();
+            data.put("source", message.source().sourceAddress().canonical());
             data.put("threadId", message.source().threadId());
             data.put("messageKey", messageKey);
             data.put("count", assetIds.size());
-            data.put("source", fallbackUsed ? "onebot_get_msg" : "local_segments");
+            data.put("retrievalSource", fallbackUsed ? "onebot_get_msg" : "local_segments");
             data.put("images", metadata);
             data.put("errors", errors);
             return ToolResult.ok(JSON.writeValueAsString(data), assetIds);

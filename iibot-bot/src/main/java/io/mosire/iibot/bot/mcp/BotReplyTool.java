@@ -69,6 +69,7 @@ public final class BotReplyTool implements AgentTool {
                     idempotencyKey);
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("messageKey", result.message().messageKey());
+            data.put("source", result.message().source().sourceAddress().canonical());
             data.put("threadId", result.message().source().threadId());
             data.put("idempotencyKey", result.message().idempotencyKey());
             data.put("deliveryState", result.deliveryState().name());

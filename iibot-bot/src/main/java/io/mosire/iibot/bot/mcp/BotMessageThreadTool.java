@@ -94,6 +94,7 @@ public final class BotMessageThreadTool implements AgentTool {
             }
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("messageKey", messageKey);
+            data.put("source", root.source().sourceAddress().canonical());
             data.put("threadId", root.source().threadId());
             data.put("count", messages.size());
             data.put("truncated", truncated);

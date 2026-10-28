@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.mosire.agentlib.tool.ToolResult;
 import io.mosire.iibot.bot.chat.ChatMessage;
+import io.mosire.iibot.bot.chat.ChatSourceKey;
+import io.mosire.iibot.bot.chat.MessageSourceAddress;
 import io.mosire.iibot.bot.chat.ChatThread;
 import io.mosire.iibot.connect.core.MessageSegment;
 import io.mosire.iibot.bot.note.UserNote;
@@ -156,6 +158,7 @@ final class BotToolSupport {
                                            List<MessageSegment> segments) {
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("messageKey", message.messageKey());
+        value.put("source", message.source().sourceAddress().canonical());
         value.put("threadId", message.source().threadId());
         value.put("localSeq", message.localSeq());
         value.put("direction", message.direction().name());
@@ -191,6 +194,7 @@ final class BotToolSupport {
 
     static Map<String, Object> threadMap(ChatThread thread) {
         Map<String, Object> value = new LinkedHashMap<>();
+        value.put("source", thread.source().sourceAddress().canonical());
         value.put("threadId", thread.threadId());
         value.put("accountId", thread.source().accountId());
         value.put("chatType", thread.source().chatType().wire());
@@ -214,6 +218,22 @@ final class BotToolSupport {
         value.put("revision", note.revision());
         value.put("updatedAt", note.updatedAt().toString());
         return value;
+    }
+
+    static String sourceOf(String threadOrSource) {
+        if (threadOrSource == null || threadOrSource.isBlank()) {
+            return "";
+        }
+        try {
+            return MessageSourceAddress.parse(threadOrSource).canonical();
+        } catch (IllegalArgumentException ignored) {
+            try {
+                return ChatSourceKey.fromThreadId(threadOrSource)
+                        .sourceAddress().canonical();
+            } catch (IllegalArgumentException alsoIgnored) {
+                return "";
+            }
+        }
     }
 
     static Set<String> roles() {

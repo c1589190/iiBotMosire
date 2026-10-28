@@ -107,7 +107,7 @@ public final class BotQqRecentTool implements AgentTool {
             }
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("accountId", accountId);
-            data.put("source", "onebot-client-recent");
+            data.put("origin", "onebot-client-recent");
             data.put("count", rows.size());
             data.put("recent", rows);
             return BotToolSupport.ok(NAME, data);

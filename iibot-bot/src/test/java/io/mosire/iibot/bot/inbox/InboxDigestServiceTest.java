@@ -581,6 +581,7 @@ class InboxDigestServiceTest {
         assertThat(digest.source()).isNotNull();
         assertThat(digest.source().chatType()).isEqualTo("group");
         assertThat(digest.source().targetId()).isEqualTo("group-9");
+        assertThat(digest.source().source()).isEqualTo("qq_group/bot-1/group-9");
         assertThat(digest.trigger()).isNotNull();
         assertThat(digest.trigger().messageId()).isEqualTo("m-2");
         assertThat(digest.trigger().localSeq()).isEqualTo(2L);

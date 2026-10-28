@@ -59,6 +59,22 @@
 4. 首次生成、schema、示例和 README 让用户不读源码即可启动；
 5. 密钥只通过环境变量名引用。
 
+### D-029 全唤醒与来源地址
+
+> 「4 问题来了，你以什么定义消息值得wake？我认为还是目前保持全唤醒」
+
+> 「5 记得老DevMosire的消息来源系统吗？我们需要一个统一的消息来源字段，例如qq_group/xxxx/xxxx、qq_private/xxxx、qq_system/xxxx等等，地址系统要做好」
+
+> 「app的系统消息应该直接叫app_system」
+
+裁定：
+
+1. 新的入站消息全部唤醒，不做权重/阈值/静默 gate；
+2. 统一 source 形式为 `qq_group/{account}/{group}`、`qq_private/{account}/{peer}`、
+   `qq_system/{account}/{event}`、`app_system/{event}`；
+3. 地址使用严格 parser、百分号编码和旧 threadId 兼容迁移；
+4. 未来 `wechat_*` / `discord_*` 按同一 `family_kind` 语法扩展。
+
 ### D-028 依赖与文档基线
 
 > 「其次，iibot、inbox依赖的agentlib是最新版本吗？去调查一下，项目设计基本上没有其他花头了，主要就是依赖是否为最新版本、文档是否完善等」

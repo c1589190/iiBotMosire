@@ -112,6 +112,7 @@ public final class BotQqConversationReadTool implements AgentTool {
                         message, board.segments(message.messageKey())));
             }
             Map<String, Object> data = new LinkedHashMap<>();
+            data.put("source", BotToolSupport.sourceOf(threadId));
             data.put("threadId", threadId);
             data.put("accountId", thread.map(value -> value.source().accountId())
                     .orElse(""));
