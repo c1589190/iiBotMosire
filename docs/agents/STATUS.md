@@ -10,7 +10,7 @@
   文游模块退出默认产品，消息板服务端维护内部游标/幂等/Inbox 同步，Agent 不维护额外标记。
 - **执行分支**：`refactor/unified-qq-agent-client`；按责任区分批实现、测试、提交、推送，
   全部确认后再合并（M-005）。
-- **P1a 已完成（待提交）**：删除 `iibot-taskflow` 与 `iibot-app` 旧文游/legacy 代码；
+- **P1a 已完成并推送（`0acd0a0`）**：删除 `iibot-taskflow` 与 `iibot-app` 旧文游/legacy 代码；
   `iibot-app` 从 151 个 main 源文件收缩到 20 个，测试源文件保留 12 个；根 reactor 当前
   4 模块（connect / connect-agent / bot / app）。
   - `tools/gate.sh focused iibot-app -am test`：153 tests / 0 failures / 0 errors。
@@ -33,8 +33,9 @@
   `PUBLICATION_GAP` 记录；干净仓库复现前不得宣称可公开构建。
 - **本次动作**：新增/更新规划文档，作为 P0 独立 checkpoint 提交；未改生产代码、
   未删除模块、未跑 Maven、未启动 QQ/Inbox/MCP、未执行外发。
-- **状态**：`P1_IN_PROGRESS`；P0 决策和基线 checkpoint 已推送，P1a 代码收缩完成待提交；
-  下一步删除旧 `simulation/`、legacy config/examples 与文游文档引用，再进入 P2 日志。
+- **状态**：`P1A_COMPLETE / P1B_PENDING`；P0 决策和基线 checkpoint 已推送，P1a 代码收缩
+  已提交推送；下一步处理旧 `simulation/`、legacy config/examples 与文游文档归档策略，
+  再进入 P2 日志。
 
 ## 0.1 历史更新：D-024 Inbox 改为 QQ 式未读列表（2026-10-28 00:05）
 

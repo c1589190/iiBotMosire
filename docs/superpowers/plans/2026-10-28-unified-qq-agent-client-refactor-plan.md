@@ -521,4 +521,4 @@ cd ../iiBotMosire
 - 2026-10-28：完成本计划及三份设计文档，作为独立 P0 checkpoint 提交；未改生产代码、未跑 Maven、未启动 QQ/Inbox/MCP。
 
 - 2026-10-28：用户确认继续使用 AgentLib 0.2.4；采用新分支按责任区提交/推送；整合并删除 `iibot-connect-agent`；读取只预览、处理完显式 ack。
-- 2026-10-28 P1a：删除 `iibot-taskflow` 与 app 旧文游/legacy 包；`iibot-app` 收缩为 20 个 main、12 个 test 源文件；根 reactor 4 模块；`tools/gate.sh docs` PASS；`tools/gate.sh full` PASS（174 tests / 0 failures / 0 errors / 0 skipped）。
+- 2026-10-28 P1a：删除 `iibot-taskflow` 与 app 旧文游/legacy 包；`iibot-app` 收缩为 20 个 main、12 个 test 源文件；根 reactor 4 模块；`tools/gate.sh docs` PASS；`tools/gate.sh full` PASS（174 tests / 0 failures / 0 errors / 0 skipped）。提交 `0acd0a0`，已推送 `origin/refactor/unified-qq-agent-client`。
