@@ -104,7 +104,7 @@ def load_modules(root: Path) -> tuple[list[str], list[Finding], bool]:
 
 
 def all_markdown(root: Path) -> list[Path]:
-    excluded_parts = {".git", "target", "worktree", ".work"}
+    excluded_parts = {".git", "target", "worktree", ".work", "archive"}
     files: list[Path] = []
     for path in root.rglob("*.md"):
         rel = path.relative_to(root)

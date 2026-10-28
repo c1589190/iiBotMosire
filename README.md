@@ -2,7 +2,7 @@
 
 面向各类 Agent 软件的**统一 QQ 消息客户端**：通过 OneBot 11 接入 QQ，把私聊/群聊写入消息板，提供统一 MCP 工具，并用 Inbox 唤醒外部 Agent。
 
-> **当前阶段**：P6a 已收敛默认 Agent MCP 为统一 `qq_*` 工具面、账号工具与可选回复幂等键；direct-provider 工具的完整多账号化留待 P6b。当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
+> **当前阶段**：P1–P7 已完成，等待最终合并与真实外部验收。默认已收敛为 3 模块、统一 `qq_*` MCP、多账号路由、服务端 read/ack、配置/日志 v2 与文档归档；当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
 
 ## 当前模块
 
@@ -44,7 +44,7 @@ export IIBOT_CONTROL_TOKEN='...'
 java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar
 ```
 
-配置说明见 [`config/README.md`](config/README.md)。当前已是多账号 schema；配置文件、schema 和脱敏诊断已接入，P4 runtime 会启动全部 enabled account。
+配置说明见 [`config/README.md`](config/README.md)。当前已是多账号 schema；runtime 启动全部 enabled account，多账号下 direct-provider 工具需显式传 `accountId`。
 
 ## Bot MCP
 

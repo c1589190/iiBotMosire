@@ -25,11 +25,16 @@ tools/gate.sh full
 
 ## 二、最近已运行基线
 
-- 2026-10-28 P7a 后源码基线：`./mvnw -B -ntp clean verify` **PASS，225 tests / 0 failures /
+- 2026-10-28 P7b 后源码基线：`./mvnw -B -ntp clean verify` **PASS，225 tests / 0 failures /
   0 errors / 0 skipped**（connect 61、bot 94、app 70）；
-  `tools/gate.sh docs` PASS（modules=3 files=77 links=192）。
+  `tools/gate.sh docs` PASS（modules=3 files=39 links=96）；
+  `tools/gate.sh selftest` PASS（check-docs 11/11、skills-lint 6/6）。
 - P7a 依赖：Jackson 2.22.4、SLF4J 2.0.20、JUnit 6.1.3、Java-WebSocket 1.6.0；
   shaded jar 成功，Jackson BOM 解析一致。
+- P7b 归档：旧文游 specs/plans/status/reports 移入 `docs/archive/legacy-game/`，
+  docs checker 排除 archive；当前 docs 文件数从 77 降至 39。
+- 干净空 Maven 仓库：`NOT_RUN` / `PUBLICATION_GAP`（公开 AgentLib 0.2.4 缺失；
+  Maven 全量下载 300 秒超时）。
 - P2/P3 新增日志上下文/分级/轮转/脱敏、配置 schema/来源追踪/CLI/日志应用测试；P4 新增多账号 registry、入站隔离、出站路由和账号身份回滚测试；P5 新增 consumer 游标、read 预览/重复读、显式 ack、read/ack 间新消息保护、Inbox 归档与 cursor-only 测试；P6a 新增账号工具、tool-name 统一、Inbox 工具裁剪、回复可选幂等键与 simulation 命名测试；P6b 新增多账号省略 accountId 的 ACCOUNT_REQUIRED、逐账号 recent/history、好友申请 v2 迁移、备注隔离测试；`iibot-connect` 保持无可编译期
   Log4j 依赖，`LogContext` 使用 SLF4J MDC。
 - 本结果仍包含待整合的 `iibot-connect-agent` 21 tests；P6 删除模块后测试基线会变化。

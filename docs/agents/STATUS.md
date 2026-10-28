@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-28 21:45（Asia/Shanghai）
+> **更新时间**：2026-10-28 21:55（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -60,17 +60,23 @@
   `friend_request_v2`；每账号绑定独立 FriendRequestService；备注按账号隔离。
   - `tools/gate.sh full`：PASS，**225 tests / 0 failures / 0 errors / 0 skipped**
     （connect 61、bot 94、app 70）。
-- **P7a 依赖刷新已完成**：Jackson 2.22.4、SLF4J 2.0.20、JUnit 6.1.3、Java-WebSocket
-  1.6.0、Maven compiler 3.16.0/surefire 3.6.1/jar 3.5.1/enforcer 3.6.3；
+- **P7a 依赖刷新已完成并推送 `138737c`**：Jackson 2.22.4、SLF4J 2.0.20、JUnit 6.1.3、
+  Java-WebSocket 1.6.0、Maven compiler 3.16.0/surefire 3.6.1/jar 3.5.1/enforcer 3.6.3；
   `iibot-connect` 使用父 POM 统一 SLF4J 版本。
   - `./mvnw -B -ntp clean verify` PASS，**225 tests / 0 failures / 0 errors / 0 skipped**。
   - `iibot-app` shaded jar 成功，Jackson 解析为 2.22.4。
-  - AgentLib 仍固定 0.2.4；公开 Pages 仍为 0.2.3，P7 干净仓库复现保持 `PUBLICATION_GAP`。
+- **P7b 文档收口完成**：旧文游 specs/plans/status/reports 已归档到
+  `docs/archive/legacy-game/`；当前设计索引/README/AGENTS/config/handoff 已更新；
+  docs checker 排除归档目录；`tools/gate.sh selftest` PASS。
+  - `tools/gate.sh docs`：PASS（modules=3 files=39 links=96）。
+  - `tools/gate.sh full`：PASS，**225 tests / 0 failures / 0 errors / 0 skipped**。
+  - 干净空 Maven 仓库验证因公开 AgentLib 0.2.4 不存在且依赖下载超时，结果只能
+    `PUBLICATION_GAP` / `NOT_RUN`；不得用本机 `~/.m2` 冒充公开可复现。
   - 真实 QQ/DSH/Inbox wake 闭环仍 `NOT_RUN`。
 - **本轮代码状态**：默认 reactor 3 模块（connect / bot / app）；`iibot-connect-agent`
   已删除；文游 MCP、taskflow class、旧 simulation/config legacy 已从默认工作树移除；
   P2 日志、P3 配置 v2、P4 多账号路由、P5 read/ack、P6a/P6b 统一与逐账号化 `qq_*` 工具、
-  P7a 依赖刷新均已通过 fake/embedded loopback 测试。
+  P7a 依赖刷新和 P7b 文档归档均已通过本机 fake/embedded loopback 测试。
 
 ## 1. 当前目标 / 进行中范围
 
@@ -87,8 +93,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 当前进行中：
 
-- P1b–P6b、P7a 已完成；
-- 下一步 P7b：文档全量收口、旧文游文档归档/导航清理，以及最终干净仓库验证。
+- P1b–P6b、P7a、P7b 已完成；
+- 剩余：最终合并前确认、分支合并与推送；真实外部联调仍待用户授权。
 
 非目标：
 
@@ -103,10 +109,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/unified-qq-agent-client`，跟踪 `origin/refactor/unified-qq-agent-client` |
-| 已推送提交 | `12ca813` docs、`de19c46` baseline、`0acd0a0` P1a、`207a41e` P1a evidence、`bdef235` P1b、`e84c679` P2、`d81442a` P3、`7293b5b` P4、`b501eea` P5、`8910c7b` P6a、`5117f21` P6b |
+| 已推送提交 | `12ca813` docs、`de19c46` baseline、`0acd0a0` P1a、`207a41e` P1a evidence、`bdef235` P1b、`e84c679` P2、`d81442a` P3、`7293b5b` P4、`b501eea` P5、`8910c7b` P6a、`5117f21` P6b、`138737c` P7a |
 | Maven reactor | 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | P7a 变更待提交；无运行中 Java 进程 |
+| 工作树 | P7b 文档变更待提交；无运行中 Java 进程 |
 | 模块目标 | 已完成：`iibot-connect-agent` 已删除，模块数为 3 |
 
 ## 3. 最近功能门禁
@@ -132,6 +138,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 | P6b full | `tools/gate.sh full` PASS：**225 tests / 0 failures / 0 errors / 0 skipped**（connect 61、bot 94、app 70） |
 | P6b docs | `tools/gate.sh docs` PASS（modules=3 files=77 links=192） |
 | P7a full | `./mvnw -B -ntp clean verify` PASS：**225 tests / 0 failures / 0 errors / 0 skipped**；Jackson/SLF4J/JUnit 新版本已解析 |
+| P7b docs | `tools/gate.sh docs` PASS（modules=3 files=39 links=96） |
+| P7b selftest | `tools/gate.sh selftest` PASS（check-docs 11/11、skills-lint 6/6） |
+| P7b full | `tools/gate.sh full` PASS：**225 tests / 0 failures / 0 errors / 0 skipped** |
+| P7b clean repo | `PUBLICATION_GAP` / `NOT_RUN`：公开 AgentLib 0.2.4 缺失，空仓下载超时 |
 
 ## 4. 当前有效设计/维护入口
 
@@ -172,10 +182,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 ## 7. 下一步
 
-1. **提交并推送 P7a 依赖 checkpoint**：当前分支 `refactor/unified-qq-agent-client`。
-2. **P7b 文档收口**：归档旧文游 specs/plans/status/reports，更新设计索引、README/AGENTS/
-   config/handoff，清理历史导航。
-3. **最终验证**：docs + full + 干净 Maven 仓库；AgentLib 0.2.4 公开发布前，干净仓库项记
-   `PUBLICATION_GAP` / `BLOCKED`，不用本机 `~/.m2` 冒充。
-4. **真实运行验收**：所有真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
+1. **提交并推送 P7b checkpoint**：当前分支 `refactor/unified-qq-agent-client`。
+2. **最终合并确认**：检查两个仓库分支/远端/无未提交文件，合并 Inbox 与 iiBot 的
+   `refactor/unified-qq-agent-client` 回各自基线并推送。
+3. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。

@@ -7,7 +7,7 @@
 > - [配置文件系统](../specs/2026-10-28-configuration-system.md)
 > - [用户需求原稿 D-025..D-028](../specs/2026-10-24-user-requirements-source.md)
 >
-> **当前执行状态**：P0–P6b 已完成并推送；P7a 依赖刷新完成待提交；下一步 P7b 文档收口与最终验证。
+> **当前执行状态**：P0–P7b 已完成；P7b 文档变更待提交；最终只剩合并与真实外部验收（需用户授权）。
 > **禁止事项**：未经用户当次指令不启动真实 QQ、不挂载 Bot MCP、不执行真实外发、不 commit/push。
 
 ## 1. 目标
@@ -530,3 +530,4 @@ cd ../iiBotMosire
 - 2026-10-28 P6a：默认 MCP 统一为 qq_*；新增 qq_account_list/status/login_info；qq_conversation_send 幂等键可选；默认 Inbox 仅保留 inbox_rest + qq_inbox_binding_descriptor；删除 iibot-connect-agent，reactor 3 模块；`tools/gate.sh docs` PASS（modules=3 files=77 links=192）；`tools/gate.sh full` PASS（213 tests / 0 failures / 0 errors / 0 skipped）。P6b 待办 direct-provider 逐账号化。
 - 2026-10-28 P6b：recent/history/friend request/user note 增加可选 accountId 与逐账号 provider/service；好友申请迁移到 account 分区 `friend_request_v2`；多账号未指定 accountId 返回 ACCOUNT_REQUIRED；`tools/gate.sh docs` PASS（modules=3 files=77 links=192）；`tools/gate.sh full` PASS（225 tests / 0 failures / 0 errors / 0 skipped）。
 - 2026-10-28 P7a：Jackson 2.22.4（BOM）、SLF4J 2.0.20、JUnit 6.1.3、Java-WebSocket 1.6.0、Maven plugins 刷新；`./mvnw -B -ntp clean verify` PASS（225 tests / 0 failures / 0 errors / 0 skipped）；Inbox 同步升级 Jackson/SLF4J/JUnit 并修复 Jackson dataformat-yaml 2.18.4 混杂。
+- 2026-10-28 P7b：旧文游 specs/plans/status/reports 归档到 `docs/archive/legacy-game/`，docs checker 排除 archive；当前设计索引/README/AGENTS/config/handoff 收口；`tools/gate.sh docs` PASS（modules=3 files=39 links=96）；`tools/gate.sh selftest` PASS；`tools/gate.sh full` PASS（225 tests / 0 failures / 0 errors / 0 skipped）。空 Maven 仓库因 AgentLib 0.2.4 公开缺失/下载超时记 `PUBLICATION_GAP` / `NOT_RUN`。

@@ -1,6 +1,6 @@
 # AGENTS.md —— iiBotMosire 常驻索引
 
-> **更新时间**：2026-10-28（统一 QQ Agent 客户端重构 P1）
+> **更新时间**：2026-10-28（统一 QQ Agent 客户端重构 P7 收口）
 > **本文件只做三件事**：项目边界、常驻红线、文档与模块路由。
 > **规则正文不在本文件**：项目设计看 `docs/superpowers/`，项目维护看 `docs/agents/`。
 > **禁止用 `@` 导入长文**；按需打开链接。
@@ -46,7 +46,7 @@
 9. **真实联调不冒充通过。** Mock/fake/回环测试不能写成真实 QQ/DSH 验收；没跑写 `NOT_RUN`。
 10. **不擅自 commit/push/合并。** 遵循用户当次指令与 M-005；不 `git add -A`，不强制推送。
 
-## 3. 当前模块（P6a 后）
+## 3. 当前模块（P6 后）
 
 根 `pom.xml` 当前 3 个模块：
 
@@ -68,7 +68,7 @@ iibot-bot
 iibot-app
 ```
 
-账号工具已进入 `iibot-bot` 的统一 MCP 工具包；独立 `iibot-connect-agent` 模块已删除。
+账号工具已进入 `iibot-bot` 的统一 MCP 工具包；独立 `iibot-connect-agent` 模块已删除，reactor 固定为 3 模块。
 
 ## 4. 当前有效设计与计划
 

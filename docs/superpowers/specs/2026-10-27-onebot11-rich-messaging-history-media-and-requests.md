@@ -241,7 +241,7 @@ bot_friend_request_decide(requestId, approve, remark?)
 > **D-024 后续裁定（2026-10-27）**：本节 §10.2 的“active item 冻结”只保留为
 > 历史修复记录。当前实现已改为同一来源未读桶原地追加：新消息更新同一 item，
 > `snapshotToSeq` 消费已处理范围，完整 ack 清空；详见
-> [`2026-10-26-bot-first-main-agent-architecture.md`](2026-10-26-bot-first-main-agent-architecture.md)
+> [`2026-10-26-bot-first-main-agent-architecture.md`](../../archive/legacy-game/specs/2026-10-26-bot-first-main-agent-architecture.md)
 > §5.2–5.3。
 
 ### 10.1 复核结论

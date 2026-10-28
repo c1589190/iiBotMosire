@@ -3,7 +3,7 @@
 > 设计依据：[配置文件系统设计](../docs/superpowers/specs/2026-10-28-configuration-system.md)、
 > [日志分级与诊断](../docs/superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md)。
 > P3 已实现单文件首次生成、多账号 schema、严格校验、来源追踪、脱敏诊断和 JSON 日志配置。
-> P3 完成配置 schema/诊断；P4 已让 runtime 启动全部 enabled account。
+> P3 完成配置 schema/诊断；P4 启动全部 enabled account；P6b 要求多账号 direct-provider 工具显式传 `accountId`。
 
 ## 目录
 
@@ -12,7 +12,7 @@ config/
   README.md
   schema/bot-config.schema.json   # 机器可读 schema，结构必须与 loader 一致
   examples/bot.full.json          # 单账号完整脱敏示例
-  examples/bot.multi-account.json # 多账号示例，供 P4 使用
+  examples/bot.multi-account.json # 多账号示例
   bot/README.md                   # 默认运行目录说明
   bot/bot.json                    # 首次启动生成，本地文件，gitignored
 ```
@@ -101,13 +101,13 @@ config/
 
 严格规则：
 
-- `accounts` 至少一个 `enabled=true`；P4 runtime 启动全部 enabled account，第一个 enabled 作为 direct-provider 工具的 active 账号；
+- `accounts` 至少一个 `enabled=true`；runtime 启动全部 enabled account；多账号下最近消息/远端历史/好友申请/用户备注工具必须显式传 `accountId`；
 - alias 必须匹配 `[A-Za-z0-9._-]+`；所有 `accountId` 必须全局唯一；
 - `adapter` 首版只允许 `onebot11`；
 - WS URI 只允许 `ws/wss`，HTTP base URI 只允许 `http/https`，都必须带 host；
 - `control.host`、`inbox.apiHost`、`inbox.mcpHost` 只允许回环地址；
 - `control.bearerTokenEnv` 必需；`oneBot.accessTokenEnv` 可选。填写后必须是合法环境变量名，
-  且启动/`--check-config` 时环境变量必须非空；
+  且启用账号的 secret 在启动/`--check-config` 时必须非空；disabled 账号不强制；
 - 未知字段 fail-closed，不静默忽略；
 - `logging.levels` 只接受 `io.mosire.iibot.connect` / `bot` / `app` / `inbox`
   及其子包、`iibot.ops`，级别只接受 `TRACE/DEBUG/INFO/WARN/ERROR/OFF`。

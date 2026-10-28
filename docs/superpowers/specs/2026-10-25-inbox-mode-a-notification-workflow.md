@@ -121,4 +121,4 @@ app 启动后运行一个宿主侧通知桥，按 `inbox.pollIntervalMillis` 周
   `binding-descriptor.json`；前两者强制 POSIX `0600`。
 - 通知桥 ticket 标题只含工单类型，publication-review 标题只含 visibility；
   两类 payload 均只含本 spec 规定的引用字段。
-- 验收证据：[`../status/2026-10-25-inbox-mode-a-notification-workflow.md`](../status/2026-10-25-inbox-mode-a-notification-workflow.md)。
+- 验收证据：[`../status/2026-10-25-inbox-mode-a-notification-workflow.md`](../../archive/legacy-game/status/2026-10-25-inbox-mode-a-notification-workflow.md)。

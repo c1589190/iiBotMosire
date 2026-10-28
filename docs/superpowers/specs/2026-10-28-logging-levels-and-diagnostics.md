@@ -1,7 +1,7 @@
 # 日志分级、诊断与运维可观测性设计
 
 > **状态**：已实现（P2 日志基础 + P3 JSON/CLI 配置应用，2026-10-28）。
-> **本文取代**：[2026-10-27 Bot 运维日志补全设计](2026-10-27-bot-operational-logging.md)（2026-10-28 起由其完整扩展）。
+> **本文取代**：[2026-10-27 Bot 运维日志补全设计](../../archive/legacy-game/specs/2026-10-27-bot-operational-logging.md)（2026-10-28 起由其完整扩展）。
 > **用户原话**：
 > > 「此外还有之前一直没补的运维，包括完善的debug/info log、完善且易用的配置文件系统」
 > **关联**：[统一 QQ Agent 客户端架构](2026-10-28-unified-qq-agent-client-architecture.md)、[配置系统设计](2026-10-28-configuration-system.md)、[改造计划](../plans/2026-10-28-unified-qq-agent-client-refactor-plan.md)
