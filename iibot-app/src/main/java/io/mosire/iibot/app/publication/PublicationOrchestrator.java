@@ -19,7 +19,6 @@ import io.mosire.iibot.taskflow.Hashes;
 import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.Visibility;
 import io.mosire.iibot.taskflow.WorldFact;
-import io.mosire.iibot.taskflow.agent.PlayerFacingTextGuard;
 import io.mosire.iibot.taskflow.decision.ActionBatch;
 import io.mosire.iibot.taskflow.decision.ActionBatchStatus;
 import io.mosire.iibot.taskflow.decision.ActionPackageService;
@@ -189,7 +188,7 @@ public final class PublicationOrchestrator {
             throw new PublicationException(PublicationException.PUBLICATION_INPUT_TOO_LARGE,
                     "批次输入超过发布生成上下文上限，未调用模型");
         }
-        PublicationOutput output = sanitizeOutput(callModel(prompt));
+        PublicationOutput output = callModel(prompt);
         validateOutput(output, batch);
 
         Post publicPost = resolvePublicationPost(gm, existingPublic, publicKey,
@@ -534,26 +533,6 @@ public final class PublicationOrchestrator {
                 throw new PublicationException(PublicationException.PUBLICATION_OUTPUT_INVALID,
                         "privateOutcomes 含重复玩家键");
             }
-        }
-        return new PublicationOutput(publicNarrative, privateOutcomes);
-    }
-
-    private static PublicationOutput sanitizeOutput(PublicationOutput output) {
-        String publicNarrative = output.publicNarrative().isBlank()
-                ? "" : PlayerFacingTextGuard.normalizeForPost(output.publicNarrative());
-        if (!output.publicNarrative().isBlank()
-                && !PlayerFacingTextGuard.remainingBackstageLeaks(publicNarrative).isEmpty()) {
-            throw new PublicationException(PublicationException.PUBLICATION_OUTPUT_INVALID,
-                    "公共正文含后台字段");
-        }
-        Map<String, String> privateOutcomes = new LinkedHashMap<>();
-        for (Map.Entry<String, String> entry : output.privateOutcomes().entrySet()) {
-            String clean = PlayerFacingTextGuard.normalizeForPost(entry.getValue());
-            if (!PlayerFacingTextGuard.remainingBackstageLeaks(clean).isEmpty()) {
-                throw new PublicationException(PublicationException.PUBLICATION_OUTPUT_INVALID,
-                        "私密正文含后台字段");
-            }
-            privateOutcomes.put(entry.getKey(), clean);
         }
         return new PublicationOutput(publicNarrative, privateOutcomes);
     }

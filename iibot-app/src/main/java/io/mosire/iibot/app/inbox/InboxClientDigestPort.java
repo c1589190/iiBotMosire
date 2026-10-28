@@ -13,6 +13,7 @@ import io.mosire.iibot.bot.inbox.InboxDigestConflictException;
 import io.mosire.iibot.bot.inbox.InboxDigestException;
 import io.mosire.iibot.bot.inbox.InboxDigestItem;
 import io.mosire.iibot.bot.inbox.InboxDigestPort;
+import io.mosire.iibot.connect.ops.OpsLog;
 
 import java.util.Map;
 import java.util.Objects;
@@ -63,10 +64,16 @@ public final class InboxClientDigestPort implements InboxDigestPort {
             if (result == null || result.itemId() == null || result.itemId().isBlank()) {
                 throw new IllegalStateException("Inbox push 未返回 itemId");
             }
+            OpsLog.debug("event=inbox_client_call action=push threadId={} itemId={} "
+                            + "revision={}", digest.threadId(), result.itemId(),
+                    result.revision());
             return new InboxDigestItem(result.itemId(), result.revision(), "available",
-                    digest.toSeq(), digest.fromSeq(), digest.priority());
+                    digest.toSeq(), digest.fromSeq(), digest.priority(), digest);
         } catch (RuntimeException failure) {
-            throw mapFailure(failure);
+            RuntimeException mapped = mapFailure(failure);
+            OpsLog.warn("event=inbox_client_call action=push threadId={} outcome=error code={}",
+                    digest.threadId(), errorCode(mapped));
+            throw mapped;
         }
     }
 
@@ -74,14 +81,20 @@ public final class InboxClientDigestPort implements InboxDigestPort {
     public Optional<InboxDigestItem> view(String itemId) {
         try {
             InboxModels.ItemDetail detail = client.view(inboxId, requireText(itemId, "itemId"));
+            OpsLog.debug("event=inbox_client_call action=view itemId={} status={} "
+                            + "revision={}", detail.itemId(), detail.status(), detail.revision());
             return Optional.of(new InboxDigestItem(
                     detail.itemId(), detail.revision(), detail.status(),
-                    toSeq(detail.content()), fromSeq(detail.content()), detail.priority()));
+                    toSeq(detail.content()), fromSeq(detail.content()), detail.priority(),
+                    parseDigest(detail.content())));
         } catch (RuntimeException failure) {
             if (isNotFound(failure)) {
                 return Optional.empty();
             }
-            throw mapFailure(failure);
+            RuntimeException mapped = mapFailure(failure);
+            OpsLog.warn("event=inbox_client_call action=view itemId={} outcome=error code={}",
+                    itemId, errorCode(mapped));
+            throw mapped;
         }
     }
 
@@ -101,10 +114,17 @@ public final class InboxClientDigestPort implements InboxDigestPort {
                             DIGEST_KIND,
                             digest.priority(),
                             expectedRevision));
+            OpsLog.debug("event=inbox_client_call action=update threadId={} itemId={} "
+                            + "revision={}", digest.threadId(), mutation.itemId(),
+                    mutation.revision());
             return new InboxDigestItem(mutation.itemId(), mutation.revision(), "available",
-                    digest.toSeq(), digest.fromSeq(), digest.priority());
+                    digest.toSeq(), digest.fromSeq(), digest.priority(), digest);
         } catch (RuntimeException failure) {
-            throw mapFailure(failure);
+            RuntimeException mapped = mapFailure(failure);
+            OpsLog.warn("event=inbox_client_call action=update threadId={} itemId={} "
+                            + "outcome=error code={}", digest.threadId(), itemId,
+                    errorCode(mapped));
+            throw mapped;
         }
     }
 
@@ -121,9 +141,14 @@ public final class InboxClientDigestPort implements InboxDigestPort {
                     requireText(itemId, "itemId"),
                     new InboxModels.UpdateItem(null, null, null, null,
                             priority, expectedRevision));
+            OpsLog.debug("event=inbox_client_call action=update_priority itemId={} "
+                            + "revision={}", itemId, mutation.revision());
             return mutation.revision();
         } catch (RuntimeException failure) {
-            throw mapFailure(failure);
+            RuntimeException mapped = mapFailure(failure);
+            OpsLog.warn("event=inbox_client_call action=update_priority itemId={} "
+                            + "outcome=error code={}", itemId, errorCode(mapped));
+            throw mapped;
         }
     }
 
@@ -134,8 +159,13 @@ public final class InboxClientDigestPort implements InboxDigestPort {
         }
         try {
             client.deleteItem(inboxId, requireText(itemId, "itemId"), expectedRevision);
+            OpsLog.debug("event=inbox_client_call action=archive itemId={} revision={}",
+                    itemId, expectedRevision);
         } catch (RuntimeException failure) {
-            throw mapFailure(failure);
+            RuntimeException mapped = mapFailure(failure);
+            OpsLog.warn("event=inbox_client_call action=archive itemId={} outcome=error "
+                            + "code={}", itemId, errorCode(mapped));
+            throw mapped;
         }
     }
 
@@ -159,6 +189,29 @@ public final class InboxClientDigestPort implements InboxDigestPort {
         return sequence(content, "fromSeq");
     }
 
+    /**
+     * Parse the opaque item content back into the bounded digest projection.
+     * Legacy/foreign content is tolerated as {@code null}; callers then keep the
+     * old conservative behavior.
+     *
+     * @param content - JSON node/string returned by Inbox.
+     * @returns digest projection or null when the content is not a digest.
+     */
+    private static InboxDigest parseDigest(Object content) {
+        if (content == null) return null;
+        try {
+            if (content instanceof JsonNode node && node.isObject()) {
+                return JSON.treeToValue(node, InboxDigest.class);
+            }
+            if (content instanceof String text && !text.isBlank()) {
+                return JSON.readValue(text, InboxDigest.class);
+            }
+        } catch (JsonProcessingException | RuntimeException ignored) {
+            // Legacy/foreign/incompatible content is not a usable digest.
+        }
+        return null;
+    }
+
     private static long sequence(Object content, String field) {
         if (content == null) {
             return 0L;
@@ -174,6 +227,11 @@ public final class InboxClientDigestPort implements InboxDigestPort {
             // 内容不是本程序的 digest JSON；游标保持未知，由 state 兜底。
         }
         return 0L;
+    }
+
+    private static String errorCode(RuntimeException failure) {
+        return failure instanceof InboxDigestException digestFailure
+                ? digestFailure.code() : failure.getClass().getSimpleName();
     }
 
     private static boolean isNotFound(Throwable failure) {

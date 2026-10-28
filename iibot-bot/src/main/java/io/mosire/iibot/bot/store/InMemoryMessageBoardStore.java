@@ -1,5 +1,6 @@
 package io.mosire.iibot.bot.store;
 
+import io.mosire.iibot.bot.chat.ChatDirection;
 import io.mosire.iibot.bot.chat.ChatMessage;
 import io.mosire.iibot.bot.chat.ChatThread;
 import io.mosire.iibot.bot.chat.DeliveryState;
@@ -141,6 +142,17 @@ public final class InMemoryMessageBoardStore implements MessageBoardStore {
                 .toList();
         int from = Math.max(0, all.size() - limit);
         return List.copyOf(all.subList(from, all.size()));
+    }
+
+    @Override
+    public synchronized long countInboundAfter(String threadId, long afterSeq) {
+        if (threadId == null || threadId.isBlank() || afterSeq < 0L) {
+            throw new IllegalArgumentException("threadId/afterSeq 非法");
+        }
+        return byThreadId.getOrDefault(threadId, List.of()).stream()
+                .filter(message -> message.localSeq() > afterSeq)
+                .filter(message -> message.direction() == ChatDirection.IN)
+                .count();
     }
 
     @Override

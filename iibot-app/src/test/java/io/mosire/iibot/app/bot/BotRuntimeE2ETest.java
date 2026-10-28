@@ -133,9 +133,18 @@ class BotRuntimeE2ETest {
                     "snapshotToSeq", firstContent.path("toSeq").asLong()));
 
             adapter.deliver(groupMessage("m-ambient", "普通群聊", false));
-            Thread.sleep(250L);
-            assertThat(runtime.inboxRuntime().programClient()
-                    .list("bot-inbox", java.util.Set.of("qq"), 10).items()).isEmpty();
+            String ambientItem = awaitInboxItem(runtime);
+            var ambientDetail = runtime.inboxRuntime().programClient()
+                    .view("bot-inbox", ambientItem);
+            JsonNode ambientContent = (JsonNode) ambientDetail.content();
+            assertThat(ambientContent.path("wakeReason").asText())
+                    .isEqualTo("BELOW_THRESHOLD");
+            assertThat(ambientContent.path("priority").asInt()).isZero();
+            call(client, "bot_thread_ack", Map.of(
+                    "threadId", threadId,
+                    "itemId", ambientItem,
+                    "expectedRevision", ambientDetail.revision(),
+                    "snapshotToSeq", ambientContent.path("toSeq").asLong()));
 
             adapter.deliver(groupMessage("m-mention", "你看这个", true));
             String mentionItem = awaitInboxItem(runtime);

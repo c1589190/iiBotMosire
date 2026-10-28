@@ -10,6 +10,7 @@ import io.mosire.inbox.embedded.EmbeddedInboxOptions;
 import io.mosire.inbox.embedded.EmbeddedInboxServer;
 import io.mosire.inbox.mcptools.InboxClientMcpTools;
 import io.mosire.inbox.server.ServerConfig;
+import io.mosire.iibot.connect.ops.OpsLog;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -82,6 +83,10 @@ public final class BotInboxRuntime implements AutoCloseable {
         Path wakeTokenPath = absolute.resolve(WAKE_TOKEN_FILE);
         Path descriptorPath = absolute.resolve(DESCRIPTOR_FILE);
         EmbeddedInboxServer server = null;
+        OpsLog.info("event=inbox_embedded_starting inboxId={} dataDir={} "
+                        + "apiHost={} apiPort={} mcpHost={} mcpPort={} mcpPath={}",
+                inboxId, absolute, options.apiHost(), options.apiPort(), options.mcpHost(),
+                options.mcpPort(), options.mcpPath());
         try {
             Files.createDirectories(absolute);
             server = EmbeddedInboxServer.start(EmbeddedInboxOptions.builder()
@@ -125,9 +130,14 @@ public final class BotInboxRuntime implements AutoCloseable {
                     new InboxClientMcpTools(programClient, inboxId).all());
             tools.add(new InboxBindingDescriptorTool(descriptor, descriptorPath));
             InboxClientDigestPort digestPort = new InboxClientDigestPort(programClient, inboxId);
+            OpsLog.info("event=inbox_embedded_started inboxId={} apiPort={} mcpPort={} "
+                            + "descriptor={} tools={}",
+                    inboxId, server.apiPort(), server.mcpPort(), descriptorPath, tools.size());
             return new BotInboxRuntime(server, programClient, descriptor, descriptorPath,
                     programTokenPath, wakeTokenPath, tools, digestPort);
         } catch (IOException | RuntimeException failure) {
+            OpsLog.error("event=inbox_embedded_failed inboxId={} errorType={}",
+                    inboxId, failure.getClass().getSimpleName());
             if (server != null) {
                 server.close();
             }
@@ -190,6 +200,7 @@ public final class BotInboxRuntime implements AutoCloseable {
             return;
         }
         server.close();
+        OpsLog.info("event=inbox_embedded_stopped");
     }
 
     private static void verifyOwnerOnlyFile(Path path, String label) {

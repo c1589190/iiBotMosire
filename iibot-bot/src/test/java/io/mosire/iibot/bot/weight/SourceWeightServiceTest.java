@@ -21,7 +21,7 @@ class SourceWeightServiceTest {
     private static final ChatSourceKey PRIVATE = ChatSourceKey.privateChat("bot-1", "qq-1");
 
     @Test
-    void firstContactThenAmbientSuppressedAndMentionWeighted() {
+    void firstContactThenAmbientBelowThresholdAndMentionWeighted() {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         SourceWeightService service = service(board);
         SourceWeightPolicy initial = service.ensurePolicy(GROUP, false);

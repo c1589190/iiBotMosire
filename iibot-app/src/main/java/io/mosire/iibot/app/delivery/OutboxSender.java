@@ -5,8 +5,8 @@ import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.connect.core.OutboundSegment;
 import io.mosire.iibot.connect.core.SendReceipt;
+import io.mosire.iibot.connect.ops.OpsLog;
 import io.mosire.iibot.taskflow.agent.InteractionReply;
-import io.mosire.iibot.taskflow.agent.PlayerFacingTextGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -96,9 +96,7 @@ public final class OutboxSender {
                 continue;
             }
             String idempotencyKey = "inbound:" + inbound.dedupeKey() + ":reply:" + index;
-            String playerText = inbound.sessionType() == InboundMessage.SessionType.PRIVATE
-                    ? PlayerFacingTextGuard.normalizeForChat(reply.text())
-                    : PlayerFacingTextGuard.normalizeForPost(reply.text());
+            String playerText = reply.text();
             OutboundMessage outbound;
             try {
                 outbound = switch (inbound.sessionType()) {
@@ -137,7 +135,7 @@ public final class OutboxSender {
         Objects.requireNonNull(segments, "segments");
         Objects.requireNonNull(correlationKey, "correlationKey");
         String key = "private:" + correlationKey + ":reply:0";
-        List<OutboundSegment> normalized = normalizeRichSegments(segments, true);
+        List<OutboundSegment> normalized = normalizeRichSegments(segments);
         if (normalized.isEmpty()) {
             return List.of(new SendOutcome(0, key, SendReceipt.State.FAILED_BEFORE_SEND,
                     List.of(), "OUTBOX_BLANK_TEXT", "空白正文被拒绝（未发送）"));
@@ -160,7 +158,7 @@ public final class OutboxSender {
         Objects.requireNonNull(segments, "segments");
         Objects.requireNonNull(correlationKey, "correlationKey");
         String key = "public:" + correlationKey + ":reply:0";
-        List<OutboundSegment> normalized = normalizeRichSegments(segments, false);
+        List<OutboundSegment> normalized = normalizeRichSegments(segments);
         if (normalized.isEmpty()) {
             return List.of(new SendOutcome(0, key, SendReceipt.State.FAILED_BEFORE_SEND,
                     List.of(), "OUTBOX_BLANK_TEXT", "空白正文被拒绝（未发送）"));
@@ -170,13 +168,11 @@ public final class OutboxSender {
     }
 
     private static List<OutboundSegment> normalizeRichSegments(
-            List<OutboundSegment> segments, boolean privateChat) {
+            List<OutboundSegment> segments) {
         List<OutboundSegment> normalized = new ArrayList<>(segments.size());
         for (OutboundSegment segment : segments) {
             if (segment instanceof OutboundSegment.Text text) {
-                String value = privateChat
-                        ? PlayerFacingTextGuard.normalizeForChat(text.text())
-                        : PlayerFacingTextGuard.normalizeForPost(text.text());
+                String value = text.text();
                 if (value != null && !value.isBlank()) {
                     normalized.add(new OutboundSegment.Text(value));
                 }
@@ -219,7 +215,6 @@ public final class OutboxSender {
         List<SendOutcome> outcomes = new ArrayList<>(texts.size());
         for (int index = 0; index < texts.size(); index++) {
             String text = texts.get(index);
-            text = text == null ? null : PlayerFacingTextGuard.normalizeForChat(text);
             String idempotencyKey = "private:" + correlationKey + ":reply:" + index;
             if (text == null || text.isBlank()) {
                 outcomes.add(new SendOutcome(index, idempotencyKey,
@@ -249,7 +244,6 @@ public final class OutboxSender {
         List<SendOutcome> outcomes = new ArrayList<>(texts.size());
         for (int index = 0; index < texts.size(); index++) {
             String text = texts.get(index);
-            text = text == null ? null : PlayerFacingTextGuard.normalizeForPost(text);
             String idempotencyKey = "public:" + correlationKey + ":reply:" + index;
             if (text == null || text.isBlank()) {
                 outcomes.add(new SendOutcome(index, idempotencyKey,
@@ -358,5 +352,9 @@ public final class OutboxSender {
             case UNKNOWN -> LOG.error("outbox 状态未知 key={} code={} detail={}",
                     outcome.idempotencyKey(), outcome.errorCode(), outcome.detail());
         }
+        OpsLog.info("event=outbound_send key={} state={} code={} messageIds={}",
+                outcome.idempotencyKey(), outcome.state(),
+                outcome.errorCode() == null ? "" : outcome.errorCode(),
+                outcome.adapterMessageIds());
     }
 }

@@ -67,25 +67,29 @@ class InboxDigestServiceTest {
         assertThat(outboundOnly.published()).isFalse();
         assertThat(states.find(GROUP.threadId())).get()
                 .extracting(InboxDigestState::lastSeq)
-                .isEqualTo(2L);
+                .isEqualTo(3L);
 
         board.append(inbound("m-3", "qq-1", "Alice", "第三条"));
-        InboxDigestService.FlushResult frozen = service.flushThread(GROUP.threadId());
+        InboxDigestService.FlushResult appended = service.flushThread(GROUP.threadId());
 
-        assertThat(frozen.published()).isFalse();
+        assertThat(appended.published()).isTrue();
         assertThat(states.find(GROUP.threadId())).get()
                 .extracting(InboxDigestState::itemId, InboxDigestState::lastSeq)
-                .containsExactly(itemId, 2L);
+                .containsExactly(itemId, 4L);
+        assertThat(port.digests.get(itemId).messages())
+                .extracting(MessageSummary::localSeq)
+                .containsExactly(1L, 2L, 4L);
 
         InboxDigestService.AckResult ack = service.markHandled(
-                GROUP.threadId(), itemId, active.revision(), 2L);
+                GROUP.threadId(), itemId, states.find(GROUP.threadId()).orElseThrow().revision(),
+                2L);
 
-        assertThat(ack.archived()).isTrue();
-        InboxDigestState next = states.find(GROUP.threadId()).orElseThrow();
-        assertThat(next.itemId()).isNotEqualTo(itemId);
-        assertThat(next.lastSeq()).isEqualTo(4L);
-        assertThat(port.lastDigest.messages()).hasSize(1);
-        assertThat(port.lastDigest.messages().getFirst().summary()).contains("第三条");
+        assertThat(ack.archived()).isFalse();
+        InboxDigestState remaining = states.find(GROUP.threadId()).orElseThrow();
+        assertThat(remaining.itemId()).isEqualTo(itemId);
+        assertThat(port.digests.get(itemId).messages())
+                .extracting(MessageSummary::localSeq)
+                .containsExactly(4L);
     }
 
     @Test
@@ -211,16 +215,18 @@ class InboxDigestServiceTest {
         long firstRevision = states.find(GROUP.threadId()).orElseThrow().revision();
 
         board.append(inbound("m-2", "qq-1", "Alice", "第二条"));
-        InboxDigestService.FlushResult frozen = service.flushThread(GROUP.threadId());
-        assertThat(frozen.published()).isFalse();
-        assertThat(frozen.toSeq()).isEqualTo(1L);
+        InboxDigestService.FlushResult appended = service.flushThread(GROUP.threadId());
+        assertThat(appended.published()).isTrue();
+        assertThat(appended.toSeq()).isEqualTo(2L);
+        assertThat(appended.itemId()).isEqualTo(first.itemId());
 
         InboxDigestService.AckResult firstAck = service.markHandled(
-                GROUP.threadId(), first.itemId(), firstRevision, 1L);
+                GROUP.threadId(), first.itemId(),
+                states.find(GROUP.threadId()).orElseThrow().revision(), 1L);
 
-        assertThat(firstAck.archived()).isTrue();
+        assertThat(firstAck.archived()).isFalse();
         InboxDigestState afterFirstAck = states.find(GROUP.threadId()).orElseThrow();
-        assertThat(afterFirstAck.itemId()).isNotEqualTo(first.itemId());
+        assertThat(afterFirstAck.itemId()).isEqualTo(first.itemId());
         assertThat(afterFirstAck.lastSeq()).isEqualTo(2L);
         assertThat(port.digests.get(afterFirstAck.itemId()).messages()).hasSize(1);
         assertThat(port.digests.get(afterFirstAck.itemId()).messages().getFirst().summary())
@@ -236,7 +242,7 @@ class InboxDigestServiceTest {
     }
 
     @Test
-    void reconcilesGapBetweenStateAndActiveItemBeforeFreezing() {
+    void reconcilesGapBetweenStateAndActiveItemBeforeAppending() {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
         InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
@@ -300,7 +306,7 @@ class InboxDigestServiceTest {
     }
 
     @Test
-    void suppressedAmbientDoesNotCreateInboxItemButMentionDoes() {
+    void ambientGroupMessageStillCreatesBelowThresholdInboxItem() {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
         InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
@@ -316,11 +322,34 @@ class InboxDigestServiceTest {
         ChatMessage ambient = board.append(toChatMessage(ambientInbound)).message();
         weights.saveDecision(weights.evaluate(ambientInbound, ambient, policy));
         InboxDigestService.FlushResult ambientResult = service.flushThread(GROUP.threadId());
-        assertThat(ambientResult.published()).isFalse();
-        assertThat(port.items).isEmpty();
-        assertThat(states.find(GROUP.threadId())).get()
-                .extracting(InboxDigestState::itemId, InboxDigestState::lastSeq)
-                .containsExactly("", 1L);
+
+        assertThat(ambientResult.published()).isTrue();
+        assertThat(port.lastDigest.messages()).singleElement()
+                .extracting(MessageSummary::localSeq).isEqualTo(1L);
+        assertThat(port.lastDigest.priority()).isZero();
+        assertThat(port.lastDigest.wakeReason()).isEqualTo("BELOW_THRESHOLD");
+        assertThat(port.lastDigest.weight().totalScore()).isZero();
+    }
+
+    @Test
+    void ambientMessageRemainsInLaterMentionDigestContext() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        SourceWeightService weights = new SourceWeightService(
+                new InMemorySourceWeightStore(), board, WeightSettings.defaults(), CLOCK);
+        SourceWeightPolicy policy = weights.ensurePolicy(GROUP, true);
+        InboxDigestService service = new InboxDigestService(
+                board, notes, states, port, new MessageSummaryBuilder(),
+                InboxDigestService.DEFAULT_MAX_MESSAGES_PER_FLUSH, null, CLOCK, weights);
+
+        InboundMessage ambientInbound = inboundEvent("m-ambient", "普通群聊", false);
+        ChatMessage ambient = board.append(toChatMessage(ambientInbound)).message();
+        weights.saveDecision(weights.evaluate(ambientInbound, ambient, policy));
+        InboxDigestService.FlushResult ambientResult = service.flushThread(GROUP.threadId());
+        long ambientRevision = states.find(GROUP.threadId()).orElseThrow().revision();
+        service.markHandled(GROUP.threadId(), ambientResult.itemId(), ambientRevision);
 
         InboundMessage mentionInbound = inboundEvent("m-mention", "你看这个", true);
         ChatMessage mention = board.append(toChatMessage(mentionInbound)).message();
@@ -328,8 +357,38 @@ class InboxDigestServiceTest {
         InboxDigestService.FlushResult mentionResult = service.flushThread(GROUP.threadId());
 
         assertThat(mentionResult.published()).isTrue();
-        assertThat(port.lastDigest.messages()).singleElement()
-                .extracting(MessageSummary::localSeq).isEqualTo(2L);
+        assertThat(port.lastDigest.messages()).extracting(MessageSummary::localSeq)
+                .containsExactly(2L);
+        assertThat(port.lastDigest.context()).extracting(MessageSummary::localSeq)
+                .containsExactly(1L);
+    }
+
+    @Test
+    void ambientAndMentionMessagesInSameWindowShareOneDigest() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        SourceWeightService weights = new SourceWeightService(
+                new InMemorySourceWeightStore(), board, WeightSettings.defaults(), CLOCK);
+        SourceWeightPolicy policy = weights.ensurePolicy(GROUP, true);
+        InboxDigestService service = new InboxDigestService(
+                board, notes, states, port, new MessageSummaryBuilder(),
+                InboxDigestService.DEFAULT_MAX_MESSAGES_PER_FLUSH, null, CLOCK, weights);
+
+        InboundMessage ambientInbound = inboundEvent("m-ambient", "普通群聊", false);
+        ChatMessage ambient = board.append(toChatMessage(ambientInbound)).message();
+        weights.saveDecision(weights.evaluate(ambientInbound, ambient, policy));
+        InboundMessage mentionInbound = inboundEvent("m-mention", "你看这个", true);
+        ChatMessage mention = board.append(toChatMessage(mentionInbound)).message();
+        weights.saveDecision(weights.evaluate(mentionInbound, mention, policy));
+
+        InboxDigestService.FlushResult result = service.flushThread(GROUP.threadId());
+
+        assertThat(result.published()).isTrue();
+        assertThat(result.messageCount()).isEqualTo(2);
+        assertThat(port.lastDigest.messages()).extracting(MessageSummary::localSeq)
+                .containsExactly(1L, 2L);
         assertThat(port.lastDigest.priority()).isEqualTo(200);
         assertThat(port.lastDigest.wakeReason()).isEqualTo("MENTION");
         assertThat(port.lastDigest.weight().totalScore()).isEqualTo(200);
@@ -384,6 +443,138 @@ class InboxDigestServiceTest {
         assertThat(next.itemId()).isNotEqualTo(result.itemId());
     }
 
+    @Test
+    void partialAckConsumesSnapshotAndKeepsSameUnreadBucket() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(
+                board, notes, states, port, new MessageSummaryBuilder(), 2);
+        for (int seq = 1; seq <= 5; seq++) {
+            board.append(inbound("m-" + seq, "qq-1", "Alice", "消息" + seq));
+        }
+        InboxDigestService.FlushResult first = service.flushThread(GROUP.threadId());
+        long revision = states.find(GROUP.threadId()).orElseThrow().revision();
+
+        InboxDigestService.AckResult partial = service.markHandled(
+                GROUP.threadId(), first.itemId(), revision, 2L);
+
+        assertThat(partial.archived()).isFalse();
+        assertThat(partial.remainingItemId()).isEqualTo(first.itemId());
+        InboxDigest remainder = port.digests.get(first.itemId());
+        assertThat(remainder.fromSeq()).isEqualTo(3L);
+        assertThat(remainder.toSeq()).isEqualTo(5L);
+        assertThat(remainder.unreadCount()).isEqualTo(3);
+        assertThat(remainder.hasMoreUnread()).isTrue();
+        assertThat(remainder.messages())
+                .extracting(MessageSummary::localSeq).containsExactly(4L, 5L);
+
+        InboxDigestService.AckResult full = service.markHandled(
+                GROUP.threadId(), first.itemId(),
+                states.find(GROUP.threadId()).orElseThrow().revision(), 5L);
+        assertThat(full.archived()).isTrue();
+        assertThat(states.find(GROUP.threadId())).get()
+                .extracting(InboxDigestState::itemId, InboxDigestState::lastSeq)
+                .containsExactly("", 5L);
+
+        board.append(inbound("m-6", "qq-1", "Alice", "消息6"));
+        InboxDigestService.FlushResult next = service.flushThread(GROUP.threadId());
+        assertThat(next.published()).isTrue();
+        assertThat(next.itemId()).isNotEqualTo(first.itemId());
+        assertThat(port.lastDigest.messages())
+                .extracting(MessageSummary::localSeq).containsExactly(6L);
+        assertThat(port.lastDigest.unreadCount()).isEqualTo(1);
+    }
+
+    @Test
+    void ackSnapshotDoesNotSkipMessageNewerThanLocalCursor() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(board, notes, states, port);
+        board.append(inbound("m-1", "qq-1", "Alice", "第一条"));
+        InboxDigestService.FlushResult first = service.flushThread(GROUP.threadId());
+        board.append(inbound("m-2", "qq-1", "Alice", "第二条"));
+        InboxDigestState current = states.find(GROUP.threadId()).orElseThrow();
+        states.save(current.withLastSeq(2L));
+
+        InboxDigestService.AckResult ack = service.markHandled(
+                GROUP.threadId(), first.itemId(), current.revision(), 1L);
+
+        assertThat(ack.archived()).isTrue();
+        InboxDigestState next = states.find(GROUP.threadId()).orElseThrow();
+        assertThat(next.itemId()).isNotEqualTo(first.itemId());
+        assertThat(next.lastSeq()).isEqualTo(2L);
+        assertThat(port.lastDigest.messages())
+                .extracting(MessageSummary::localSeq).containsExactly(2L);
+    }
+
+    @Test
+    void inboxItemCarriesSourceTriggerAndUnreadWindow() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(board, notes, states, port);
+        board.append(inbound("m-1", "qq-1", "Alice", "第一条"));
+        board.append(inbound("m-2", "qq-2", "Bob", "第二条"));
+
+        InboxDigestService.FlushResult result = service.flushThread(GROUP.threadId());
+
+        assertThat(result.published()).isTrue();
+        InboxDigest digest = port.lastDigest;
+        assertThat(digest.source()).isNotNull();
+        assertThat(digest.source().chatType()).isEqualTo("group");
+        assertThat(digest.source().targetId()).isEqualTo("group-9");
+        assertThat(digest.trigger()).isNotNull();
+        assertThat(digest.trigger().messageId()).isEqualTo("m-2");
+        assertThat(digest.trigger().localSeq()).isEqualTo(2L);
+        assertThat(digest.unreadCount()).isEqualTo(2);
+        assertThat(digest.hasMoreUnread()).isFalse();
+    }
+
+    @Test
+    void activeItemAppendsAndCapsPreviewWithoutLosingUnreadCount() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(
+                board, notes, states, port, new MessageSummaryBuilder(), 2);
+
+        for (int seq = 1; seq <= 5; seq++) {
+            board.append(inbound("m-" + seq, "qq-1", "Alice", "消息" + seq));
+        }
+
+        InboxDigestService.FlushResult first = service.flushThread(GROUP.threadId());
+        assertThat(first.published()).isTrue();
+        assertThat(first.itemId()).isNotBlank();
+        assertThat(port.lastDigest.messages())
+                .extracting(MessageSummary::localSeq).containsExactly(4L, 5L);
+        assertThat(port.lastDigest.fromSeq()).isEqualTo(1L);
+        assertThat(port.lastDigest.toSeq()).isEqualTo(5L);
+        assertThat(port.lastDigest.unreadCount()).isEqualTo(5);
+        assertThat(port.lastDigest.hasMoreUnread()).isTrue();
+
+        InboxDigestService.FlushResult noop = service.flushThread(GROUP.threadId());
+        assertThat(noop.published()).isFalse();
+        assertThat(noop.itemId()).isEmpty();
+
+        board.append(inbound("m-6", "qq-1", "Alice", "消息6"));
+        board.append(inbound("m-7", "qq-1", "Alice", "消息7"));
+        InboxDigestService.FlushResult appended = service.flushThread(GROUP.threadId());
+        assertThat(appended.published()).isTrue();
+        assertThat(appended.itemId()).isEqualTo(first.itemId());
+        assertThat(port.lastDigest.messages())
+                .extracting(MessageSummary::localSeq).containsExactly(6L, 7L);
+        assertThat(port.lastDigest.fromSeq()).isEqualTo(1L);
+        assertThat(port.lastDigest.toSeq()).isEqualTo(7L);
+        assertThat(port.lastDigest.unreadCount()).isEqualTo(7);
+        assertThat(port.lastDigest.hasMoreUnread()).isTrue();
+    }
+
     private static InboundMessage inboundEvent(String id, String text, boolean mentioned) {
         return new InboundMessage("adapter-1", "bot-1", id, "qq-1", "Alice",
                 InboundMessage.SessionType.GROUP, "group-9", text, "", "",
@@ -413,7 +604,8 @@ class InboxDigestServiceTest {
             lastDigest = digest;
             String itemId = "itm-" + nextItem++;
             InboxDigestItem item = new InboxDigestItem(
-                    itemId, 1L, "available", digest.toSeq(), digest.fromSeq());
+                    itemId, 1L, "available", digest.toSeq(), digest.fromSeq(),
+                    digest.priority(), digest);
             items.put(itemId, item);
             digests.put(itemId, digest);
             return item;
@@ -427,7 +619,8 @@ class InboxDigestServiceTest {
         void markClaimed(String itemId) {
             InboxDigestItem current = items.get(itemId);
             items.put(itemId, new InboxDigestItem(
-                    itemId, current.revision() + 1L, "claimed", current.toSeq()));
+                    itemId, current.revision() + 1L, "claimed", current.toSeq(),
+                    current.fromSeq(), current.priority(), current.digest()));
         }
 
         @Override
@@ -440,7 +633,8 @@ class InboxDigestServiceTest {
             }
             lastDigest = digest;
             InboxDigestItem next = new InboxDigestItem(itemId, current.revision() + 1L,
-                    "available", digest.toSeq(), digest.fromSeq());
+                    "available", digest.toSeq(), digest.fromSeq(),
+                    digest.priority(), digest);
             items.put(itemId, next);
             digests.put(itemId, digest);
             return next;
@@ -453,7 +647,8 @@ class InboxDigestServiceTest {
                 throw new InboxDigestConflictException("archive conflict");
             }
             items.put(itemId, new InboxDigestItem(
-                    itemId, current.revision() + 1L, "done", current.toSeq()));
+                    itemId, current.revision() + 1L, "done", current.toSeq(),
+                    current.fromSeq(), current.priority(), current.digest()));
         }
     }
 }

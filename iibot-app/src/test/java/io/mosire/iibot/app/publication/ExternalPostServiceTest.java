@@ -30,7 +30,6 @@ class ExternalPostServiceTest {
                     "公告标题", "这是公告正文。", "external-public-draft", false);
 
             assertThat(result.publishNow()).isFalse();
-            assertThat(result.guardApplied()).isFalse();
             Post post = result.post();
             assertThat(post.status()).isEqualTo(PostStatus.PENDING_APPROVAL);
             assertThat(post.visibility()).isEqualTo(PostVisibility.PUBLIC);
@@ -106,45 +105,6 @@ class ExternalPostServiceTest {
             assertThat(second.post().postId()).isEqualTo(first.post().postId());
             assertThat(second.post().status()).isEqualTo(PostStatus.PUBLISHED);
             assertThat(fixture.postService.postsForGm()).hasSize(1);
-        }
-    }
-
-    @Test
-    void guardAppliesBenignNormalizationAndReturnsSanitizedBody() {
-        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("guard-normalize"))) {
-            ExternalPostService service = service(fixture);
-
-            ExternalPostService.Result result = service.compose(
-                    P6Fixture.SUPERVISOR, PostVisibility.PUBLIC, null,
-                    "标题", "- 公告\n这是正文。", "external-guard-normalize", false);
-
-            assertThat(result.guardApplied()).isTrue();
-            assertThat(result.sanitizedBody()).isEqualTo("· 公告\n这是正文。");
-            assertThat(result.guardViolations()).isEmpty();
-            assertThat(result.post().body()).isEqualTo("· 公告\n这是正文。");
-        }
-    }
-
-    @Test
-    void backstageBodyIsRejectedExplicitlyWithoutCreatingFallbackDraft() {
-        try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("guard-reject"))) {
-            ExternalPostService service = service(fixture);
-
-            assertThatThrownBy(() -> service.compose(
-                    P6Fixture.SUPERVISOR, PostVisibility.PUBLIC, null,
-                    "标题", "这是一条包含 MCP 的正文。",
-                    "external-guard-reject", false))
-                    .isInstanceOfSatisfying(ExternalPostService.ExternalPostException.class,
-                            failure -> {
-                                assertThat(failure.code()).isEqualTo(
-                                        ExternalPostService.TEXT_GUARD_REJECTED);
-                                assertThat(failure.data().get("guardApplied")).isEqualTo(true);
-                                assertThat((java.util.List<String>) failure.data().get(
-                                        "guardViolations")).contains("BACKSTAGE_FIELD");
-                                assertThat(failure.data().get("guardSanitizedBody"))
-                                        .isInstanceOf(String.class);
-                            });
-            assertThat(fixture.postService.postsForGm()).isEmpty();
         }
     }
 

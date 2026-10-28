@@ -8,6 +8,7 @@ import io.mosire.iibot.bot.note.UserNote;
 import io.mosire.iibot.bot.note.UserNoteDraft;
 import io.mosire.iibot.bot.note.UserNoteRevisionConflictException;
 import io.mosire.iibot.bot.note.UserNoteStore;
+import io.mosire.iibot.connect.ops.OpsLog;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -83,6 +84,9 @@ public final class BotUserNoteUpsertTool implements AgentTool {
             }
             UserNote saved = notes.upsert(new UserNoteDraft(accountId, qqId, displayName,
                     tags, note, priority), expectedRevision);
+            OpsLog.info("event=user_note_upserted accountId={} qqId={} revision={} "
+                            + "priority={} tagCount={}", accountId, qqId, saved.revision(),
+                    saved.priority(), saved.tags().size());
             return BotToolSupport.ok(NAME, BotToolSupport.noteMap(saved));
         } catch (BotToolSupport.InvalidArgumentsException invalid) {
             return BotToolSupport.failure("INVALID_ARGUMENTS", invalid.getMessage());

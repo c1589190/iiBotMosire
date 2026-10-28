@@ -7,7 +7,7 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 一条入站消息的 bounded 摘要，用于 Inbox 来源大框。
+ * 一条入站消息的 bounded 摘要，用于 Inbox 来源未读预览。
  *
  * <p>摘要不是事实源；完整正文始终由 messageId + localSeq 回到消息板读取。</p>
  */

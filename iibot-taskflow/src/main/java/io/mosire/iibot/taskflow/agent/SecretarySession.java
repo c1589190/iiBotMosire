@@ -1025,7 +1025,7 @@ public final class SecretarySession {
         toolInvocations.addAll(result.toolInvocations());
         String text = result.text();
         if (text != null && !text.isBlank()) {
-            return playerFacing ? PlayerFacingTextGuard.normalizeForChat(text) : text;
+            return text;
         }
         if (result.turnResult().stopReason() == StopReason.LLM_ERROR) {
             return playerFacing

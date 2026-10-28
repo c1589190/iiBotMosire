@@ -8,7 +8,6 @@ import io.mosire.iibot.app.media.BotMediaStore;
 import io.mosire.iibot.app.reply.BotOutboxReplyPort;
 import io.mosire.iibot.bot.friend.FriendRequestService;
 import io.mosire.iibot.bot.friend.SqliteFriendRequestStore;
-import io.mosire.iibot.bot.chat.ChatType;
 import io.mosire.iibot.bot.inbox.InboxDigestScheduler;
 import io.mosire.iibot.bot.inbox.SqliteInboxDigestAuditStore;
 import io.mosire.iibot.bot.inbox.InboxDigestService;
@@ -28,7 +27,7 @@ import io.mosire.iibot.connect.core.ForwardCapability;
 import io.mosire.iibot.connect.core.MediaCapability;
 import io.mosire.iibot.connect.core.RecentQqProvider;
 import io.mosire.iibot.connect.core.MessagingAdapter;
-import io.mosire.iibot.taskflow.agent.PlayerFacingTextGuard;
+import io.mosire.iibot.connect.ops.OpsLog;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -102,6 +101,11 @@ public final class BotRuntime implements AutoCloseable {
         SqliteFriendRequestStore friendRequests = null;
         SqliteInboxDigestAuditStore inboxAudit = null;
         SqliteSourceWeightStore sourceWeights = null;
+        OpsLog.info("event=bot_runtime_starting accountId={} dataDir={} adapter={} "
+                        + "control={}:{}{} inboxId={} inboxDataDir={}",
+                options.accountId(), dataDir, adapter.adapterId(), options.controlHost(),
+                options.controlPort(), options.controlPath(), options.inbox().inboxId(),
+                options.inbox().dataDir());
         try {
             board = new SqliteMessageBoardStore(dataDir.resolve("bot.db"));
             friendRequests = new SqliteFriendRequestStore(dataDir.resolve("bot.db"));
@@ -112,6 +116,7 @@ public final class BotRuntime implements AutoCloseable {
             SourceWeightService weightService = new SourceWeightService(
                     sourceWeights, board, options.weighting(), clock);
             weightService.ensureExistingThreads(1000);
+            OpsLog.info("event=bot_threads_loaded threads={}", board.threads(1000).size());
             inboxRuntime = BotInboxRuntime.start(options.inbox());
             int digestLimit = Math.min(options.maxMessagesPerDigest(),
                     options.weighting().maxMessagesPerDigest());
@@ -128,10 +133,7 @@ public final class BotRuntime implements AutoCloseable {
             OutboxSender outbox = new OutboxSender(adapter, options.outboxTimeout(),
                     options.privateTempGroupId(), options.minSendInterval());
             BotReplyService replies = new BotReplyService(board,
-                    new BotOutboxReplyPort(outbox), clock,
-                    (text, chatType) -> chatType == ChatType.PRIVATE
-                            ? PlayerFacingTextGuard.normalizeForChat(text)
-                            : PlayerFacingTextGuard.normalizeForPost(text));
+                    new BotOutboxReplyPort(outbox), clock);
             ForwardCapability forwardProvider = adapter instanceof ForwardCapability capability
                     ? capability : null;
             RecentQqProvider recentProvider = adapter instanceof RecentQqProvider provider
@@ -149,25 +151,38 @@ public final class BotRuntime implements AutoCloseable {
                 tools.add(new BotMediaGetTool(board, mediaProvider, mediaStore));
             }
             tools.addAll(inboxRuntime.mcpTools());
+            OpsLog.info("event=bot_tools_prepared tools={} digestLimit={}",
+                    tools.size(), digestLimit);
             mcpServer = new BotMcpServer(options.controlHost(), options.controlPort(),
                     options.controlPath(), options.controlToken(),
                     "iibot-bot", "0.1.0", tools, mediaStore);
             // 先恢复旧 state/item 空洞和停机期间消息，再开放 MCP，避免 agent 看到半迁移 item。
             // 单 thread 的 Inbox 冲突不能拖垮启动。
             try {
-                digestService.flushAll(1000);
-            } catch (RuntimeException ignored) {
+                var recovered = digestService.flushAll(1000);
+                OpsLog.info("event=bot_recovery_flush threads={} published={}",
+                        recovered.size(), recovered.stream()
+                                .filter(result -> result.published()).count());
+            } catch (RuntimeException failure) {
                 // 具体 thread 的冲突由下一次 ingest 或 MCP 状态诊断暴露。
+                OpsLog.warn("event=bot_recovery_flush_failed errorType={}",
+                        failure.getClass().getSimpleName());
             }
             mcpServer.start();
             if (adapter instanceof FriendRequestCapability capability) {
                 capability.setFriendRequestHandler(friendService::receive);
             }
             adapter.start(message -> ingestion.ingest(message));
+            OpsLog.info("event=bot_runtime_ready accountId={} controlPort={} "
+                            + "inboxApiPort={} inboxMcpPort={} tools={}",
+                    options.accountId(), mcpServer.boundPort(), inboxRuntime.apiPort(),
+                    inboxRuntime.mcpPort(), tools.size());
             return new BotRuntime(options, adapter, board, notes, digestStates, inboxRuntime,
                     digestScheduler, ingestion, mcpServer, friendRequests, inboxAudit,
                     sourceWeights);
         } catch (IOException | RuntimeException failure) {
+            OpsLog.error("event=bot_runtime_start_failed errorType={}",
+                    failure.getClass().getSimpleName());
             closeQuietly(mcpServer);
             closeQuietly(friendRequests);
             closeQuietly(inboxAudit);
@@ -218,6 +233,7 @@ public final class BotRuntime implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
+        OpsLog.info("event=bot_runtime_close phase=starting");
         closeQuietly(adapter);
         closeQuietly(mcpServer);
         closeQuietly(friendRequests);
@@ -228,6 +244,7 @@ public final class BotRuntime implements AutoCloseable {
         closeQuietly(digestStates);
         closeQuietly(notes);
         closeQuietly(board);
+        OpsLog.info("event=bot_runtime_close phase=completed");
     }
 
     private static void closeQuietly(AutoCloseable closeable) {
@@ -236,8 +253,10 @@ public final class BotRuntime implements AutoCloseable {
         }
         try {
             closeable.close();
-        } catch (Exception ignored) {
+        } catch (Exception failure) {
             // 生命周期收尾不能掩盖首个失败。
+            OpsLog.warn("event=component_close_failed component={} errorType={}",
+                    closeable.getClass().getSimpleName(), failure.getClass().getSimpleName());
         }
     }
 }

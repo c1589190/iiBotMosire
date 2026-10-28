@@ -42,7 +42,7 @@ class OutboxSenderTest {
     }
 
     @Test
-    void sanitizesMarkdownAndBackstageFieldsAtFinalSendBoundary() {
+    void preservesRawTextAtFinalSendBoundary() {
         FakeMessagingAdapter adapter = new FakeMessagingAdapter();
         OutboxSender outbox = new OutboxSender(adapter, Duration.ofSeconds(2));
         String raw = """
@@ -58,27 +58,24 @@ class OutboxSenderTest {
 
         assertThat(adapter.sent()).hasSize(1);
         String sent = adapter.sent().get(0).textSegments().get(0);
-        assertThat(sent)
-                .contains("当前局势", "你的位置在卡普亚北隘", "/确认 K7Q2M9")
-                .doesNotContain("##", "**", "draftId", "11111111",
-                        "registration-form-v2.md", "player/");
+        assertThat(sent).isEqualTo(raw);
     }
 
     @Test
-    void publicBroadcastAlsoStripsBackstageAndMarkdown() {
+    void publicBroadcastPreservesRawText() {
         FakeMessagingAdapter adapter = new FakeMessagingAdapter();
         OutboxSender outbox = new OutboxSender(adapter, Duration.ofSeconds(2));
 
-        outbox.broadcastToPublicGroup("group-public", List.of("""
+        String raw = """
                 **世界公告**
                 城外的车队开始入城。
                 ticketId: 11111111-1111-1111-1111-111111111111
-                """), "public-safe");
+                """;
+        outbox.broadcastToPublicGroup("group-public", List.of(raw), "public-safe");
 
         assertThat(adapter.sent()).hasSize(1);
         String sent = adapter.sent().get(0).textSegments().get(0);
-        assertThat(sent).contains("世界公告", "城外的车队开始入城")
-                .doesNotContain("**", "ticketId", "11111111");
+        assertThat(sent).isEqualTo(raw);
     }
 
     @Test

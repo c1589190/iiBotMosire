@@ -75,6 +75,23 @@ class SqliteMessageBoardStoreTest {
     }
 
     @Test
+    void countsOnlyInboundMessagesAfterCursor() {
+        Path db = tempDir.resolve("bot.db");
+        try (SqliteMessageBoardStore store = new SqliteMessageBoardStore(db)) {
+            store.append(inbound("m-1", "alice", "Alice", "第一句"));
+            store.append(ChatMessage.outbound(GROUP, "reply-1", T0, "收到", "", ""));
+            store.append(inbound("m-3", "alice", "Alice", "第三句"));
+            store.append(inbound("m-4", "bob", "Bob", "第四句"));
+
+            assertThat(store.countInboundAfter(GROUP.threadId(), 0L)).isEqualTo(3L);
+            assertThat(store.countInboundAfter(GROUP.threadId(), 1L)).isEqualTo(2L);
+            assertThat(store.countInboundAfter(GROUP.threadId(), 2L)).isEqualTo(2L);
+            assertThat(store.countInboundAfter(GROUP.threadId(), 3L)).isEqualTo(1L);
+            assertThat(store.countInboundAfter(GROUP.threadId(), 4L)).isZero();
+        }
+    }
+
+    @Test
     void persistsSegmentsAndSupportsHistoryPaging() {
         Path db = tempDir.resolve("bot.db");
         try (SqliteMessageBoardStore store = new SqliteMessageBoardStore(db)) {

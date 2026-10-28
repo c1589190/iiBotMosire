@@ -6,6 +6,7 @@ import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.inbox.BotInboxRuntimeOptions;
 import io.mosire.iibot.connect.napcat.NapCatAdapter;
 import io.mosire.iibot.connect.napcat.NapCatConfig;
+import io.mosire.iibot.connect.ops.OpsLog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,6 +62,10 @@ public final class BotMain {
      */
     public static void run(List<Path> configSources, boolean bootstrapDefaultIfMissing) {
         BotRuntime runtime = null;
+        OpsLog.info("event=process_start pid={} javaVersion={} cwd={} mode=bot "
+                        + "configSources={}", ProcessHandle.current().pid(),
+                System.getProperty("java.version"), Path.of("").toAbsolutePath(),
+                configSources);
         try {
             if (configSources == null || configSources.isEmpty()) {
                 throw new ConfigException("至少需要一个配置源");
@@ -69,6 +74,8 @@ public final class BotMain {
                 BotConfigBootstrap.Result bootstrap =
                         BotConfigBootstrap.ensureDefault(configSources.getFirst());
                 if (bootstrap.generated()) {
+                    OpsLog.warn("event=config_bootstrap_generated directory={} files={}",
+                            bootstrap.directory(), bootstrap.files());
                     printBootstrapNotice(bootstrap);
                     System.exit(2);
                     return;
@@ -117,13 +124,22 @@ public final class BotMain {
             runtime = BotRuntime.start(adapter, options);
             BotRuntime shutdownTarget = runtime;
             Runtime.getRuntime().addShutdownHook(
-                    new Thread(shutdownTarget::close, "iibot-bot-shutdown"));
+                    new Thread(() -> {
+                        OpsLog.info("event=bot_shutdown_requested");
+                        shutdownTarget.close();
+                    }, "iibot-bot-shutdown"));
             LOG.info("iiBot bot-first 已启动。按 Ctrl+C 退出。");
+            OpsLog.info("event=bot_runtime_waiting controlPort={} inboxApiPort={} "
+                            + "inboxMcpPort={}",
+                    runtime.mcpServer().boundPort(), runtime.inboxRuntime().apiPort(),
+                    runtime.inboxRuntime().mcpPort());
             new CountDownLatch(1).await();
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
         } catch (RuntimeException | java.io.IOException startupFailure) {
             LOG.error("bot-first 启动失败: {}", startupFailure.getMessage());
+            OpsLog.error("event=bot_process_failed errorType={}",
+                    startupFailure.getClass().getSimpleName());
             if (runtime != null) {
                 runtime.close();
             }

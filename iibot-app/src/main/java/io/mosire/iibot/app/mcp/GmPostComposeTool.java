@@ -118,11 +118,7 @@ public final class GmPostComposeTool implements AgentTool {
                     "PUBLISH_NOW".equals(mode));
             Map<String, Object> data = GmPostToolSupport.summary(result.post());
             data.put("mode", mode);
-            data.put("guardApplied", result.guardApplied());
             data.put("publishNow", result.publishNow());
-            if (result.guardApplied()) {
-                data.put("guardSanitizedBody", result.sanitizedBody());
-            }
             return GmPostToolSupport.success(NAME, data);
         } catch (ResourceDeniedException denied) {
             throw denied;

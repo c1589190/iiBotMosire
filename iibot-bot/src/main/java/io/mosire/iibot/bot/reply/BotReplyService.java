@@ -8,6 +8,7 @@ import io.mosire.iibot.bot.chat.DeliveryState;
 import io.mosire.iibot.bot.store.MessageAppendResult;
 import io.mosire.iibot.connect.core.MessageSegment;
 import io.mosire.iibot.bot.store.MessageBoardStore;
+import io.mosire.iibot.connect.ops.OpsLog;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -26,18 +27,10 @@ public final class BotReplyService {
     private final MessageBoardStore board;
     private final BotReplyPort port;
     private final Clock clock;
-    private final BotReplyTextNormalizer normalizer;
-
     public BotReplyService(MessageBoardStore board, BotReplyPort port, Clock clock) {
-        this(board, port, clock, BotReplyTextNormalizer.identity());
-    }
-
-    public BotReplyService(MessageBoardStore board, BotReplyPort port, Clock clock,
-                           BotReplyTextNormalizer normalizer) {
         this.board = Objects.requireNonNull(board, "board");
         this.port = Objects.requireNonNull(port, "port");
         this.clock = Objects.requireNonNull(clock, "clock");
-        this.normalizer = Objects.requireNonNull(normalizer, "normalizer");
     }
 
     public BotReplyResult reply(String threadId, String text, String replyToMessageId,
@@ -50,12 +43,7 @@ public final class BotReplyService {
         ChatThread thread = board.thread(requireText(threadId, "threadId"))
                 .orElseThrow(() -> new BotReplyException("THREAD_NOT_FOUND",
                         "thread 不存在"));
-        String normalizedText = normalizer.normalize(
-                requireText(text, "text"), thread.source().chatType());
-        if (normalizedText == null || normalizedText.isBlank()) {
-            throw new BotReplyException("TEXT_REJECTED", "回复正文规范化后为空");
-        }
-        normalizedText = normalizedText.trim();
+        String normalizedText = requireText(text, "text");
         if (normalizedText.length() > MAX_TEXT_CHARS) {
             throw new BotReplyException("TEXT_TOO_LONG",
                     "回复正文超过 " + MAX_TEXT_CHARS + " 字符");
@@ -88,6 +76,8 @@ public final class BotReplyService {
         var existing = board.find(candidate.messageKey());
         if (existing.isPresent()) {
             ChatMessage message = existing.orElseThrow();
+            OpsLog.info("event=reply_idempotent_hit threadId={} key={} state={}",
+                    thread.source().threadId(), key, message.deliveryState());
             return new BotReplyResult(message, true, message.deliveryState(),
                     List.of(), "");
         }
@@ -104,6 +94,8 @@ public final class BotReplyService {
         MessageAppendResult appended = board.append(candidate, segments);
         if (!appended.created()) {
             ChatMessage message = appended.message();
+            OpsLog.info("event=reply_idempotent_hit threadId={} key={} state={}",
+                    thread.source().threadId(), key, message.deliveryState());
             return new BotReplyResult(message, true, message.deliveryState(),
                     List.of(), "");
         }
@@ -116,6 +108,9 @@ public final class BotReplyService {
         } catch (RuntimeException failure) {
             board.updateDelivery(appended.message().messageKey(),
                     DeliveryState.UNKNOWN, null, null);
+            OpsLog.error("event=reply_send threadId={} key={} state=UNKNOWN "
+                            + "code=REPLY_SEND_UNKNOWN errorType={}",
+                    thread.source().threadId(), key, failure.getClass().getSimpleName());
             throw new BotReplyException("REPLY_SEND_UNKNOWN",
                     "发送过程异常，已记录 UNKNOWN，禁止自动重发", failure);
         }
@@ -125,6 +120,10 @@ public final class BotReplyService {
                 sendResult.state(),
                 sendResult.messageIds().isEmpty() ? null : sendResult.messageIds().getFirst(),
                 clock.instant());
+        OpsLog.info("event=reply_send threadId={} key={} state={} code={} messageIds={}",
+                thread.source().threadId(), key, sendResult.state(),
+                sendResult.errorCode() == null ? "" : sendResult.errorCode(),
+                sendResult.messageIds());
         return new BotReplyResult(updated, false, sendResult.state(),
                 sendResult.messageIds(), sendResult.errorCode());
     }

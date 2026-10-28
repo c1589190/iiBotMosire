@@ -3,6 +3,7 @@ package io.mosire.iibot.bot.friend;
 import io.mosire.iibot.connect.core.FriendRequestCapability;
 import io.mosire.iibot.connect.core.FriendRequestEvent;
 import io.mosire.iibot.connect.core.SendReceipt;
+import io.mosire.iibot.connect.ops.OpsLog;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -30,7 +31,10 @@ public final class FriendRequestService {
     }
 
     public FriendRequestRecord receive(FriendRequestEvent event) {
-        return store.upsert(event).request();
+        FriendRequestRecord request = store.upsert(event).request();
+        OpsLog.info("event=friend_request_received requestId={} userId={} status={}",
+                request.requestId(), request.userId(), request.status());
+        return request;
     }
 
     public List<FriendRequestRecord> listPending(int limit) {
@@ -42,6 +46,8 @@ public final class FriendRequestService {
                 new IllegalArgumentException("好友申请不存在"));
         FriendRequestRecord request = stored.request();
         if (!PENDING.equals(request.status())) {
+            OpsLog.info("event=friend_request_decided requestId={} outcome=already_done "
+                            + "status={}", request.requestId(), request.status());
             return new FriendRequestDecision(request.requestId(), request.status(),
                     true, "ALREADY_DONE", "");
         }
@@ -53,6 +59,9 @@ public final class FriendRequestService {
         } catch (RuntimeException failure) {
             store.markDecided(request.requestId(), UNKNOWN, remark == null ? "" : remark,
                     clock.instant());
+            OpsLog.error("event=friend_request_decided requestId={} outcome=unknown "
+                            + "state=UNKNOWN code=FRIEND_REQUEST_UNKNOWN errorType={}",
+                    request.requestId(), failure.getClass().getSimpleName());
             return new FriendRequestDecision(request.requestId(), UNKNOWN,
                     false, "UNKNOWN", "FRIEND_REQUEST_UNKNOWN");
         }
@@ -65,6 +74,9 @@ public final class FriendRequestService {
             store.markDecided(request.requestId(), status,
                     remark == null ? "" : remark, clock.instant());
         }
+        OpsLog.info("event=friend_request_decided requestId={} outcome={} status={} code={}",
+                request.requestId(), approve ? "approve" : "reject", status,
+                receipt.errorCode() == null ? "" : receipt.errorCode());
         return new FriendRequestDecision(request.requestId(), status, false,
                 receipt.state().name(), receipt.errorCode() == null ? "" : receipt.errorCode());
     }

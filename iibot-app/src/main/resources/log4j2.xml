@@ -1,13 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN">
+  <Properties>
+    <Property name="LOG_DIR">${sys:iibot.log.dir:-${env:IIBOT_LOG_DIR:-logs}}</Property>
+  </Properties>
   <Appenders>
     <Console name="console" target="SYSTEM_OUT">
       <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%t] %logger{36} - %msg%n"/>
     </Console>
+
+    <RollingFile name="appFile"
+                 fileName="${LOG_DIR}/iibot.log"
+                 filePattern="${LOG_DIR}/iibot-%d{yyyy-MM-dd}-%i.log.gz"
+                 filePermissions="rw-------">
+      <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%t] %logger{36} - %msg%n"/>
+      <Policies>
+        <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+        <SizeBasedTriggeringPolicy size="20 MB"/>
+      </Policies>
+      <DefaultRolloverStrategy max="30"/>
+    </RollingFile>
+
+    <RollingFile name="opsFile"
+                 fileName="${LOG_DIR}/iibot-ops.log"
+                 filePattern="${LOG_DIR}/iibot-ops-%d{yyyy-MM-dd}-%i.log.gz"
+                 filePermissions="rw-------">
+      <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %msg%n"/>
+      <Policies>
+        <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+        <SizeBasedTriggeringPolicy size="20 MB"/>
+      </Policies>
+      <DefaultRolloverStrategy max="30"/>
+    </RollingFile>
   </Appenders>
   <Loggers>
+    <Logger name="iibot.ops" level="INFO" additivity="false">
+      <AppenderRef ref="opsFile"/>
+      <AppenderRef ref="console"/>
+    </Logger>
     <Root level="INFO">
       <AppenderRef ref="console"/>
+      <AppenderRef ref="appFile"/>
     </Root>
   </Loggers>
 </Configuration>

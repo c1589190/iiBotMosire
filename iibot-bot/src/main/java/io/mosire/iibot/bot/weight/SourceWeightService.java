@@ -6,6 +6,7 @@ import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.chat.ChatThread;
 import io.mosire.iibot.bot.store.MessageBoardStore;
 import io.mosire.iibot.connect.core.InboundMessage;
+import io.mosire.iibot.connect.ops.OpsLog;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -69,7 +70,11 @@ public final class SourceWeightService {
                 existingThread,
                 0L,
                 now);
-        return store.savePolicy(policy, null);
+        SourceWeightPolicy saved = store.savePolicy(policy, null);
+        OpsLog.debug("event=source_weight_created threadId={} chatType={} existingThread={} "
+                        + "revision={}", saved.threadId(), saved.chatType(), existingThread,
+                saved.revision());
+        return saved;
     }
 
     public synchronized MessageWeightDecision evaluate(InboundMessage inbound,
@@ -140,18 +145,15 @@ public final class SourceWeightService {
         return store.decisions(messageKeys);
     }
 
-    /** 没有旧判定时按 legacy 消息处理，避免升级后旧活动 item 丢失。 */
-    public synchronized boolean actionableOrLegacy(String messageKey) {
-        return store.findDecision(messageKey).map(MessageWeightDecision::actionable).orElse(true);
-    }
-
     public synchronized void markBootstrapDelivered(String threadId) {
         SourceWeightPolicy policy = store.findPolicy(threadId).orElse(null);
         if (policy == null || policy.bootstrapDelivered()) {
             return;
         }
-        store.savePolicy(policy.withBootstrapDelivered(true, clock.instant()),
-                policy.revision());
+        SourceWeightPolicy updated = store.savePolicy(
+                policy.withBootstrapDelivered(true, clock.instant()), policy.revision());
+        OpsLog.info("event=source_weight_bootstrap_delivered threadId={} revision={}",
+                updated.threadId(), updated.revision());
     }
 
     public synchronized SourceWeightPolicy setPolicy(
@@ -180,7 +182,15 @@ public final class SourceWeightService {
                 true,
                 current.revision(),
                 clock.instant());
-        return store.savePolicy(next, expected);
+        SourceWeightPolicy saved = store.savePolicy(next, expected);
+        OpsLog.info("event=source_weight_updated threadId={} oldRevision={} revision={} "
+                        + "sourceWeight={} notifyThreshold={} maxMessages={} quietMillis={} "
+                        + "cooldownMillis={} signalCount={} keywordCount={}",
+                saved.threadId(), current.revision(), saved.revision(), saved.sourceWeight(),
+                saved.notifyThreshold(), saved.maxMessages(), saved.quietMillis(),
+                saved.cooldownMillis(), saved.signalWeights().size(),
+                saved.keywordWeights().size());
+        return saved;
     }
 
     public synchronized List<SourceWeightPolicy> listPolicies(int limit) {

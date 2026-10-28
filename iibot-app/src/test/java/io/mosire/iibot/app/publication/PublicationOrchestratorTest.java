@@ -160,7 +160,7 @@ class PublicationOrchestratorTest {
     }
 
     @Test
-    void generatedPlayerTextIsSanitizedBeforePersistingPendingPosts() throws Exception {
+    void generatedPlayerTextIsPersistedWithoutProgramSanitization() throws Exception {
         try (P6Fixture fixture = P6Fixture.open(tempDir.resolve("publication-sanitize"))) {
             ActionBatch batch = fixture.commitBatch("净化测试行动", "batch-sanitize",
                     List.of(P6Fixture.action("player-1", "调查北码头")));
@@ -181,11 +181,17 @@ class PublicationOrchestratorTest {
                     batch.batchId(), "publication-sanitize-1");
 
             assertThat(record.publicNarrative())
-                    .contains("公共叙事", "码头恢复了平静")
-                    .doesNotContain("##", "postId", "11111111");
+                    .isEqualTo("""
+                            ## 公共叙事
+                            postId: 11111111-1111-1111-1111-111111111111
+                            码头恢复了平静。
+                            """.strip());
             assertThat(record.privateOutcomes().get("player-1"))
-                    .contains("你的结果", "你找到了密道")
-                    .doesNotContain("**", "draftId", "22222222");
+                    .isEqualTo("""
+                            **你的结果**
+                            draftId: 22222222-2222-2222-2222-222222222222
+                            你找到了密道。
+                            """.strip());
         }
     }
 

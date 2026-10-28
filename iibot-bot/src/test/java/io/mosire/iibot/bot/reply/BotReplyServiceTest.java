@@ -21,24 +21,23 @@ class BotReplyServiceTest {
     private static final ChatSourceKey GROUP = ChatSourceKey.groupChat("bot-1", "group-9");
 
     @Test
-    void normalizesBeforePersistingAndSendingSoLocalTextMatchesExternalText() {
+    void persistsAndSendsOriginalTextWithoutProgramNormalization() {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
                 T0, T0, "原消息", "", ""));
         CapturingPort port = new CapturingPort();
-        BotReplyService service = new BotReplyService(board, port, CLOCK,
-                (text, chatType) -> text.contains("MCP") ? "安全 fallback" : text);
+        BotReplyService service = new BotReplyService(board, port, CLOCK);
 
         BotReplyResult result = service.reply(GROUP.threadId(),
                 "这是包含 MCP 的原文", null, "reply-normalized");
 
-        assertThat(result.message().text()).isEqualTo("安全 fallback");
-        assertThat(port.sentText).isEqualTo("安全 fallback");
+        assertThat(result.message().text()).isEqualTo("这是包含 MCP 的原文");
+        assertThat(port.sentText).isEqualTo("这是包含 MCP 的原文");
         ChatMessage stored = board.find(result.message().messageKey()).orElseThrow();
-        assertThat(stored.text()).isEqualTo("安全 fallback");
+        assertThat(stored.text()).isEqualTo("这是包含 MCP 的原文");
         assertThat(board.segments(stored.messageKey())).singleElement().satisfies(segment -> {
             assertThat(segment.type()).isEqualTo(MessageSegment.Type.TEXT);
-            assertThat(segment.text()).isEqualTo("安全 fallback");
+            assertThat(segment.text()).isEqualTo("这是包含 MCP 的原文");
         });
     }
 

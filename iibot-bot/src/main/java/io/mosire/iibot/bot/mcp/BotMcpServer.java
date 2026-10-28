@@ -14,6 +14,7 @@ import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolCallAuthorizer;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolRegistry;
+import io.mosire.iibot.connect.ops.OpsLog;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -158,7 +159,7 @@ public final class BotMcpServer implements AutoCloseable {
             try {
                 ToolRegistry registry = new ToolRegistry();
                 for (AgentTool tool : tools) {
-                    registry.register(tool);
+                    registry.register(new BotToolCallLoggingTool(tool));
                 }
                 internal = AgentToMcpServer.startHttp(
                         INTERNAL_HOST, 0, INTERNAL_PATH, registry, serverName, serverVersion,
@@ -181,6 +182,8 @@ public final class BotMcpServer implements AutoCloseable {
                 this.expectedAuthorization = ("Bearer " + token).getBytes(StandardCharsets.UTF_8);
                 this.started = true;
                 LOG.info("Bot MCP 已启动 host={} port={} path={} tools={}",
+                        host, boundPort, path, tools.size());
+                OpsLog.info("event=mcp_started host={} port={} path={} tools={}",
                         host, boundPort, path, tools.size());
             } catch (IOException | RuntimeException failure) {
                 if (front != null && frontStarted) {
@@ -226,6 +229,7 @@ public final class BotMcpServer implements AutoCloseable {
             if (!closed.compareAndSet(false, true)) {
                 return;
             }
+            boolean wasStarted = started;
             HttpServer front = frontServer;
             frontServer = null;
             if (front != null) {
@@ -255,6 +259,9 @@ public final class BotMcpServer implements AutoCloseable {
                 expectedAuthorization = null;
             }
             started = false;
+            if (wasStarted) {
+                OpsLog.info("event=mcp_stopped");
+            }
         }
     }
 
@@ -274,10 +281,14 @@ public final class BotMcpServer implements AutoCloseable {
     private void handleProxy(HttpExchange exchange) throws IOException {
         try {
             if (!path.equals(exchange.getRequestURI().getPath())) {
+                OpsLog.warn("event=mcp_request_rejected reason=unknown_path method={}",
+                        exchange.getRequestMethod());
                 sendText(exchange, 404, "未知路径");
                 return;
             }
             if (!authorized(exchange)) {
+                OpsLog.warn("event=mcp_auth_denied remote={} method={}",
+                        exchange.getRemoteAddress(), exchange.getRequestMethod());
                 exchange.getResponseHeaders().set("WWW-Authenticate",
                         "Bearer realm=\"iibot-bot\"");
                 sendText(exchange, 401, "未授权");
@@ -285,6 +296,8 @@ public final class BotMcpServer implements AutoCloseable {
             }
             String method = exchange.getRequestMethod();
             if (!"GET".equals(method) && !"POST".equals(method) && !"DELETE".equals(method)) {
+                OpsLog.warn("event=mcp_request_rejected reason=method_not_allowed method={}",
+                        method);
                 exchange.getResponseHeaders().set("Allow", "GET, POST, DELETE");
                 exchange.sendResponseHeaders(405, -1);
                 return;
@@ -326,14 +339,18 @@ public final class BotMcpServer implements AutoCloseable {
                     HttpResponse.BodyHandlers.ofInputStream());
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
+            OpsLog.warn("event=mcp_upstream_error method={} code=INTERRUPTED", method);
             sendText(exchange, 502, "内部 MCP 请求被中断");
             return;
         } catch (IOException failure) {
+            OpsLog.error("event=mcp_upstream_error method={} errorType={}",
+                    method, failure.getClass().getSimpleName());
             sendText(exchange, 502, "内部 MCP 不可达");
             return;
         }
 
         int status = response.statusCode();
+        OpsLog.info("event=mcp_http_request method={} upstreamStatus={}", method, status);
         copyResponseHeaders(response.headers(), exchange.getResponseHeaders());
         if (status < 200 || status == 204 || status == 304) {
             try {

@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** 主 Agent 处理完 Inbox digest 后归档。 */
+/** 主 Agent 按 snapshot 消费 Inbox 未读桶；完整消费后归档。 */
 public final class BotThreadAckTool implements AgentTool {
 
     public static final String NAME = "bot_thread_ack";
@@ -26,7 +26,7 @@ public final class BotThreadAckTool implements AgentTool {
                     "expectedRevision", Map.of("type", "integer", "minimum", 1,
                             "description", "inbox_view 返回的 item revision"),
                     "snapshotToSeq", Map.of("type", "integer", "minimum", 1,
-                            "description", "inbox_view content.toSeq；用于冻结本轮处理范围")),
+                            "description", "inbox_view content.toSeq；消费本轮处理范围，部分 ack 保留剩余未读")),
             "required", List.of("threadId", "itemId", "expectedRevision"),
             "additionalProperties", false);
 
@@ -39,8 +39,8 @@ public final class BotThreadAckTool implements AgentTool {
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "按 inbox_view 的 snapshotToSeq 归档 digest 并保留 thread 游标；"
-                + "active item 冻结，新消息在 ack 后形成下一版；"
+        return "按 inbox_view 的 snapshotToSeq 消费未读范围并保留 thread 游标；"
+                + "部分 ack 保留同一 item 的剩余未读，完整 ack 后归档；"
                 + "ITEM_STATUS_CONFLICT 时按 details 停止或由宿主处置。";
     }
 

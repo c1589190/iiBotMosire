@@ -1,5 +1,7 @@
 package io.mosire.iibot.bot.inbox;
 
+import io.mosire.iibot.connect.ops.OpsLog;
+
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -63,6 +65,8 @@ public final class InboxDigestScheduler implements AutoCloseable {
         long boundedDelay = Math.max(0L, Math.min(86_400_000L, delayMillis));
         long generation = nextGeneration.incrementAndGet();
         generations.put(threadId, generation);
+        OpsLog.debug("event=inbox_digest_enqueue threadId={} delayMs={}",
+                threadId, boundedDelay);
         executor.schedule(() -> runScheduled(threadId, generation),
                 boundedDelay, TimeUnit.MILLISECONDS);
     }
@@ -96,6 +100,7 @@ public final class InboxDigestScheduler implements AutoCloseable {
             generations.clear();
         }
         executor.shutdownNow();
+        OpsLog.info("event=inbox_digest_scheduler_stopped");
     }
 
     private void runScheduled(String threadId, long generation) {
@@ -114,6 +119,8 @@ public final class InboxDigestScheduler implements AutoCloseable {
             service.flushThread(threadId);
         } catch (Throwable failure) {
             lastError.set(failure);
+            OpsLog.error("event=inbox_digest_failed threadId={} errorType={}",
+                    threadId, failure.getClass().getSimpleName());
             try {
                 errorHandler.accept(failure);
             } catch (RuntimeException ignored) {

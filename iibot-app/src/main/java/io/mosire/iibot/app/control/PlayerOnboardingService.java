@@ -12,7 +12,6 @@ import io.mosire.iibot.taskflow.Actor;
 import io.mosire.iibot.taskflow.ActorRole;
 import io.mosire.iibot.taskflow.Hashes;
 import io.mosire.iibot.taskflow.agent.MappedIdentity;
-import io.mosire.iibot.taskflow.agent.PlayerFacingTextGuard;
 
 import java.util.List;
 import java.util.Map;
@@ -192,9 +191,8 @@ public final class PlayerOnboardingService {
 
         String form = registrationForm == null || registrationForm.isBlank()
                 ? DEFAULT_REGISTRATION_FORM : registrationForm;
-        String guarded = PlayerFacingTextGuard.normalizeForChat(form);
         List<SendOutcome> outcomes = outbox.sendPrivateToUser(
-                targetQq, groupId, List.of(guarded),
+                targetQq, groupId, List.of(form),
                 "onboarding:" + digest + ":registration-card");
         if (outcomes.isEmpty()) {
             return new Result(playerId, targetQq, true, alreadyRegistered, false,

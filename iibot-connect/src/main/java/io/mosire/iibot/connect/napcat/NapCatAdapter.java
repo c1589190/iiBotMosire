@@ -36,6 +36,7 @@ import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.connect.core.OutboundSegment;
 import io.mosire.iibot.connect.core.SendReceipt;
+import io.mosire.iibot.connect.ops.OpsLog;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -146,6 +147,7 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
             throw new IllegalStateException("适配器只能启动一次");
         }
         inboundHandler.set(handler);
+        OpsLog.info("event=adapter_start adapterId={} config={}", adapterId, config);
         updateStatus(ConnectionState.CONNECTING, null, null);
         connect();
     }
@@ -908,6 +910,7 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
         updateStatus(ConnectionState.CLOSED, null, null);
         emit(AdapterEvent.Type.DISCONNECTED, "adapter closed");
         scheduler.shutdownNow();
+        OpsLog.info("event=adapter_close adapterId={}", adapterId);
     }
 
     private CompletableFuture<SendReceipt> executeSend(OutboundMessage message) {
@@ -924,6 +927,9 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
                     Redaction.sanitize(exception.getMessage(), config.accessToken().orElse(null))));
         }
         SendOperation operation = new SendOperation(message, chunks);
+        OpsLog.info("event=adapter_send_start key={} targetType={} targetId={} chunks={}",
+                message.idempotencyKey(), message.targetType(), message.targetId(),
+                chunks.size());
         pendingSends.add(operation);
         operation.result.whenComplete((ignored, error) -> pendingSends.remove(operation));
         sendChunk(operation, 0);
@@ -1032,6 +1038,10 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
 
     private void finish(SendOperation operation, SendReceipt receipt) {
         if (operation.finished.compareAndSet(false, true)) {
+            OpsLog.info("event=adapter_send_finish key={} state={} code={} messageIds={}",
+                    operation.message.idempotencyKey(), receipt.state(),
+                    receipt.errorCode() == null ? "" : receipt.errorCode(),
+                    receipt.adapterMessageIds());
             operation.result.complete(receipt);
         }
     }
@@ -1386,6 +1396,11 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
     private void emit(AdapterEvent.Type type, String detail) {
         AdapterEvent event = new AdapterEvent(type, Instant.now(),
                 Redaction.sanitize(detail, config.accessToken().orElse(null)));
+        if (type == AdapterEvent.Type.HEARTBEAT) {
+            OpsLog.debug("event=adapter_event type={} detail={}", type, event.detail());
+        } else {
+            OpsLog.info("event=adapter_event type={} detail={}", type, event.detail());
+        }
         for (AdapterEventListener listener : listeners) {
             try {
                 listener.onEvent(event);

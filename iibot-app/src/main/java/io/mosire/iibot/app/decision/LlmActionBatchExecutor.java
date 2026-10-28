@@ -9,7 +9,6 @@ import io.mosire.iibot.taskflow.TaskflowEngine;
 import io.mosire.iibot.taskflow.TurnView;
 import io.mosire.iibot.taskflow.Visibility;
 import io.mosire.iibot.taskflow.WorldFact;
-import io.mosire.iibot.taskflow.agent.PlayerFacingTextGuard;
 import io.mosire.iibot.taskflow.decision.ActionBatch;
 import io.mosire.iibot.taskflow.decision.ActionBatchExecutor;
 import io.mosire.iibot.taskflow.decision.ActionBatchStatus;
@@ -92,7 +91,6 @@ public final class LlmActionBatchExecutor implements ActionBatchExecutor {
             try {
                 output = AdjudicationOutput.parse(result);
                 output.validatePlayerScope(new java.util.LinkedHashSet<>(correlated.playerIds()));
-                output = sanitize(output);
             } catch (RuntimeException invalid) {
                 return correlated.withStatus(ActionBatchStatus.REJECTED, REJECT_OUTPUT_INVALID);
             }
@@ -178,25 +176,6 @@ public final class LlmActionBatchExecutor implements ActionBatchExecutor {
                 + "玩家可读的世界内中文：不得出现 draftId/ticketId/postId/MCP/schema/路径/"
                 + "状态枚举/Markdown/代码块。公共文本不得泄露任何玩家私密信息。"
                 + "没有造成任何世界变化时 worldChanged=false 并写清 noOpReason。";
-    }
-
-    private static AdjudicationOutput sanitize(AdjudicationOutput output) {
-        String publicSummary = output.publicSummary().isBlank()
-                ? "" : PlayerFacingTextGuard.normalizeForPost(output.publicSummary());
-        if (!output.publicSummary().isBlank()
-                && !PlayerFacingTextGuard.remainingBackstageLeaks(publicSummary).isEmpty()) {
-            throw new IllegalArgumentException("publicSummary 含后台字段");
-        }
-        java.util.Map<String, String> privateOutcomes = new java.util.LinkedHashMap<>();
-        for (java.util.Map.Entry<String, String> entry : output.privateOutcomes().entrySet()) {
-            String clean = PlayerFacingTextGuard.normalizeForPost(entry.getValue());
-            if (!PlayerFacingTextGuard.remainingBackstageLeaks(clean).isEmpty()) {
-                throw new IllegalArgumentException("privateOutcome 含后台字段");
-            }
-            privateOutcomes.put(entry.getKey(), clean);
-        }
-        return new AdjudicationOutput(publicSummary, privateOutcomes,
-                output.worldChanged(), output.noOpReason());
     }
 
     private static String boundResult(String result) {

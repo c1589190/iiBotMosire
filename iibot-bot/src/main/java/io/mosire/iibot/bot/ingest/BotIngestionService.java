@@ -9,6 +9,7 @@ import io.mosire.iibot.bot.weight.MessageWeightDecision;
 import io.mosire.iibot.bot.weight.SourceWeightPolicy;
 import io.mosire.iibot.bot.weight.SourceWeightService;
 import io.mosire.iibot.connect.core.InboundMessage;
+import io.mosire.iibot.connect.ops.OpsLog;
 
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -49,7 +50,15 @@ public final class BotIngestionService {
                 message.text(),
                 message.nonTextSummary(),
                 message.replyToMessageId());
-        MessageAppendResult result = board.append(candidate, message.segments());
+        MessageAppendResult result;
+        try {
+            result = board.append(candidate, message.segments());
+        } catch (RuntimeException failure) {
+            OpsLog.error("event=inbound_ingest threadId={} messageKey={} outcome=error "
+                            + "errorType={}", source.threadId(), candidate.messageKey(),
+                    failure.getClass().getSimpleName());
+            throw failure;
+        }
         if (result.created()) {
             long delayMillis = 0L;
             if (weights != null) {
@@ -61,7 +70,23 @@ public final class BotIngestionService {
                 weights.saveDecision(decision);
                 delayMillis = weights.enqueueDelayMillis(policy, decision);
             }
-            digestTrigger.enqueue(result.message().source().threadId(), delayMillis);
+            OpsLog.info("event=inbound_ingest threadId={} messageKey={} localSeq={} "
+                            + "chatType={} outcome=accepted delayMs={}",
+                    source.threadId(), result.message().messageKey(),
+                    result.message().localSeq(), source.chatType(), delayMillis);
+            try {
+                digestTrigger.enqueue(result.message().source().threadId(), delayMillis);
+            } catch (RuntimeException failure) {
+                OpsLog.error("event=inbound_digest_enqueue_failed threadId={} "
+                                + "messageKey={} errorType={}", source.threadId(),
+                        result.message().messageKey(), failure.getClass().getSimpleName());
+                throw failure;
+            }
+        } else {
+            OpsLog.info("event=inbound_ingest threadId={} messageKey={} localSeq={} "
+                            + "chatType={} outcome=duplicate",
+                    source.threadId(), result.message().messageKey(),
+                    result.message().localSeq(), source.chatType());
         }
         return new IngestResult(result.message(), result.created());
     }

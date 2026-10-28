@@ -1,6 +1,7 @@
 package io.mosire.iibot.app.inbox;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.mosire.agentlib.permission.AccessToken;
 import io.mosire.agentlib.permission.AgentPermissionSet;
 import io.mosire.agentlib.tool.ToolContext;
@@ -10,6 +11,7 @@ import io.mosire.inbox.embedded.EmbeddedInboxOptions;
 import io.mosire.inbox.embedded.EmbeddedInboxServer;
 import io.mosire.iibot.bot.chat.ChatMessage;
 import io.mosire.iibot.bot.chat.ChatSourceKey;
+import io.mosire.iibot.bot.inbox.InboxDigestItem;
 import io.mosire.iibot.bot.inbox.InboxDigestService;
 import io.mosire.iibot.bot.mcp.BotThreadAckTool;
 import io.mosire.iibot.bot.inbox.InboxDigestState;
@@ -175,19 +177,61 @@ class InboxClientDigestPortTest {
 
             board.append(ChatMessage.inbound(GROUP, "m-3", "qq-1", "Alice", T0, T0,
                     "第三条", "", ""));
-            InboxDigestService.FlushResult frozen = service.flushThread(GROUP.threadId());
-            assertThat(frozen.published()).isFalse();
-            assertThat(states.find(GROUP.threadId()).orElseThrow().itemId())
-                    .isEqualTo(first.itemId());
+            InboxDigestService.FlushResult appended = service.flushThread(GROUP.threadId());
+            assertThat(appended.published()).isTrue();
+            assertThat(appended.itemId()).isEqualTo(first.itemId());
+            assertThat(states.find(GROUP.threadId()).orElseThrow().lastSeq()).isEqualTo(3L);
 
-            service.markHandled(GROUP.threadId(), first.itemId(), active.revision(), 2L);
-            InboxDigestState next = states.find(GROUP.threadId()).orElseThrow();
-            assertThat(next.itemId()).isNotEqualTo(first.itemId());
+            service.markHandled(GROUP.threadId(), first.itemId(),
+                    states.find(GROUP.threadId()).orElseThrow().revision(), 2L);
+            InboxDigestState remaining = states.find(GROUP.threadId()).orElseThrow();
+            assertThat(remaining.itemId()).isEqualTo(first.itemId());
             JsonNode content = (JsonNode) inbox.client()
-                    .view("app-lag", next.itemId()).content();
+                    .view("app-lag", remaining.itemId()).content();
             assertThat(content.path("messages")).hasSize(1);
             assertThat(content.path("messages").get(0).path("summary").asText())
                     .contains("第三条");
+        }
+    }
+
+    @Test
+    void readsLegacyContentWithoutNewUnreadMetadata() throws Exception {
+        try (EmbeddedInboxServer inbox = EmbeddedInboxServer.start(
+                EmbeddedInboxOptions.builder()
+                        .dataDir(tempDir.resolve("inbox-legacy"))
+                        .inboxId("app-legacy")
+                        .deleteDataOnClose(true)
+                        .build())) {
+            InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+            InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+            InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+            InboxClientDigestPort port = new InboxClientDigestPort(inbox.client(), "app-legacy");
+            InboxDigestService service = new InboxDigestService(board, notes, states, port);
+            board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice", T0, T0,
+                    "第一条", "", ""));
+            board.append(ChatMessage.inbound(GROUP, "m-2", "qq-1", "Alice", T0, T0,
+                    "第二条", "", ""));
+            InboxDigestService.FlushResult current = service.flushThread(GROUP.threadId());
+            ObjectNode legacy = (ObjectNode) ((JsonNode) inbox.client()
+                    .view("app-legacy", current.itemId()).content()).deepCopy();
+            legacy.remove(List.of("source", "trigger", "unreadCount", "hasMoreUnread"));
+            InboxModels.PushResult pushed = inbox.client().push("app-legacy",
+                    InboxModels.PushItem.builder("qq")
+                            .kind("digest")
+                            .summary("旧版摘要")
+                            .content(legacy.toString())
+                            .contentRef("message-board://legacy")
+                            .dedupeKey("legacy-item")
+                            .priority(0)
+                            .build());
+
+            InboxDigestItem viewed = port.view(pushed.itemId()).orElseThrow();
+
+            assertThat(viewed.digest()).isNotNull();
+            assertThat(viewed.digest().unreadCount()).isEqualTo(2);
+            assertThat(viewed.digest().hasMoreUnread()).isFalse();
+            assertThat(viewed.digest().source()).isNull();
+            assertThat(viewed.digest().trigger()).isNull();
         }
     }
 
@@ -223,26 +267,31 @@ class InboxClientDigestPortTest {
             JsonNode content = (JsonNode) detail.content();
             assertThat(content.path("threadId").asText()).isEqualTo(GROUP.threadId());
             assertThat(content.path("messages")).hasSize(2);
+            assertThat(content.path("unreadCount").asInt()).isEqualTo(2);
+            assertThat(content.path("source").path("chatType").asText()).isEqualTo("group");
+            assertThat(content.path("source").path("targetId").asText()).isEqualTo("group-9");
+            assertThat(content.path("trigger").path("messageId").asText()).isEqualTo("m-2");
             long revision = states.find(GROUP.threadId()).orElseThrow().revision();
 
             board.append(ChatMessage.inbound(GROUP, "m-3", "qq-1", "Alice", T0, T0,
                     "第三条", "", ""));
-            InboxDigestService.FlushResult frozen = service.flushThread(GROUP.threadId());
+            InboxDigestService.FlushResult appended = service.flushThread(GROUP.threadId());
 
-            assertThat(frozen.published()).isFalse();
-            InboxModels.ItemDetail untouched = inbox.client().view("app-a", first.itemId());
-            assertThat(untouched.summary()).contains("第二条");
-            assertThat(untouched.revision()).isEqualTo(revision);
-            assertThat(((JsonNode) untouched.content()).path("messages")).hasSize(2);
-
-            service.markHandled(GROUP.threadId(), first.itemId(), revision, 2L);
-            InboxDigestState next = states.find(GROUP.threadId()).orElseThrow();
-            InboxModels.ItemDetail updated = inbox.client().view("app-a", next.itemId());
+            assertThat(appended.published()).isTrue();
+            InboxModels.ItemDetail updated = inbox.client().view("app-a", first.itemId());
             assertThat(updated.summary()).contains("第三条");
             assertThat(updated.revision()).isGreaterThan(revision);
-            assertThat(((JsonNode) updated.content()).path("messages")).hasSize(1);
+            assertThat(((JsonNode) updated.content()).path("messages")).hasSize(3);
+            assertThat(((JsonNode) updated.content()).path("unreadCount").asInt()).isEqualTo(3);
 
-            service.markHandled(GROUP.threadId(), next.itemId(), next.revision());
+            service.markHandled(GROUP.threadId(), first.itemId(),
+                    states.find(GROUP.threadId()).orElseThrow().revision(), 2L);
+            InboxDigestState remaining = states.find(GROUP.threadId()).orElseThrow();
+            InboxModels.ItemDetail partial = inbox.client().view("app-a", remaining.itemId());
+            assertThat(partial.summary()).contains("第三条");
+            assertThat(((JsonNode) partial.content()).path("messages")).hasSize(1);
+
+            service.markHandled(GROUP.threadId(), remaining.itemId(), remaining.revision());
             assertThat(inbox.client().list("app-a", Set.of("qq"), 10).items()).isEmpty();
         }
     }

@@ -57,6 +57,19 @@ public interface MessageBoardStore {
     List<ChatMessage> readThread(String threadId, long afterSeq, int limit);
 
     /**
+     * 统计一个 thread 在 {@code afterSeq} 之后的入站消息数。
+     * 默认实现用于最小 fake；SQLite 实现使用精确 COUNT。
+     */
+    default long countInboundAfter(String threadId, long afterSeq) {
+        if (threadId == null || threadId.isBlank() || afterSeq < 0L) {
+            throw new IllegalArgumentException("threadId/afterSeq 非法");
+        }
+        return readThread(threadId, afterSeq, 1000).stream()
+                .filter(message -> message.direction() == io.mosire.iibot.bot.chat.ChatDirection.IN)
+                .count();
+    }
+
+    /**
      * 读取 {@code beforeSeq} 之前最近的 {@code limit} 条消息，按 localSeq 升序。
      * 默认实现适合 fake；SQLite 使用索引。
      */
