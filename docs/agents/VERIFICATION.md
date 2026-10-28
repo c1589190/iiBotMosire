@@ -25,10 +25,10 @@ tools/gate.sh full
 
 ## 二、最近已运行基线
 
-- 2026-10-28 P3 后源码基线：`tools/gate.sh full` **PASS，208 tests / 0 failures /
-  0 errors / 0 skipped**（connect 58、connect-agent 21、bot 69、app 60）；
+- 2026-10-28 P4 后源码基线：`tools/gate.sh full` **PASS，221 tests / 0 failures /
+  0 errors / 0 skipped**（connect 61、connect-agent 21、bot 73、app 66）；
   `tools/gate.sh docs` PASS（modules=4 files=78 links=195）。
-- P2/P3 新增日志上下文/分级/轮转/脱敏、配置 schema/来源追踪/CLI/日志应用测试；`iibot-connect` 保持无可编译期
+- P2/P3 新增日志上下文/分级/轮转/脱敏、配置 schema/来源追踪/CLI/日志应用测试；P4 新增多账号 registry、入站隔离、出站路由和账号身份回滚测试；`iibot-connect` 保持无可编译期
   Log4j 依赖，`LogContext` 使用 SLF4J MDC。
 - 本结果仍包含待整合的 `iibot-connect-agent` 21 tests；P6 删除模块后测试基线会变化。
 - 真实 NapCat/DSH/QQ/MCP 长跑、日志真实轮转与崩溃恢复均 `NOT_RUN`。

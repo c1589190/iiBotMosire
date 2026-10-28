@@ -95,4 +95,32 @@ class BotMediaGetToolTest {
         assertThat(asset.mediaType()).isEqualTo("image/png");
         assertThat(asset.bytes()).containsExactly(1, 2, 3);
     }
+    @Test
+    void routesMediaLookupByMessageAccount() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        ChatSourceKey accountB = ChatSourceKey.groupChat("bot-b", "group-b");
+        ChatMessage message = ChatMessage.inbound(accountB, "m-b", "qq-b", "Bob",
+                T0, T0, "", "[图片×1]", "");
+        board.append(message, List.of(MessageSegment.image(
+                0, "file-b", "https://example.invalid/b.png", "image/png", 2)));
+        MediaCapability providerA = segment -> CompletableFuture.completedFuture(
+                new MediaAsset("a.png", "image/png", new byte[]{9, 9}));
+        MediaCapability providerB = segment -> CompletableFuture.completedFuture(
+                new MediaAsset("b.png", "image/png", new byte[]{7, 8}));
+        BotMediaStore store = new BotMediaStore(tempDir);
+        BotMediaGetTool tool = new BotMediaGetTool(board,
+                Map.of("bot-a", providerA, "bot-b", providerB), store);
+
+        AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
+                .allow(tool.name())
+                .build();
+        ToolResult result = tool.execute(new ToolContext(
+                AccessToken.DEFAULT, permissions, Map.of(),
+                Map.of("messageKey", message.messageKey())));
+
+        assertThat(result.success()).isTrue();
+        ToolAsset asset = store.resolve(result.assetDocIds().getFirst()).orElseThrow();
+        assertThat(asset.bytes()).containsExactly(7, 8);
+    }
+
 }

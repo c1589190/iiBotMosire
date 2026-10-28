@@ -352,7 +352,7 @@ java -jar iibot-app.jar --print-effective-config --config config/bot
 已实现：
 
 - 顶层 `$schema/dataDir/accounts/control/inbox/messageBoard/logging` schema；
-- `accounts` alias 映射与多账号配置校验（P3 runtime 仅启动第一个 enabled account）；
+- `accounts` alias 映射与多账号配置校验；P4 已让 runtime 启动全部 enabled account，第一个 enabled 作为 direct-provider 的 active 账号；
 - 来源文件/JSON pointer/expected/actual/hint 结构化错误；
 - `--check-config`、`--print-effective-config`、`--log-level`；
 - 单一 `config/bot/bot.json` 首次生成，0600/0700、不覆盖、rc=2；
@@ -363,7 +363,7 @@ java -jar iibot-app.jar --print-effective-config --config config/bot
 未实现 / 后续：
 
 - `--migrate-config` 可选迁移命令；
-- P4 多账号运行和出站路由；
+- P4 多账号运行和出站路由已实现；
 - 配置热更新。
 
 ## 15. 修订记录

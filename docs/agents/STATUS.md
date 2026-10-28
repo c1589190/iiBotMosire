@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-28 20:50（Asia/Shanghai）
+> **更新时间**：2026-10-28 21:00（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -28,16 +28,23 @@
   正文/token 零命中回归。
   - `tools/gate.sh full`：PASS，192 tests / 0 failures / 0 errors / 0 skipped
     （connect 58、connect-agent 21、bot 69、app 44）。
-- **P3 已完成**：配置 v2（多账号 schema、`messageBoard`、JSON `logging`）、来源文件/JSON pointer
-  错误定位、`--check-config`、`--print-effective-config`、`--log-level`、单一
-  `config/bot/bot.json` 首次生成和 schema/examples。
+- **P3 已完成并推送 `d81442a`**：配置 v2（多账号 schema、`messageBoard`、JSON `logging`）、
+  来源文件/JSON pointer 错误定位、`--check-config`、`--print-effective-config`、
+  `--log-level`、单一 `config/bot/bot.json` 首次生成和 schema/examples。
   - `tools/gate.sh full`：PASS，**208 tests / 0 failures / 0 errors / 0 skipped**
     （connect 58、connect-agent 21、bot 69、app 60）。
   - `tools/gate.sh docs`：PASS（modules=4 files=78 links=195）。
-  - P3 runtime 仍只启动第一个 enabled account；P4 才实现多账号路由。
+- **P4 已完成**：新增 `AccountRegistry`；BotMain 启动全部 enabled account；BotRuntime
+  按账号启动 Adapter、绑定入站 accountId、按 thread.accountId 路由独立 OutboxSender；
+  `inbound_account_mismatch` fail-closed；多账号启动失败回滚并关闭全部 adapter；
+  forward/media 已按消息账号路由，direct-provider 工具显式绑定 active account 并留 P6
+  完整多账号化。
+  - `tools/gate.sh full`：PASS，**221 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 61、connect-agent 21、bot 73、app 66）。
+  - `tools/gate.sh docs`：PASS（modules=4 files=78 links=195）。
 - **本轮代码状态**：默认 reactor 4 模块（connect / connect-agent / bot / app）；
   文游 MCP、taskflow class、旧 simulation/config legacy 已从默认工作树移除；
-  P2 日志与 P3 配置 v2 已通过 fake/embedded loopback 测试。
+  P2 日志、P3 配置 v2、P4 多账号路由已通过 fake/embedded loopback 测试。
 
 ## 1. 当前目标 / 进行中范围
 
@@ -54,8 +61,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 当前进行中：
 
-- P1b、P2、P3 已完成；
-- 下一步 P4：多 Adapter/账号注册与出站路由。
+- P1b、P2、P3、P4 已完成；
+- 下一步 P5：read/ack 游标与 Inbox 自动同步。
 
 非目标：
 
@@ -70,10 +77,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/unified-qq-agent-client`，跟踪 `origin/refactor/unified-qq-agent-client` |
-| 已推送提交 | `12ca813` docs、`de19c46` baseline、`0acd0a0` P1a、`207a41e` P1a evidence、`bdef235` P1b、`e84c679` P2 |
+| 已推送提交 | `12ca813` docs、`de19c46` baseline、`0acd0a0` P1a、`207a41e` P1a evidence、`bdef235` P1b、`e84c679` P2、`d81442a` P3 |
 | Maven reactor | 4 模块：`iibot-connect` / `iibot-connect-agent` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | P3 变更待提交；无运行中 Java 进程 |
+| 工作树 | P4 变更待提交；无运行中 Java 进程 |
 | 模块目标 | `iibot-connect-agent` 在 P6 整合后删除 |
 
 ## 3. 最近功能门禁
@@ -90,6 +97,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 | P2 docs | `tools/gate.sh docs` PASS（modules=4 files=78 links=194） |
 | P3 full | `tools/gate.sh full` PASS：**208 tests / 0 failures / 0 errors / 0 skipped**（connect 58、connect-agent 21、bot 69、app 60） |
 | P3 docs | `tools/gate.sh docs` PASS（modules=4 files=78 links=195） |
+| P4 full | `tools/gate.sh full` PASS：**221 tests / 0 failures / 0 errors / 0 skipped**（connect 61、connect-agent 21、bot 73、app 66） |
+| P4 docs | `tools/gate.sh docs` PASS（modules=4 files=78 links=195） |
 
 ## 4. 当前有效设计/维护入口
 
@@ -130,10 +139,11 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 ## 7. 下一步
 
-1. **提交并推送 P3 checkpoint**：当前分支 `refactor/unified-qq-agent-client`。
-2. **P4 多 Adapter/账号注册与路由**：AccountRegistry、多 Adapter 启动、按 thread.accountId()
-   选择出站 Adapter；P3 配置已预留 accounts。
-3. **P5/P6**：read/ack 与 Inbox 同步 → 统一 `qq_*` MCP 并删除 `iibot-connect-agent`。
+1. **提交并推送 P4 checkpoint**：当前分支 `refactor/unified-qq-agent-client`。
+2. **P5 read/ack 游标与 Inbox 自动同步**：consumer_thread_state、read/ack 语义、
+   `bot_thread_ack` 移出 Agent 主流程、Inbox 更新/归档和对账。
+3. **P6 统一 MCP**：`qq_*` 工具面、direct-provider 多账号化、整合并删除
+   `iibot-connect-agent`。
 4. **P7**：依赖 patch 升级、JUnit 6 独立迁移、文档全量重写、干净 Maven 仓库验证。
 5. **真实运行验收**：所有真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。

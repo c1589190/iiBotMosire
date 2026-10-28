@@ -39,15 +39,28 @@ public final class BotQqHistoryTool implements AgentTool {
             "additionalProperties", false);
 
     private final ChatHistoryProvider provider;
+    private final String accountId;
 
     public BotQqHistoryTool(ChatHistoryProvider provider) {
+        this(provider, null);
+    }
+
+    /**
+     * P4 直接 provider 工具仍绑定单一 active account；响应显式带 accountId，避免模型误以为
+     * 查询覆盖全部账号。完整多账号化留 P6。
+     */
+    public BotQqHistoryTool(ChatHistoryProvider provider, String accountId) {
         this.provider = Objects.requireNonNull(provider, "provider");
+        this.accountId = accountId == null || accountId.isBlank() ? null : accountId.trim();
     }
 
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "直接读取 OneBot/LLBot 历史扩展；返回 message_seq 游标和消息段，不写入本地消息板。";
+        return accountId == null
+                ? "直接读取 OneBot/LLBot 历史扩展；返回 message_seq 游标和消息段，不写入本地消息板。"
+                : "直接读取当前 active 账号 " + accountId
+                        + " 的 OneBot/LLBot 历史扩展；不写入本地消息板。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -84,6 +97,9 @@ public final class BotQqHistoryTool implements AgentTool {
             List<Map<String, Object>> messages = page.messages().stream()
                     .map(BotQqHistoryTool::row).toList();
             Map<String, Object> data = new LinkedHashMap<>();
+            if (accountId != null) {
+                data.put("accountId", accountId);
+            }
             data.put("chatType", sessionType.name());
             data.put("targetId", targetId);
             data.put("cursor", cursor);

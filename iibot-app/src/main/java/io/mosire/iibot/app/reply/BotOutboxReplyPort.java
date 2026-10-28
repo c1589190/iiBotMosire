@@ -8,23 +8,56 @@ import io.mosire.iibot.bot.chat.DeliveryState;
 import io.mosire.iibot.bot.reply.BotReplyPort;
 import io.mosire.iibot.bot.reply.BotReplySendResult;
 import io.mosire.iibot.connect.core.OutboundSegment;
+import io.mosire.iibot.connect.ops.OpsLog;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
- * 把 bot core 的 thread reply 适配到现有 OutboxSender。
+ * 把 bot core 的 thread reply 适配到按账号划分的 {@link OutboxSender}。
  *
- * <p>目标由 {@link ChatSourceKey} 决定，回复正文不包含任意目标参数。平台发送仍沿用
- * 既有正文守卫、全局节奏、三态回执和 UNKNOWN 不自动重发。</p>
+ * <p>出站目标只由 {@link ChatSourceKey} 决定：先用 {@link ChatSourceKey#accountId()} 选择
+ * 该账号 sender，再按 chatType/targetId 发送。找不到账号时返回稳定的
+ * {@code ACCOUNT_UNAVAILABLE} 与 {@code FAILED_BEFORE_SEND}，绝不借用其它账号。</p>
+ *
+ * <p>单 sender 构造器仅保留给单账号兼容测试/旧调用；生产多账号组合根必须使用 Map
+ * 构造器。每个 sender 仍保留自己的最小发送间隔与三态/UNKNOWN 语义。</p>
  */
 public final class BotOutboxReplyPort implements BotReplyPort {
 
-    private final OutboxSender outbox;
+    public static final String ACCOUNT_UNAVAILABLE = "ACCOUNT_UNAVAILABLE";
 
+    private final Map<String, OutboxSender> outboxes;
+    private final OutboxSender legacySingleOutbox;
+
+    /**
+     * 单账号兼容构造器。生产多账号路径应使用 {@link #BotOutboxReplyPort(Map)}。
+     */
     public BotOutboxReplyPort(OutboxSender outbox) {
-        this.outbox = Objects.requireNonNull(outbox, "outbox");
+        this.outboxes = Map.of();
+        this.legacySingleOutbox = Objects.requireNonNull(outbox, "outbox");
+    }
+
+    /**
+     * 按稳定 accountId 路由到各自 sender。
+     *
+     * @param outboxes accountId 到 sender 的不可变映射；允许为空以表达所有账号均不可用
+     */
+    public BotOutboxReplyPort(Map<String, OutboxSender> outboxes) {
+        Objects.requireNonNull(outboxes, "outboxes");
+        Map<String, OutboxSender> copy = new LinkedHashMap<>();
+        outboxes.forEach((accountId, sender) -> {
+            if (accountId == null || accountId.isBlank()) {
+                throw new IllegalArgumentException("outboxes accountId 不能为空");
+            }
+            copy.put(accountId.trim(), Objects.requireNonNull(sender, "outbox"));
+        });
+        this.outboxes = Map.copyOf(copy);
+        this.legacySingleOutbox = null;
     }
 
     @Override
@@ -38,6 +71,16 @@ public final class BotOutboxReplyPort implements BotReplyPort {
             ChatSourceKey source, String text, String replyToMessageId,
             String mentionQqId, String idempotencyKey) {
         Objects.requireNonNull(source, "source");
+        Optional<OutboxSender> selected = outboxFor(source.accountId());
+        if (selected.isEmpty()) {
+            OpsLog.warn("event=outbound_route_unavailable accountId={} chatType={} "
+                            + "targetId={} code={}",
+                    source.accountId(), source.chatType(), source.targetId(),
+                    ACCOUNT_UNAVAILABLE);
+            return new BotReplySendResult(DeliveryState.FAILED_BEFORE_SEND,
+                    List.of(), ACCOUNT_UNAVAILABLE);
+        }
+        OutboxSender outbox = selected.get();
         String correlationKey = "bot-reply:" + requireText(idempotencyKey, "idempotencyKey");
         boolean hasReply = replyToMessageId != null && !replyToMessageId.isBlank();
         boolean hasMention = mentionQqId != null && !mentionQqId.isBlank();
@@ -59,6 +102,13 @@ public final class BotOutboxReplyPort implements BotReplyPort {
         return map(source.chatType() == ChatType.PRIVATE
                 ? outbox.sendRichPrivateToUser(source.targetId(), segments, correlationKey)
                 : outbox.sendRichGroup(source.targetId(), segments, correlationKey));
+    }
+
+    private Optional<OutboxSender> outboxFor(String accountId) {
+        if (legacySingleOutbox != null) {
+            return Optional.of(legacySingleOutbox);
+        }
+        return Optional.ofNullable(outboxes.get(accountId));
     }
 
     private static BotReplySendResult map(List<SendOutcome> outcomes) {

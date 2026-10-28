@@ -34,15 +34,28 @@ public final class BotQqRecentTool implements AgentTool {
             "additionalProperties", false);
 
     private final RecentQqProvider provider;
+    private final String accountId;
 
     public BotQqRecentTool(RecentQqProvider provider) {
+        this(provider, null);
+    }
+
+    /**
+     * P4 直接 provider 工具仍绑定单一 active account；响应显式带 accountId，避免模型误以为
+     * 查询覆盖全部账号。完整多账号化留 P6。
+     */
+    public BotQqRecentTool(RecentQqProvider provider, String accountId) {
         this.provider = Objects.requireNonNull(provider, "provider");
+        this.accountId = accountId == null || accountId.isBlank() ? null : accountId.trim();
     }
 
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "查看 OneBot 客户端最近会话里的最后一条消息；这是 QQ 客户端通知，不是 Bot Inbox。";
+        return accountId == null
+                ? "查看 OneBot 客户端最近会话里的最后一条消息；这是 QQ 客户端通知，不是 Bot Inbox。"
+                : "查看当前 active 账号 " + accountId
+                        + " 的 OneBot 客户端最近会话；这是 QQ 客户端通知，不是 Bot Inbox。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -79,6 +92,9 @@ public final class BotQqRecentTool implements AgentTool {
                 }
             }
             Map<String, Object> data = new LinkedHashMap<>();
+            if (accountId != null) {
+                data.put("accountId", accountId);
+            }
             data.put("source", "onebot-client-recent");
             data.put("count", rows.size());
             data.put("recent", rows);

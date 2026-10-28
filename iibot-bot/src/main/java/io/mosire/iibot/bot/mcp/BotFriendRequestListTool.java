@@ -26,15 +26,27 @@ public final class BotFriendRequestListTool implements AgentTool {
             "additionalProperties", false);
 
     private final FriendRequestService service;
+    private final String accountId;
 
     public BotFriendRequestListTool(FriendRequestService service) {
+        this(service, null);
+    }
+
+    /**
+     * P4 好友申请仍只绑定单一 active account；响应显式带 accountId，完整多账号化留 P6。
+     */
+    public BotFriendRequestListTool(FriendRequestService service, String accountId) {
         this.service = Objects.requireNonNull(service, "service");
+        this.accountId = accountId == null || accountId.isBlank() ? null : accountId.trim();
     }
 
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "列出待处理 OneBot 入站好友申请；返回 requestId，不返回 raw flag。";
+        return accountId == null
+                ? "列出待处理 OneBot 入站好友申请；返回 requestId，不返回 raw flag。"
+                : "列出当前 active 账号 " + accountId
+                        + " 的待处理好友申请；不返回 raw flag。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -52,6 +64,9 @@ public final class BotFriendRequestListTool implements AgentTool {
             List<Map<String, Object>> rows = service.listPending(limit).stream()
                     .map(BotFriendRequestListTool::row).toList();
             Map<String, Object> data = new LinkedHashMap<>();
+            if (accountId != null) {
+                data.put("accountId", accountId);
+            }
             data.put("count", rows.size());
             data.put("requests", rows);
             return BotToolSupport.ok(NAME, data);

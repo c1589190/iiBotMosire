@@ -12,6 +12,7 @@ import io.mosire.iibot.connect.core.MediaCapability;
 import io.mosire.iibot.connect.core.MessageSegment;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,13 +36,30 @@ public final class BotMediaGetTool implements AgentTool {
             "additionalProperties", false);
 
     private final MessageBoardStore board;
-    private final MediaCapability mediaProvider;
+    private final MediaCapability singleMediaProvider;
+    private final Map<String, MediaCapability> mediaProviders;
     private final BotMediaStore mediaStore;
 
+    /** 单账号兼容构造器。 */
     public BotMediaGetTool(MessageBoardStore board, MediaCapability mediaProvider,
                            BotMediaStore mediaStore) {
         this.board = Objects.requireNonNull(board, "board");
-        this.mediaProvider = Objects.requireNonNull(mediaProvider, "mediaProvider");
+        this.singleMediaProvider = Objects.requireNonNull(mediaProvider, "mediaProvider");
+        this.mediaProviders = Map.of();
+        this.mediaStore = Objects.requireNonNull(mediaStore, "mediaStore");
+    }
+
+    /**
+     * 多账号构造器。Map 中应包含所有已启动账号；value=null 表示账号存在但不支持媒体读取。
+     */
+    public BotMediaGetTool(MessageBoardStore board,
+                           Map<String, MediaCapability> mediaProviders,
+                           BotMediaStore mediaStore) {
+        this.board = Objects.requireNonNull(board, "board");
+        Objects.requireNonNull(mediaProviders, "mediaProviders");
+        this.singleMediaProvider = null;
+        this.mediaProviders = Collections.unmodifiableMap(
+                new LinkedHashMap<>(mediaProviders));
         this.mediaStore = Objects.requireNonNull(mediaStore, "mediaStore");
     }
 
@@ -62,6 +80,11 @@ public final class BotMediaGetTool implements AgentTool {
             String messageKey = required(context.arguments(), "messageKey");
             ChatMessage message = board.find(messageKey).orElseThrow(() ->
                     new IllegalArgumentException("messageKey 不存在"));
+            MediaCapability mediaProvider = providerFor(message.source().accountId());
+            if (mediaProvider == null) {
+                return ToolResult.error("ACCOUNT_UNAVAILABLE",
+                        "该消息所属账号当前不可用或未提供媒体读取能力");
+            }
             int limit = optionalInt(context.arguments(), "limit", 4);
             List<MessageSegment> images = board.segments(messageKey).stream()
                     .filter(segment -> segment.type() == MessageSegment.Type.IMAGE)
@@ -125,6 +148,16 @@ public final class BotMediaGetTool implements AgentTool {
         } catch (Exception failure) {
             return ToolResult.error("MEDIA_UNAVAILABLE", "图片读取失败（内部原因已脱敏）");
         }
+    }
+
+    private MediaCapability providerFor(String accountId) {
+        if (singleMediaProvider != null) {
+            return singleMediaProvider;
+        }
+        if (!mediaProviders.containsKey(accountId)) {
+            return null;
+        }
+        return mediaProviders.get(accountId);
     }
 
     private static String required(Map<String, Object> args, String name) {

@@ -147,6 +147,32 @@ class BotOpsLoggingCoverageTest {
         assertThat(LogContext.currentTraceId()).isNull();
     }
 
+
+    @Test
+    void inboundAccountMismatchIsRejectedWithStableEventAndNoBody() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        BotIngestionService ingestion = new BotIngestionService(board,
+                (BotIngestionService.DigestTrigger) (threadId, delayMillis) -> { }, null);
+        InboundMessage message = new InboundMessage("adapter-a", "bot-b", "m-mismatch",
+                "qq-1", InboundMessage.SessionType.GROUP, "group-9",
+                SECRET_BODY + " " + SECRET_AUTHORIZATION, T0, "dedupe-mismatch");
+
+        BotIngestionService.IngestResult result = ingestion.ingest("bot-a", message);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.created()).isFalse();
+        assertThat(board.threads(10)).isEmpty();
+        assertThat(appender.messages).anySatisfy(line -> assertThat(line)
+                .contains("event=inbound_account_mismatch", "expectedAccountId=bot-a",
+                        "actualAccountId=bot-b", "outcome=rejected",
+                        "traceId=inbound:"));
+        assertThat(appender.messages).allSatisfy(line -> {
+            assertThat(line).doesNotContain(SECRET_BODY);
+            assertThat(line).doesNotContain(SECRET_TOKEN);
+            assertThat(line).doesNotContain("Authorization");
+        });
+    }
+
     private static final class FakePort implements InboxDigestPort {
         private final Map<String, InboxDigestItem> items = new LinkedHashMap<>();
         private long nextItem = 1L;

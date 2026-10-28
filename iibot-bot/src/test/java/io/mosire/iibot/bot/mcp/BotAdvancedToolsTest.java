@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -89,6 +90,33 @@ class BotAdvancedToolsTest {
         assertThat(result.path("data").path("messages")).hasSize(1);
         assertThat(result.path("data").path("messages").get(0).path("text").asText())
                 .isEqualTo("转发正文");
+    }
+
+
+    @Test
+    void forwardToolRoutesByMessageAccount() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        ChatSourceKey accountB = ChatSourceKey.groupChat("bot-b", "group-b");
+        ChatMessage message = ChatMessage.inbound(accountB, "m-b", "qq-b", "Bob",
+                T0, T0, "", "", "");
+        board.append(message, List.of(MessageSegment.forward(0, "forward-b")));
+        AtomicInteger providerACalls = new AtomicInteger();
+        ForwardCapability providerA = (id, limit) -> {
+            providerACalls.incrementAndGet();
+            return CompletableFuture.completedFuture(new ForwardPage(List.of(), false));
+        };
+        ForwardCapability providerB = (id, limit) -> CompletableFuture.completedFuture(
+                new ForwardPage(List.of(new ForwardMessage("qq-b", "Bob", T0,
+                        "B 的转发", List.of(MessageSegment.text(0, "B 的转发")))),
+                        false));
+
+        JsonNode result = call(new BotForwardReadTool(board,
+                        Map.of("bot-a", providerA, "bot-b", providerB)),
+                Map.of("messageKey", message.messageKey(), "depth", 1, "limit", 10));
+
+        assertThat(result.path("data").path("messages").get(0).path("text").asText())
+                .isEqualTo("B 的转发");
+        assertThat(providerACalls).hasValue(0);
     }
 
     @Test

@@ -15,8 +15,9 @@ import java.util.Set;
 /**
  * Bot 配置 v2 的严格、已解析快照。
  *
- * <p>P3 runtime 仍只启动第一个 enabled account；P4 才消费全部 {@link #accounts()}。
- * 配置中永远只保存 secret 环境变量名，不保存 secret 值。</p>
+ * <p>P4 runtime 消费全部 enabled {@link #accounts()}；第一个 enabled account 仍作为
+ * 直接 provider 工具的 active/default account。配置中永远只保存 secret 环境变量名，
+ * 不保存 secret 值。</p>
  */
 public record BotConfig(
         Path dataDir,
@@ -44,7 +45,7 @@ public record BotConfig(
         }
     }
 
-    /** P3 便捷方法：按配置顺序返回第一个 enabled account；P4 改为返回全部账号。 */
+    /** 按配置顺序返回第一个 enabled account，作为 direct-provider 工具的 active 账号。 */
     public Map.Entry<String, Account> firstEnabledAccount() {
         return accounts.entrySet().stream()
                 .filter(entry -> entry.getValue().enabled())
@@ -60,12 +61,12 @@ public record BotConfig(
         return firstEnabledAccount().getValue();
     }
 
-    /** P3 runtime 便捷入口；P4 应遍历 accounts 和 AccountRegistry。 */
+    /** active/default account 的 accountId；完整多账号集合使用 {@link #accounts()}。 */
     public String accountId() {
         return activeAccount().accountId();
     }
 
-    /** P3 runtime 便捷入口；P4 应为每个账号创建独立 Adapter。 */
+    /** active/default account 的 OneBot 配置；每个账号的 Adapter 由 app 组合根创建。 */
     public OneBot activeOneBot() {
         return activeAccount().oneBot();
     }

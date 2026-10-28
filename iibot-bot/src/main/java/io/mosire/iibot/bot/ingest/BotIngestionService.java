@@ -41,31 +41,52 @@ public final class BotIngestionService {
         this.weights = weights;
     }
 
-    /** 记录一条入站消息；重复 messageKey 不会再次触发 digest。 */
+    /**
+     * 记录一条入站消息；重复 messageKey 不会再次触发 digest。
+     *
+     * <p>兼容测试/单账号调用：期望账号由消息自身的 selfId 派生。生产 adapter handler
+     * 必须使用 {@link #ingest(String, InboundMessage)} 显式绑定账号。</p>
+     */
     public IngestResult ingest(InboundMessage message) {
+        Objects.requireNonNull(message, "message");
+        return ingest(message.selfId(), message);
+    }
+
+    /**
+     * 按 adapter 绑定的预期账号记录一条入站消息。
+     *
+     * <p>消息 selfId 与 expectedAccountId 不一致时 fail-closed：不写消息板、不触发 digest、
+     * 不向 adapter 线程抛异常，只记录稳定的 {@code inbound_account_mismatch} 运维事件。</p>
+     *
+     * @param expectedAccountId adapter 注册时绑定的稳定 accountId
+     * @param message           协议中立入站消息
+     * @return 入库结果；账号不匹配时 {@code accepted=false} 且 {@code created=false}
+     */
+    public IngestResult ingest(String expectedAccountId, InboundMessage message) {
+        String expected = requireAccountId(expectedAccountId);
         Objects.requireNonNull(message, "message");
         try (LogContext.Scope ignored = LogContext.openTrace(
                 LogContext.newTraceId("inbound"))) {
-            return ingestScoped(message);
+            return ingestScoped(expected, message);
         }
     }
 
-    private IngestResult ingestScoped(InboundMessage message) {
-        ChatSourceKey source = sourceOf(message);
+    private IngestResult ingestScoped(String expectedAccountId, InboundMessage message) {
+        ChatSourceKey source = sourceOf(expectedAccountId, message);
+        if (!expectedAccountId.equals(message.selfId())) {
+            OpsLog.warn("event=inbound_account_mismatch expectedAccountId={} "
+                            + "actualAccountId={} adapterId={} messageKey={} "
+                            + "outcome=rejected",
+                    expectedAccountId, message.selfId(), message.adapterId(),
+                    message.messageId());
+            ChatMessage candidate = candidate(source, message);
+            return new IngestResult(candidate, false, false);
+        }
         LOG.debug("event=inbound_received threadId={} messageKey={} chatType={} "
                         + "segments={} hasReply={}",
                 source.threadId(), message.messageId(), source.chatType(),
                 message.segments().size(), !message.replyToMessageId().isEmpty());
-        ChatMessage candidate = ChatMessage.inbound(
-                source,
-                message.messageId(),
-                message.userId(),
-                message.senderName(),
-                message.receivedAt(),
-                message.receivedAt(),
-                message.text(),
-                message.nonTextSummary(),
-                message.replyToMessageId());
+        ChatMessage candidate = candidate(source, message);
         MessageAppendResult result;
         try {
             result = board.append(candidate, message.segments());
@@ -114,11 +135,31 @@ public final class BotIngestionService {
         return new IngestResult(result.message(), result.created());
     }
 
-    private static ChatSourceKey sourceOf(InboundMessage message) {
+    private static ChatMessage candidate(ChatSourceKey source, InboundMessage message) {
+        return ChatMessage.inbound(
+                source,
+                message.messageId(),
+                message.userId(),
+                message.senderName(),
+                message.receivedAt(),
+                message.receivedAt(),
+                message.text(),
+                message.nonTextSummary(),
+                message.replyToMessageId());
+    }
+
+    private static ChatSourceKey sourceOf(String accountId, InboundMessage message) {
         return switch (message.sessionType()) {
-            case PRIVATE -> ChatSourceKey.privateChat(message.selfId(), message.userId());
-            case GROUP -> ChatSourceKey.groupChat(message.selfId(), message.groupId());
+            case PRIVATE -> ChatSourceKey.privateChat(accountId, message.userId());
+            case GROUP -> ChatSourceKey.groupChat(accountId, message.groupId());
         };
+    }
+
+    private static String requireAccountId(String accountId) {
+        if (accountId == null || accountId.isBlank()) {
+            throw new IllegalArgumentException("expectedAccountId 不能为空");
+        }
+        return accountId.trim();
     }
 
     /** 调度器入口；delay=0 表示使用默认防抖窗口。 */
@@ -127,12 +168,20 @@ public final class BotIngestionService {
         void enqueue(String threadId, long delayMillis);
     }
 
-    /** 入库结果。 */
-    public record IngestResult(ChatMessage message, boolean created) {
+    /** 入库结果；账号校验不通过时 accepted=false 且消息不会写入消息板。 */
+    public record IngestResult(ChatMessage message, boolean created, boolean accepted) {
         public IngestResult {
             if (message == null) {
                 throw new IllegalArgumentException("message 不能为空");
             }
+            if (created && !accepted) {
+                throw new IllegalArgumentException("created 结果必须 accepted");
+            }
+        }
+
+        /** 兼容旧调用：两参结果默认表示账号校验通过。 */
+        public IngestResult(ChatMessage message, boolean created) {
+            this(message, created, true);
         }
     }
 }

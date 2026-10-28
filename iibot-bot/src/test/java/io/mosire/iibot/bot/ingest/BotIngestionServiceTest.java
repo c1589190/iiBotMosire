@@ -1,5 +1,6 @@
 package io.mosire.iibot.bot.ingest;
 
+import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.store.InMemoryMessageBoardStore;
 import io.mosire.iibot.connect.core.InboundMessage;
 import org.junit.jupiter.api.Test;
@@ -47,4 +48,38 @@ class BotIngestionServiceTest {
         assertThat(result.message().source().chatType().wire()).isEqualTo("private");
         assertThat(board.readThread(result.message().source().threadId(), 0L, 10)).hasSize(1);
     }
+    @Test
+    void rejectsSelfIdAccountMismatchWithoutWritingBoardOrTriggeringDigest() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        List<String> triggered = new ArrayList<>();
+        BotIngestionService service = new BotIngestionService(board, triggered::add);
+        InboundMessage message = new InboundMessage("adapter-a", "bot-b", "m-3", "qq-1",
+                "Alice", InboundMessage.SessionType.GROUP, "group-9", "不应入库", "", "",
+                false, T0, "dedupe-3");
+
+        BotIngestionService.IngestResult result = service.ingest("bot-a", message);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.created()).isFalse();
+        assertThat(result.message().source().accountId()).isEqualTo("bot-a");
+        assertThat(board.threads(10)).isEmpty();
+        assertThat(triggered).isEmpty();
+    }
+
+    @Test
+    void usesExpectedAccountIdForAcceptedThreadRouting() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        BotIngestionService service = new BotIngestionService(board, ignored -> { });
+        InboundMessage message = new InboundMessage("adapter-a", "bot-a", "m-4", "qq-1",
+                "Alice", InboundMessage.SessionType.PRIVATE, null, "私聊", "", "", false,
+                T0, "dedupe-4");
+
+        BotIngestionService.IngestResult result = service.ingest("bot-a", message);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.message().source().accountId()).isEqualTo("bot-a");
+        assertThat(result.message().source().threadId()).isEqualTo(
+                ChatSourceKey.privateChat("bot-a", "qq-1").threadId());
+    }
+
 }

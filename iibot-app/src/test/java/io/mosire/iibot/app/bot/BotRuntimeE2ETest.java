@@ -9,7 +9,16 @@ import io.modelcontextprotocol.spec.McpSchema;
 import io.mosire.iibot.app.inbox.BotInboxRuntimeOptions;
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
 import io.mosire.iibot.bot.weight.WeightSettings;
+import io.mosire.iibot.connect.core.AccountInfo;
+import io.mosire.iibot.connect.core.AccountInfoProvider;
+import io.mosire.iibot.connect.core.AccountRegistry;
+import io.mosire.iibot.connect.core.AdapterEventListener;
+import io.mosire.iibot.connect.core.AdapterStatus;
+import io.mosire.iibot.connect.core.InboundHandler;
 import io.mosire.iibot.connect.core.InboundMessage;
+import io.mosire.iibot.connect.core.MessagingAdapter;
+import io.mosire.iibot.connect.core.OutboundMessage;
+import io.mosire.iibot.connect.core.SendReceipt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -19,8 +28,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Timeout(90)
 class BotRuntimeE2ETest {
@@ -83,6 +95,129 @@ class BotRuntimeE2ETest {
             }
             runtime.close();
         }
+    }
+
+
+    @Test
+    void twoAdaptersRouteInboundThreadsAndOutboundRepliesByAccountAndCloseAll() throws Exception {
+        FakeMessagingAdapter adapterA = new FakeMessagingAdapter("adapter-a");
+        FakeMessagingAdapter adapterB = new FakeMessagingAdapter("adapter-b");
+        AccountRegistry registry = new AccountRegistry();
+        registry.register("bot-a", adapterA);
+        registry.register("bot-b", adapterB);
+        BotInboxRuntimeOptions inboxOptions = new BotInboxRuntimeOptions(
+                tempDir.resolve("inbox-multi"), "bot-inbox-multi", "dsh-session-bot",
+                java.util.Set.of("qq"), 1L,
+                "127.0.0.1", 0, "127.0.0.1", 0, "/multi/mcp",
+                Duration.ofMillis(2_500), Duration.ofMillis(250));
+        BotRuntimeOptions options = new BotRuntimeOptions(
+                tempDir.resolve("data-multi"), "bot-a", "127.0.0.1", 0, CONTROL_PATH,
+                TOKEN, inboxOptions, 20L, 100, Duration.ofSeconds(2), null,
+                Duration.ZERO, WeightSettings.defaults(),
+                List.of(
+                        new BotRuntimeOptions.AccountOptions("alias-a", "bot-a", "temp-a"),
+                        new BotRuntimeOptions.AccountOptions("alias-b", "bot-b", "temp-b")));
+        BotRuntime runtime = BotRuntime.start(registry, options);
+        McpSyncClient client = null;
+        try {
+            adapterA.deliver(new InboundMessage("adapter-a", "bot-a", "ma-1", "qq-a",
+                    "Alice", InboundMessage.SessionType.GROUP, "group-a", "来自 A", "", "",
+                    false, Instant.parse("2026-10-28T12:00:00Z"), "dedupe-ma-1"));
+            adapterB.deliver(new InboundMessage("adapter-b", "bot-b", "mb-1", "qq-b",
+                    "Bob", InboundMessage.SessionType.PRIVATE, null, "来自 B", "", "",
+                    false, Instant.parse("2026-10-28T12:00:01Z"), "dedupe-mb-1"));
+
+            assertThat(runtime.board().threads(10))
+                    .extracting(thread -> thread.source().accountId())
+                    .containsExactlyInAnyOrder("bot-a", "bot-b");
+
+            client = mcpClient(runtime);
+            JsonNode threads = call(client, "bot_thread_list", Map.of("limit", 10));
+            String threadA = threadIdForAccount(threads, "bot-a");
+            String threadB = threadIdForAccount(threads, "bot-b");
+
+            JsonNode replyA = call(client, "bot_reply", Map.of(
+                    "threadId", threadA, "text", "回复 A",
+                    "idempotencyKey", "multi-reply-a"));
+            JsonNode replyB = call(client, "bot_reply", Map.of(
+                    "threadId", threadB, "text", "回复 B",
+                    "idempotencyKey", "multi-reply-b"));
+            assertThat(replyA.path("data").path("deliveryState").asText())
+                    .isEqualTo("SENT");
+            assertThat(replyB.path("data").path("deliveryState").asText())
+                    .isEqualTo("SENT");
+            assertThat(adapterA.sent()).hasSize(1);
+            assertThat(adapterA.sent().getFirst().textSegments()).containsExactly("回复 A");
+            assertThat(adapterB.sent()).hasSize(1);
+            assertThat(adapterB.sent().getFirst().textSegments()).containsExactly("回复 B");
+        } finally {
+            if (client != null) {
+                client.closeGracefully();
+            }
+            runtime.close();
+            runtime.close();
+        }
+        assertThat(adapterA.isClosed()).isTrue();
+        assertThat(adapterB.isClosed()).isTrue();
+    }
+
+
+    @Test
+    void startupFailureRollsBackAndClosesAdapters() {
+        FakeMessagingAdapter adapterA = new FakeMessagingAdapter("adapter-a");
+        FakeMessagingAdapter adapterB = new FakeMessagingAdapter("adapter-b", true);
+        AccountRegistry registry = new AccountRegistry();
+        registry.register("bot-a", adapterA);
+        registry.register("bot-b", adapterB);
+        BotInboxRuntimeOptions inboxOptions = new BotInboxRuntimeOptions(
+                tempDir.resolve("inbox-rollback"), "bot-inbox-rollback", "dsh-session-bot",
+                java.util.Set.of("qq"), 1L,
+                "127.0.0.1", 0, "127.0.0.1", 0, "/rollback/mcp",
+                Duration.ofMillis(2_500), Duration.ofMillis(250));
+        BotRuntimeOptions options = new BotRuntimeOptions(
+                tempDir.resolve("data-rollback"), "bot-a", "127.0.0.1", 0, CONTROL_PATH,
+                TOKEN, inboxOptions, 20L, 100, Duration.ofSeconds(2), null,
+                Duration.ZERO, WeightSettings.defaults(),
+                List.of(
+                        new BotRuntimeOptions.AccountOptions("alias-a", "bot-a", null),
+                        new BotRuntimeOptions.AccountOptions("alias-b", "bot-b", null)));
+
+        assertThatThrownBy(() -> BotRuntime.start(registry, options))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("模拟启动失败");
+        assertThat(adapterA.isClosed()).isTrue();
+        assertThat(adapterB.isClosed()).isTrue();
+    }
+
+
+    @Test
+    void loginAccountMismatchFailsClosedAndClosesAdapter() {
+        FakeMessagingAdapter delegate = new FakeMessagingAdapter("adapter-a");
+        MessagingAdapter mismatched = new AccountInfoFakeAdapter(
+                delegate, new AccountInfo("bot-b", "wrong-account"));
+        BotInboxRuntimeOptions inboxOptions = new BotInboxRuntimeOptions(
+                tempDir.resolve("inbox-identity"), "bot-inbox-identity", "dsh-session-bot",
+                java.util.Set.of("qq"), 1L,
+                "127.0.0.1", 0, "127.0.0.1", 0, "/identity/mcp",
+                Duration.ofMillis(2_500), Duration.ofMillis(250));
+        BotRuntimeOptions options = new BotRuntimeOptions(
+                tempDir.resolve("data-identity"), "bot-a", "127.0.0.1", 0, CONTROL_PATH,
+                TOKEN, inboxOptions, 20L, 100, Duration.ofSeconds(2), null,
+                Duration.ZERO, WeightSettings.defaults());
+
+        assertThatThrownBy(() -> BotRuntime.start(mismatched, options))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("accountId");
+        assertThat(delegate.isClosed()).isTrue();
+    }
+
+    private static String threadIdForAccount(JsonNode threads, String accountId) {
+        for (JsonNode thread : threads.path("data").path("threads")) {
+            if (accountId.equals(thread.path("accountId").asText())) {
+                return thread.path("threadId").asText();
+            }
+        }
+        throw new AssertionError("未找到 accountId=" + accountId + " 的 thread");
     }
 
     private static String awaitInboxItem(BotRuntime runtime) throws Exception {
@@ -199,4 +334,32 @@ class BotRuntimeE2ETest {
                 .findFirst()
                 .orElse("");
     }
+    private static final class AccountInfoFakeAdapter
+            implements MessagingAdapter, AccountInfoProvider {
+        private final FakeMessagingAdapter delegate;
+        private final AccountInfo info;
+
+        private AccountInfoFakeAdapter(FakeMessagingAdapter delegate, AccountInfo info) {
+            this.delegate = delegate;
+            this.info = info;
+        }
+
+        @Override public String adapterId() { return delegate.adapterId(); }
+        @Override public void start(InboundHandler handler) { delegate.start(handler); }
+        @Override public CompletionStage<SendReceipt> send(OutboundMessage message) {
+            return delegate.send(message);
+        }
+        @Override public AdapterStatus status() { return delegate.status(); }
+        @Override public void addEventListener(AdapterEventListener listener) {
+            delegate.addEventListener(listener);
+        }
+        @Override public void removeEventListener(AdapterEventListener listener) {
+            delegate.removeEventListener(listener);
+        }
+        @Override public void close() { delegate.close(); }
+        @Override public CompletionStage<AccountInfo> accountInfo() {
+            return CompletableFuture.completedFuture(info);
+        }
+    }
+
 }

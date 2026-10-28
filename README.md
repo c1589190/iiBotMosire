@@ -47,7 +47,7 @@ export IIBOT_CONTROL_TOKEN='...'
 java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar
 ```
 
-配置说明见 [`config/README.md`](config/README.md)。当前配置仍是单账号结构，后续 P3 将升级为多账号 schema。
+配置说明见 [`config/README.md`](config/README.md)。当前已是多账号 schema；配置文件、schema 和脱敏诊断已接入，P4 runtime 会启动全部 enabled account。
 
 ## Bot MCP
 

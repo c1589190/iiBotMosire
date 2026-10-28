@@ -12,12 +12,12 @@ import io.mosire.iibot.connect.core.ForwardPage;
 import io.mosire.iibot.connect.core.MessageSegment;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -43,11 +43,26 @@ public final class BotForwardReadTool implements AgentTool {
             "additionalProperties", false);
 
     private final MessageBoardStore board;
-    private final ForwardCapability forwardProvider;
+    private final ForwardCapability singleForwardProvider;
+    private final Map<String, ForwardCapability> forwardProviders;
 
+    /** 单账号兼容构造器。 */
     public BotForwardReadTool(MessageBoardStore board, ForwardCapability forwardProvider) {
         this.board = Objects.requireNonNull(board, "board");
-        this.forwardProvider = forwardProvider;
+        this.singleForwardProvider = forwardProvider;
+        this.forwardProviders = Map.of();
+    }
+
+    /**
+     * 多账号构造器。Map 中应包含所有已启动账号；value=null 表示账号存在但不支持 forward。
+     */
+    public BotForwardReadTool(MessageBoardStore board,
+                              Map<String, ForwardCapability> forwardProviders) {
+        this.board = Objects.requireNonNull(board, "board");
+        Objects.requireNonNull(forwardProviders, "forwardProviders");
+        this.singleForwardProvider = null;
+        this.forwardProviders = Collections.unmodifiableMap(
+                new LinkedHashMap<>(forwardProviders));
     }
 
     @Override public String name() { return NAME; }
@@ -63,14 +78,16 @@ public final class BotForwardReadTool implements AgentTool {
     @Override public Set<String> roles() { return BotToolSupport.roles(); }
 
     @Override public ToolResult execute(ToolContext context) {
-        if (forwardProvider == null) {
-            return BotToolSupport.failure("FORWARD_UNAVAILABLE", "当前适配器未提供合并转发能力");
-        }
         try {
             String messageKey = BotToolSupport.requiredText(
                     context.arguments(), "messageKey", 1024);
             ChatMessage message = board.find(messageKey).orElseThrow(() ->
                     new BotToolSupport.InvalidArgumentsException("messageKey 不存在"));
+            ForwardCapability forwardProvider = providerFor(message.source().accountId());
+            if (forwardProvider == null) {
+                return BotToolSupport.failure("ACCOUNT_UNAVAILABLE",
+                        "该消息所属账号当前不可用或未提供合并转发能力");
+            }
             List<MessageSegment> segments = board.segments(messageKey);
             MessageSegment forward = selectForward(segments,
                     BotToolSupport.optionalInt(context.arguments(), "segmentIndex", -1));
@@ -86,7 +103,7 @@ public final class BotForwardReadTool implements AgentTool {
             if (limit < 1 || limit > 100) {
                 throw new BotToolSupport.InvalidArgumentsException("limit 必须在 1..100");
             }
-            Map<String, Object> tree = readForward(
+            Map<String, Object> tree = readForward(forwardProvider,
                     forward.forwardId(), depth, limit, new HashSet<>(), new AtomicInteger());
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("messageKey", messageKey);
@@ -105,8 +122,18 @@ public final class BotForwardReadTool implements AgentTool {
         }
     }
 
+    private ForwardCapability providerFor(String accountId) {
+        if (singleForwardProvider != null) {
+            return singleForwardProvider;
+        }
+        if (!forwardProviders.containsKey(accountId)) {
+            return null;
+        }
+        return forwardProviders.get(accountId);
+    }
+
     private Map<String, Object> readForward(
-            String forwardId, int remainingDepth, int limit,
+            ForwardCapability forwardProvider, String forwardId, int remainingDepth, int limit,
             Set<String> activeIds, AtomicInteger budget) {
         Map<String, Object> result = new LinkedHashMap<>();
         List<Map<String, Object>> messages = new ArrayList<>();
@@ -139,8 +166,8 @@ public final class BotForwardReadTool implements AgentTool {
                                     || budget.get() >= MAX_NODES) {
                                 continue;
                             }
-                            nested.add(readForward(segment.forwardId(), remainingDepth - 1,
-                                    limit, activeIds, budget));
+                            nested.add(readForward(forwardProvider, segment.forwardId(),
+                                    remainingDepth - 1, limit, activeIds, budget));
                         }
                     }
                     value.put("forwards", nested);

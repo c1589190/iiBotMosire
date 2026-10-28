@@ -20,7 +20,9 @@ import java.util.function.Function;
 /** 离线 MessagingAdapter：记录出站消息并允许投递入站消息。 */
 public final class FakeMessagingAdapter implements MessagingAdapter {
 
+    private final String adapterId;
     private final Function<OutboundMessage, CompletionStage<SendReceipt>> sender;
+    private final boolean failOnStart;
     private final List<OutboundMessage> sent = new CopyOnWriteArrayList<>();
     private final AtomicInteger counter = new AtomicInteger();
     private final AtomicBoolean started = new AtomicBoolean();
@@ -28,23 +30,43 @@ public final class FakeMessagingAdapter implements MessagingAdapter {
     private volatile InboundHandler handler;
 
     public FakeMessagingAdapter() {
+        this("adapter-1");
+    }
+
+    public FakeMessagingAdapter(String adapterId) {
+        this(adapterId, false);
+    }
+
+    public FakeMessagingAdapter(String adapterId, boolean failOnStart) {
+        this.adapterId = java.util.Objects.requireNonNull(adapterId, "adapterId");
+        this.failOnStart = failOnStart;
         this.sender = message -> CompletableFuture.completedFuture(
                 SendReceipt.sent(List.of("fake-" + counter.incrementAndGet())));
     }
 
     public FakeMessagingAdapter(Function<OutboundMessage, CompletionStage<SendReceipt>> sender) {
+        this("adapter-1", sender);
+    }
+
+    public FakeMessagingAdapter(String adapterId,
+                                Function<OutboundMessage, CompletionStage<SendReceipt>> sender) {
+        this.adapterId = java.util.Objects.requireNonNull(adapterId, "adapterId");
+        this.failOnStart = false;
         this.sender = java.util.Objects.requireNonNull(sender, "sender");
     }
 
     @Override
     public String adapterId() {
-        return "adapter-1";
+        return adapterId;
     }
 
     @Override
     public void start(InboundHandler inboundHandler) {
         if (!started.compareAndSet(false, true)) {
             throw new IllegalStateException("已启动");
+        }
+        if (failOnStart) {
+            throw new IllegalStateException("模拟启动失败");
         }
         this.handler = inboundHandler;
     }

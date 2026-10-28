@@ -21,6 +21,9 @@ import io.mosire.iibot.bot.store.SqliteMessageBoardStore;
 import io.mosire.iibot.bot.weight.SourceWeightService;
 import io.mosire.iibot.bot.weight.SqliteSourceWeightStore;
 import io.mosire.iibot.bot.summary.MessageSummaryBuilder;
+import io.mosire.iibot.connect.core.AccountInfo;
+import io.mosire.iibot.connect.core.AccountInfoProvider;
+import io.mosire.iibot.connect.core.AccountRegistry;
 import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.connect.core.FriendRequestCapability;
 import io.mosire.iibot.connect.core.ForwardCapability;
@@ -37,22 +40,35 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Bot-first 的可运行组合根。
  *
- * <p>连接 adapter → SQLite 消息板 → Inbox digest 调度 → Bot MCP；不装配 taskflow、
- * secretary、player、turn 或 world 服务。</p>
+ * <p>连接多个账号 Adapter → SQLite 消息板 → Inbox digest 调度 → Bot MCP；不装配
+ * taskflow、secretary、player、turn 或 world 服务。每个 Adapter 的入站 handler 绑定其
+ * 稳定 accountId，出站按 thread 的 accountId 选择独立 OutboxSender。</p>
  */
 public final class BotRuntime implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(BotRuntime.class);
+    private static final Duration ACCOUNT_INFO_TIMEOUT = Duration.ofSeconds(5);
 
     private final BotRuntimeOptions options;
-    private final MessagingAdapter adapter;
+    private final AccountRegistry accountRegistry;
+    private final List<AdapterBinding> bindings;
+    private final Map<String, OutboxSender> outboxes;
     private final SqliteMessageBoardStore board;
     private final SqliteUserNoteStore notes;
     private final SqliteInboxDigestStateStore digestStates;
@@ -65,7 +81,8 @@ public final class BotRuntime implements AutoCloseable {
     private final SqliteSourceWeightStore sourceWeights;
     private final AtomicBoolean closed = new AtomicBoolean();
 
-    private BotRuntime(BotRuntimeOptions options, MessagingAdapter adapter,
+    private BotRuntime(BotRuntimeOptions options, AccountRegistry accountRegistry,
+                       List<AdapterBinding> bindings, Map<String, OutboxSender> outboxes,
                        SqliteMessageBoardStore board, SqliteUserNoteStore notes,
                        SqliteInboxDigestStateStore digestStates, BotInboxRuntime inboxRuntime,
                        InboxDigestScheduler digestScheduler, BotIngestionService ingestion,
@@ -73,7 +90,9 @@ public final class BotRuntime implements AutoCloseable {
                        SqliteInboxDigestAuditStore inboxAudit,
                        SqliteSourceWeightStore sourceWeights) {
         this.options = options;
-        this.adapter = adapter;
+        this.accountRegistry = accountRegistry;
+        this.bindings = List.copyOf(bindings);
+        this.outboxes = Map.copyOf(outboxes);
         this.board = board;
         this.notes = notes;
         this.digestStates = digestStates;
@@ -86,25 +105,45 @@ public final class BotRuntime implements AutoCloseable {
         this.sourceWeights = sourceWeights;
     }
 
+    /** 单 adapter 兼容入口；内部会建立只含该账号的 AccountRegistry。 */
     public static BotRuntime start(MessagingAdapter adapter, BotRuntimeOptions options)
             throws IOException {
         return start(adapter, options, Clock.systemUTC());
     }
 
+    /** 单 adapter 兼容入口；内部会建立只含该账号的 AccountRegistry。 */
     public static BotRuntime start(MessagingAdapter adapter, BotRuntimeOptions options,
                                    Clock clock) throws IOException {
         Objects.requireNonNull(adapter, "adapter");
         Objects.requireNonNull(options, "options");
+        AccountRegistry registry = new AccountRegistry();
+        registry.register(options.accountId(), adapter);
+        return start(registry, options, clock);
+    }
+
+    /** 启动 AccountRegistry 中的全部账号。 */
+    public static BotRuntime start(AccountRegistry accountRegistry, BotRuntimeOptions options)
+            throws IOException {
+        return start(accountRegistry, options, Clock.systemUTC());
+    }
+
+    /** 启动 AccountRegistry 中的全部账号。 */
+    public static BotRuntime start(AccountRegistry accountRegistry, BotRuntimeOptions options,
+                                   Clock clock) throws IOException {
+        Objects.requireNonNull(accountRegistry, "accountRegistry");
+        Objects.requireNonNull(options, "options");
         Objects.requireNonNull(clock, "clock");
         try (LogContext.Scope ignored = LogContext.openTrace(
                 LogContext.newTraceId("startup"))) {
-            return startScoped(adapter, options, clock);
+            return startScoped(accountRegistry, options, clock);
         }
     }
 
-    private static BotRuntime startScoped(MessagingAdapter adapter, BotRuntimeOptions options,
-                                          Clock clock) throws IOException {
+    private static BotRuntime startScoped(AccountRegistry accountRegistry,
+                                          BotRuntimeOptions options, Clock clock)
+            throws IOException {
         Path dataDir = options.dataDir();
+        List<AdapterBinding> bindings = bindings(accountRegistry, options);
         SqliteMessageBoardStore board = null;
         SqliteUserNoteStore notes = null;
         SqliteInboxDigestStateStore digestStates = null;
@@ -114,11 +153,6 @@ public final class BotRuntime implements AutoCloseable {
         SqliteFriendRequestStore friendRequests = null;
         SqliteInboxDigestAuditStore inboxAudit = null;
         SqliteSourceWeightStore sourceWeights = null;
-        OpsLog.info("event=bot_runtime_starting accountId={} dataDir={} adapter={} "
-                        + "control={}:{}{} inboxId={} inboxDataDir={}",
-                options.accountId(), dataDir, adapter.adapterId(), options.controlHost(),
-                options.controlPort(), options.controlPath(), options.inbox().inboxId(),
-                options.inbox().dataDir());
         try {
             board = new SqliteMessageBoardStore(dataDir.resolve("bot.db"));
             friendRequests = new SqliteFriendRequestStore(dataDir.resolve("bot.db"));
@@ -128,6 +162,12 @@ public final class BotRuntime implements AutoCloseable {
             digestStates = new SqliteInboxDigestStateStore(dataDir.resolve("bot.db"));
             LOG.debug("event=bot_datastores_ready dataDir={} dbFile={}",
                     dataDir, dataDir.resolve("bot.db"));
+            OpsLog.info("event=bot_runtime_starting accountCount={} dataDir={} "
+                            + "accounts={} control={}:{}{} inboxId={} inboxDataDir={}",
+                    bindings.size(), dataDir,
+                    bindings.stream().map(AdapterBinding::accountId).toList(),
+                    options.controlHost(), options.controlPort(), options.controlPath(),
+                    options.inbox().inboxId(), options.inbox().dataDir());
             SourceWeightService weightService = new SourceWeightService(
                     sourceWeights, board, options.weighting(), clock);
             weightService.ensureExistingThreads(1000);
@@ -149,25 +189,33 @@ public final class BotRuntime implements AutoCloseable {
             BotIngestionService ingestion = new BotIngestionService(
                     board, scheduler::enqueue, weightService);
 
-            OutboxSender outbox = new OutboxSender(adapter, options.outboxTimeout(),
-                    options.privateTempGroupId(), options.minSendInterval());
+            Map<String, OutboxSender> outboxes = new LinkedHashMap<>();
+            for (AdapterBinding binding : bindings) {
+                outboxes.put(binding.accountId(), binding.outbox());
+            }
             BotReplyService replies = new BotReplyService(board,
-                    new BotOutboxReplyPort(outbox), clock);
-            ForwardCapability forwardProvider = adapter instanceof ForwardCapability capability
-                    ? capability : null;
-            RecentQqProvider recentProvider = adapter instanceof RecentQqProvider provider
+                    new BotOutboxReplyPort(outboxes), clock);
+
+            AdapterBinding active = bindings.getFirst();
+            MessagingAdapter activeAdapter = active.adapter();
+            RecentQqProvider activeRecent = activeAdapter instanceof RecentQqProvider provider
                     ? provider : null;
-            FriendRequestService friendService = adapter instanceof FriendRequestCapability capability
+            FriendRequestService friendService = activeAdapter
+                    instanceof FriendRequestCapability capability
                     ? new FriendRequestService(friendRequests, capability, clock) : null;
-            ChatHistoryProvider historyProvider = adapter instanceof ChatHistoryProvider provider
+            ChatHistoryProvider activeHistory = activeAdapter instanceof ChatHistoryProvider provider
                     ? provider : null;
-            List<AgentTool> tools = new ArrayList<>(BotMcpTools.all(
+            Map<String, ForwardCapability> forwardByAccount = capabilityMap(
+                    bindings, ForwardCapability.class);
+            Map<String, MediaCapability> mediaByAccount = capabilityMap(
+                    bindings, MediaCapability.class);
+            List<AgentTool> tools = new ArrayList<>(BotMcpTools.allForAccounts(
                     board, notes, digestService, replies, options.accountId(),
-                    forwardProvider, recentProvider, friendService, inboxAudit,
-                    historyProvider, weightService));
+                    forwardByAccount, activeRecent, friendService, inboxAudit,
+                    activeHistory, weightService));
             BotMediaStore mediaStore = new BotMediaStore(dataDir);
-            if (adapter instanceof MediaCapability mediaProvider) {
-                tools.add(new BotMediaGetTool(board, mediaProvider, mediaStore));
+            if (mediaByAccount.values().stream().anyMatch(Objects::nonNull)) {
+                tools.add(new BotMediaGetTool(board, mediaByAccount, mediaStore));
             }
             tools.addAll(inboxRuntime.mcpTools());
             OpsLog.info("event=bot_tools_prepared tools={} digestLimit={}",
@@ -188,25 +236,33 @@ public final class BotRuntime implements AutoCloseable {
                         failure.getClass().getSimpleName());
             }
             mcpServer.start();
-            if (adapter instanceof FriendRequestCapability capability) {
+            if (friendService != null && activeAdapter
+                    instanceof FriendRequestCapability capability) {
                 capability.setFriendRequestHandler(friendService::receive);
             }
-            LOG.debug("event=adapter_state state=starting adapter={} accountId={}",
-                    adapter.adapterId(), options.accountId());
-            adapter.start(message -> ingestion.ingest(message));
-            LOG.debug("event=adapter_state state=started adapter={} accountId={} "
-                            + "inboundHandler=registered",
-                    adapter.adapterId(), options.accountId());
-            OpsLog.info("event=bot_runtime_ready accountId={} controlPort={} "
+            for (AdapterBinding binding : bindings) {
+                LOG.debug("event=adapter_state state=starting adapter={} accountId={}",
+                        binding.adapter().adapterId(), binding.accountId());
+                binding.adapter().start(message -> ingestion.ingest(
+                        binding.accountId(), message));
+                verifyAccountIdentity(binding.accountId(), binding.adapter());
+                OpsLog.info("event=account_started alias={} accountId={} adapter={}",
+                        binding.alias(), binding.accountId(), binding.adapter().adapterId());
+                LOG.debug("event=adapter_state state=started adapter={} accountId={} "
+                                + "inboundHandler=registered",
+                        binding.adapter().adapterId(), binding.accountId());
+            }
+            OpsLog.info("event=bot_runtime_ready accountCount={} controlPort={} "
                             + "inboxApiPort={} inboxMcpPort={} tools={}",
-                    options.accountId(), mcpServer.boundPort(), inboxRuntime.apiPort(),
+                    bindings.size(), mcpServer.boundPort(), inboxRuntime.apiPort(),
                     inboxRuntime.mcpPort(), tools.size());
-            return new BotRuntime(options, adapter, board, notes, digestStates, inboxRuntime,
-                    digestScheduler, ingestion, mcpServer, friendRequests, inboxAudit,
-                    sourceWeights);
+            return new BotRuntime(options, accountRegistry, bindings, outboxes,
+                    board, notes, digestStates, inboxRuntime, digestScheduler, ingestion,
+                    mcpServer, friendRequests, inboxAudit, sourceWeights);
         } catch (IOException | RuntimeException failure) {
             OpsLog.error("event=bot_runtime_start_failed errorType={}",
                     failure.getClass().getSimpleName());
+            closeAdaptersReverse(bindings.stream().map(AdapterBinding::adapter).toList());
             closeQuietly(mcpServer);
             closeQuietly(friendRequests);
             closeQuietly(inboxAudit);
@@ -220,12 +276,113 @@ public final class BotRuntime implements AutoCloseable {
         }
     }
 
+    private static List<AdapterBinding> bindings(AccountRegistry registry,
+                                                 BotRuntimeOptions options) {
+        Set<String> configuredIds = new LinkedHashSet<>();
+        Map<String, BotRuntimeOptions.AccountOptions> configured = new LinkedHashMap<>();
+        for (BotRuntimeOptions.AccountOptions account : options.accounts()) {
+            configuredIds.add(account.accountId());
+            configured.put(account.accountId(), account);
+        }
+        Set<String> registeredIds = new LinkedHashSet<>();
+        registry.snapshot().forEach(entry -> registeredIds.add(entry.accountId()));
+        if (!configuredIds.equals(registeredIds)) {
+            Set<String> missing = new LinkedHashSet<>(configuredIds);
+            missing.removeAll(registeredIds);
+            Set<String> extra = new LinkedHashSet<>(registeredIds);
+            extra.removeAll(configuredIds);
+            throw new IllegalArgumentException("AccountRegistry 与 runtime 配置不一致: missing="
+                    + missing + " extra=" + extra);
+        }
+        List<BotRuntimeOptions.AccountOptions> ordered = new ArrayList<>(configured.size());
+        BotRuntimeOptions.AccountOptions active = configured.get(options.accountId());
+        ordered.add(active);
+        for (BotRuntimeOptions.AccountOptions account : configured.values()) {
+            if (!account.accountId().equals(active.accountId())) {
+                ordered.add(account);
+            }
+        }
+        List<AdapterBinding> bindings = new ArrayList<>(ordered.size());
+        for (BotRuntimeOptions.AccountOptions account : ordered) {
+            MessagingAdapter adapter = registry.find(account.accountId()).orElseThrow();
+            OutboxSender outbox = new OutboxSender(adapter, options.outboxTimeout(),
+                    account.privateTempGroupId(), options.minSendInterval());
+            bindings.add(new AdapterBinding(account.alias(), account.accountId(),
+                    adapter, outbox));
+        }
+        return List.copyOf(bindings);
+    }
+
+    private static <T> Map<String, T> capabilityMap(List<AdapterBinding> bindings,
+                                                     Class<T> capabilityType) {
+        Map<String, T> capabilities = new LinkedHashMap<>();
+        for (AdapterBinding binding : bindings) {
+            capabilities.put(binding.accountId(), capabilityType.isInstance(binding.adapter())
+                    ? capabilityType.cast(binding.adapter()) : null);
+        }
+        return Collections.unmodifiableMap(new LinkedHashMap<>(capabilities));
+    }
+
+    private static void verifyAccountIdentity(String expectedAccountId,
+                                              MessagingAdapter adapter) {
+        if (!(adapter instanceof AccountInfoProvider provider)) {
+            return;
+        }
+        AccountInfo info;
+        try {
+            info = provider.accountInfo().toCompletableFuture()
+                    .get(ACCOUNT_INFO_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            OpsLog.error("event=account_identity_check_failed expectedAccountId={} "
+                            + "adapter={} reason=interrupted", expectedAccountId,
+                    adapter.adapterId());
+            throw new IllegalStateException("账号身份校验被中断: " + expectedAccountId);
+        } catch (TimeoutException | ExecutionException | RuntimeException failure) {
+            OpsLog.error("event=account_identity_check_failed expectedAccountId={} "
+                            + "adapter={} reason={}", expectedAccountId, adapter.adapterId(),
+                    failure.getClass().getSimpleName());
+            throw new IllegalStateException("账号身份校验失败: " + expectedAccountId);
+        }
+        if (!expectedAccountId.equals(info.accountId())) {
+            OpsLog.error("event=account_identity_mismatch expectedAccountId={} "
+                            + "actualAccountId={} adapter={}", expectedAccountId,
+                    info.accountId(), adapter.adapterId());
+            throw new IllegalStateException("登录账号与配置 accountId 不一致: "
+                    + expectedAccountId);
+        }
+        OpsLog.info("event=account_identity_verified accountId={} adapter={}",
+                expectedAccountId, adapter.adapterId());
+    }
+
     public BotRuntimeOptions options() {
         return options;
     }
 
+    /** 兼容单账号调用：返回 active/first account adapter。 */
     public MessagingAdapter adapter() {
-        return adapter;
+        return bindings.getFirst().adapter();
+    }
+
+    /** @return 完整多账号注册表。 */
+    public AccountRegistry accountRegistry() {
+        return accountRegistry;
+    }
+
+    /** 按稳定 accountId 查询本次启动的 sender。 */
+    public Optional<OutboxSender> outboxSender(String accountId) {
+        return Optional.ofNullable(outboxes.get(accountId));
+    }
+
+    /** @return 本次启动的账号配置顺序快照。 */
+    public List<BotRuntimeOptions.AccountOptions> accounts() {
+        return bindings.stream()
+                .map(binding -> new BotRuntimeOptions.AccountOptions(
+                        binding.alias(), binding.accountId(),
+                        options.accountOptions(binding.accountId())
+                                .map(BotRuntimeOptions.AccountOptions::privateTempGroupId)
+                                .orElse(null)))
+                .toList();
     }
 
     public SqliteMessageBoardStore board() {
@@ -257,10 +414,10 @@ public final class BotRuntime implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        LOG.debug("event=bot_runtime_close phase=starting adapter={} accountId={}",
-                adapter.adapterId(), options.accountId());
-        OpsLog.info("event=bot_runtime_close phase=starting");
-        closeQuietly(adapter);
+        LOG.debug("event=bot_runtime_close phase=starting accounts={}", bindings.size());
+        OpsLog.info("event=bot_runtime_close phase=starting accountCount={}",
+                bindings.size());
+        closeAdaptersReverse(bindings.stream().map(AdapterBinding::adapter).toList());
         closeQuietly(mcpServer);
         closeQuietly(friendRequests);
         closeQuietly(inboxAudit);
@@ -273,6 +430,12 @@ public final class BotRuntime implements AutoCloseable {
         OpsLog.info("event=bot_runtime_close phase=completed");
     }
 
+    private static void closeAdaptersReverse(List<MessagingAdapter> adapters) {
+        for (int index = adapters.size() - 1; index >= 0; index--) {
+            closeQuietly(adapters.get(index));
+        }
+    }
+
     private static void closeQuietly(AutoCloseable closeable) {
         if (closeable == null) {
             return;
@@ -283,6 +446,16 @@ public final class BotRuntime implements AutoCloseable {
             // 生命周期收尾不能掩盖首个失败。
             OpsLog.warn("event=component_close_failed component={} errorType={}",
                     closeable.getClass().getSimpleName(), failure.getClass().getSimpleName());
+        }
+    }
+
+    private record AdapterBinding(String alias, String accountId,
+                                  MessagingAdapter adapter, OutboxSender outbox) {
+        private AdapterBinding {
+            Objects.requireNonNull(alias, "alias");
+            Objects.requireNonNull(accountId, "accountId");
+            Objects.requireNonNull(adapter, "adapter");
+            Objects.requireNonNull(outbox, "outbox");
         }
     }
 }

@@ -28,15 +28,27 @@ public final class BotFriendRequestDecideTool implements AgentTool {
             "additionalProperties", false);
 
     private final FriendRequestService service;
+    private final String accountId;
 
     public BotFriendRequestDecideTool(FriendRequestService service) {
+        this(service, null);
+    }
+
+    /**
+     * P4 好友申请审批仍只绑定单一 active account；响应显式带 accountId，完整多账号化留 P6。
+     */
+    public BotFriendRequestDecideTool(FriendRequestService service, String accountId) {
         this.service = Objects.requireNonNull(service, "service");
+        this.accountId = accountId == null || accountId.isBlank() ? null : accountId.trim();
     }
 
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "同意/拒绝入站好友申请；requestId 来自 list，raw flag 不出现在参数中。";
+        return accountId == null
+                ? "同意/拒绝入站好友申请；requestId 来自 list，raw flag 不出现在参数中。"
+                : "同意/拒绝当前 active 账号 " + accountId
+                        + " 的入站好友申请；raw flag 不出现在参数中。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -57,6 +69,9 @@ public final class BotFriendRequestDecideTool implements AgentTool {
                     context.arguments(), "remark", 512);
             FriendRequestDecision decision = service.decide(requestId, approve, remark);
             Map<String, Object> data = new LinkedHashMap<>();
+            if (accountId != null) {
+                data.put("accountId", accountId);
+            }
             data.put("requestId", decision.requestId());
             data.put("status", decision.status());
             data.put("idempotent", decision.idempotent());

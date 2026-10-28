@@ -3,7 +3,7 @@
 > 设计依据：[配置文件系统设计](../docs/superpowers/specs/2026-10-28-configuration-system.md)、
 > [日志分级与诊断](../docs/superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md)。
 > P3 已实现单文件首次生成、多账号 schema、严格校验、来源追踪、脱敏诊断和 JSON 日志配置。
-> P3 runtime 仍只选第一个 enabled account；P4 才启动全部账号。
+> P3 完成配置 schema/诊断；P4 已让 runtime 启动全部 enabled account。
 
 ## 目录
 
@@ -101,7 +101,7 @@ config/
 
 严格规则：
 
-- `accounts` 至少一个 `enabled=true`；P3 runtime 只取配置中第一个 enabled account；
+- `accounts` 至少一个 `enabled=true`；P4 runtime 启动全部 enabled account，第一个 enabled 作为 direct-provider 工具的 active 账号；
 - alias 必须匹配 `[A-Za-z0-9._-]+`；所有 `accountId` 必须全局唯一；
 - `adapter` 首版只允许 `onebot11`；
 - WS URI 只允许 `ws/wss`，HTTP base URI 只允许 `http/https`，都必须带 host；
