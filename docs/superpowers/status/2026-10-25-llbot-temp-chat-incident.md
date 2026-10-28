@@ -2,7 +2,7 @@
 
 > **状态**：历史快照（2026-10-25）。**当前状态入口**：[`../../agents/STATUS.md`](../../agents/STATUS.md)。
 > **对应需求**：LLBot 迁移、D-017 私密投递
-> **迁移记录**：[`../../../simulation/dsh/LLBOT_MIGRATION.md`](../../../simulation/dsh/LLBOT_MIGRATION.md)
+> **迁移记录**：旧 `simulation/dsh/LLBOT_MIGRATION.md`（工作树已删除，Git 历史可追溯）
 
 ## 结论
 

@@ -16,7 +16,7 @@ if [ -z "$JAR" ]; then
 fi
 ENV_DIR="${IIBOT_ENV_DIR:-$HOME/.config/iibot}"
 BOT_CONFIG="$SIM2_ROOT/config/bot.sim.local.json"
-SOURCE_CONFIG="${IIBOT_BOT_SOURCE_CONFIG:-$REPO_ROOT/simulation/config/iibot.sim.local.json}"
+SOURCE_CONFIG="${IIBOT_BOT_SOURCE_CONFIG:-}"
 RUNTIME="$SIM2_ROOT/runtime"
 LOGS="$SIM2_ROOT/logs"
 MCP_CLASSES="$SIM2_ROOT/tools/classes"

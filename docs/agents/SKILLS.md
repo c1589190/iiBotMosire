@@ -2,8 +2,8 @@
 
 > **本文件属于项目维护。** 工程 Skill 面向维护本仓库的编码 Agent，不是产品内运行时 Skill。
 > **当前项目级 active Skill = 0**。没有经过真实任务验证的判断流程不进入 `.agents/skills/`。
-> 模拟区的可复用 Agent Skill 位于 `simulation/.agents/skills/`，目录登记见
-> [`../../simulation/docs/agents/SKILLS.md`](../../simulation/docs/agents/SKILLS.md)。
+> 旧 `simulation/` 文游模拟区已从当前工作树删除；历史 Skill 由 Git 保留，
+> 不再作为当前项目 Skill 入口。
 
 ## 一、什么该进 Skill
 
@@ -42,7 +42,7 @@ proposed -> drafted -> pilot -> active -> deprecated -> retired
 |---|---|---|---|---|---|---|---|
 | （当前无项目级 active Skill） | — | — | — | — | — | — | — |
 
-模拟区当前 active Skill 由 `simulation/docs/agents/SKILLS.md` 单独登记，不复制到本目录。
+当前项目不再登记文游模拟区 Skill；只允许与统一 QQ Agent 客户端相关的工程 Skill。
 
 ## 四、候选与归档登记
 

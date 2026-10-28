@@ -1,6 +1,6 @@
 # simulation2 —— bot-first 一夜运行区
 
-本目录与 legacy `simulation/` 完全分离：
+本目录是 bot-first 运行区；旧 `simulation/` 文游运行区已从工作树删除：
 
 - 使用 `simulation2/runtime`、`simulation2/logs`、`simulation2/dist`；
 - 默认启动 bot-first，不需要 `--mode bot`；
@@ -13,11 +13,12 @@
 
 ## 1. 前置
 
-已存在真实 NapCat 环境和以下文件之一：
+已存在真实 NapCat 环境，并满足以下任一条件：
 
-- `simulation/config/iibot.sim.local.json`（默认源）
-- 或 `~/.config/iibot/iibot.local.json`
-- 或通过 `IIBOT_BOT_SOURCE_CONFIG` 指定
+- `simulation2/config/bot.sim.local.json` 已存在（直接复用）；
+- 或通过 `IIBOT_BOT_SOURCE_CONFIG` 指向现有配置；
+- 或 `~/.config/iibot/iibot.local.json` 存在；
+- 都没有时，`01-prepare.sh` 从 `bot.sim.example.json` 生成模板并退出，等待编辑。
 
 环境变量：
 
@@ -43,7 +44,7 @@ Scope: 当前 simulation2 / iiBotMosire workspace
 ```bash
 cd ~/DevMosire-iiBot/iiBotMosire
 simulation2/scripts/00-build.sh
-simulation2/scripts/01-prepare.sh
+simulation2/scripts/01-prepare.sh   # 首次无配置时生成模板并 rc=2
 simulation2/scripts/00-check.sh
 ```
 

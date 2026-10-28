@@ -27,7 +27,7 @@ tools/gate.sh full
 
 - 2026-10-28 P1a 后源码基线：`tools/gate.sh full` **PASS，174 tests / 0 failures /
   0 errors / 0 skipped**（connect 46、connect-agent 21、bot 67、app 40）；
-  `tools/gate.sh docs` PASS（modules=4 files=520 links=225）。
+  `tools/gate.sh docs` PASS（P1b 后 modules=4 files=78 links=194）。
 - P1a focused `tools/gate.sh focused iibot-app -am test`：153 tests / 0 failures / 0 errors。
 - 本结果仍包含待整合的 `iibot-connect-agent` 21 tests；P6 删除模块后测试基线会变化。
 - 真实 NapCat/DSH/QQ/MCP 长跑、日志真实轮转与崩溃恢复均 `NOT_RUN`。

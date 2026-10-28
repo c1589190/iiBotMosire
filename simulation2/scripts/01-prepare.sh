@@ -6,13 +6,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$SIM2_ROOT/config" "$RUNTIME" "$LOGS" "$RUNTIME/bot" "$RUNTIME/inbox"
 chmod 700 "$RUNTIME" "$LOGS"
 
-if [ ! -f "$SOURCE_CONFIG" ]; then
+if [ -z "$SOURCE_CONFIG" ] || [ ! -f "$SOURCE_CONFIG" ]; then
+    if [ -f "$BOT_CONFIG" ]; then
+        chmod 600 "$BOT_CONFIG" 2>/dev/null || true
+        echo "BOT_CONFIG=$BOT_CONFIG"
+        echo "NOTE: 复用已有 bot.sim.local.json；未从旧配置重新生成。"
+        exit 0
+    fi
     fallback="$ENV_DIR/iibot.local.json"
     if [ -f "$fallback" ]; then
         SOURCE_CONFIG="$fallback"
     else
-        echo "ERROR: 找不到源配置 $SOURCE_CONFIG 或 $fallback" >&2
-        echo "请设置 IIBOT_BOT_SOURCE_CONFIG 指向现有 NapCat 配置" >&2
+        cp "$SIM2_ROOT/config/bot.sim.example.json" "$BOT_CONFIG"
+        chmod 600 "$BOT_CONFIG"
+        echo "BOOTSTRAP_CONFIG=$BOT_CONFIG" >&2
+        echo "ERROR: 未找到现有配置，已从示例生成 bot.sim.local.json。" >&2
+        echo "请修改账号、OneBot 地址和 token 环境变量名，设置 IIBOT_NAPCAT_ACCESS_TOKEN/IIBOT_CONTROL_TOKEN 后重跑。" >&2
         exit 2
     fi
 fi

@@ -1,9 +1,0 @@
-runtime/
-logs/
-config/*.local.json
-init/
-tools/classes/
-dist/
-runtime.backup-*/
-runtime.partial-*/
-config/*.backup-*

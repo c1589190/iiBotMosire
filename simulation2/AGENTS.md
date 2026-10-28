@@ -1,6 +1,6 @@
 # simulation2 —— bot-first 独立运行区
 
-> 本目录只用于 bot-first 运行脚本、配置和证据，不是 legacy 文游 `simulation/` 的替代文档正本。
+> 本目录只用于 bot-first 运行脚本、配置和证据；旧 `simulation/` 文游运行区已从工作树删除。
 
 ## 职责
 
@@ -12,7 +12,7 @@
 
 ## 边界
 
-- 不改写 `simulation/` 的 legacy 状态；
+- 旧 `simulation/` 历史由 Git 保留，不在当前工作树恢复；
 - 不保存 raw token、QQ 凭据或真实玩家隐私到仓库；
 - 运行时文件全部 gitignore；
 - 真实外发前必须由用户明确授权，遵守根 AGENTS 的 M-004 协同门。
