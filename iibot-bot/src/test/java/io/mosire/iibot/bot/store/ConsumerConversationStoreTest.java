@@ -1,5 +1,7 @@
 package io.mosire.iibot.bot.store;
 
+import io.mosire.iibot.bot.inbox.InboxDigestState;
+import io.mosire.iibot.bot.inbox.SqliteInboxDigestStateStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -47,6 +49,24 @@ class ConsumerConversationStoreTest {
                 CONSUMER, THREAD, 9L, T0.plusSeconds(5)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("deliveredSeq");
+    }
+
+    @Test
+    void sqliteBackfillsConsumerCursorFromLegacyDigestState() {
+        Path db = tempDir.resolve("legacy-bot.db");
+        String threadId = "thread:group:Ym90LTE:Z3JvdXAtOQ";
+        try (SqliteInboxDigestStateStore digest =
+                     new SqliteInboxDigestStateStore(db)) {
+            digest.save(new InboxDigestState(threadId, "item-legacy", 11L, 42L));
+        }
+
+        try (SqliteConsumerConversationStore store =
+                     new SqliteConsumerConversationStore(db)) {
+            assertThat(store.find(CONSUMER, threadId)).get()
+                    .extracting(ConsumerConversationState::readSeq,
+                            ConsumerConversationState::deliveredSeq)
+                    .containsExactly(42L, 42L);
+        }
     }
 
     @Test

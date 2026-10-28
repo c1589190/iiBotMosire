@@ -31,8 +31,11 @@ public final class BotQqConversationAckTool implements AgentTool {
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",
             "properties", Map.of(
-                    "threadId", Map.of("type", "string", "minLength", 1)),
-            "required", List.of("threadId"),
+                    "source", Map.of("type", "string", "minLength", 1,
+                            "description", "统一来源地址"),
+                    "threadId", Map.of("type", "string", "minLength", 1,
+                            "description", "旧版内部 threadId；新调用方使用 source")),
+            "required", List.of(),
             "additionalProperties", false);
 
     private final ConsumerConversationStore consumers;
@@ -66,8 +69,7 @@ public final class BotQqConversationAckTool implements AgentTool {
 
     @Override public ToolResult execute(ToolContext context) {
         try {
-            String threadId = BotToolSupport.requiredText(
-                    context.arguments(), "threadId", 512);
+            String threadId = BotToolSupport.threadKey(context.arguments()).threadId();
             Optional<ConsumerConversationState> found = consumers.find(
                     ConsumerConversationStore.DEFAULT_CONSUMER_ID, threadId);
             if (found.isEmpty()

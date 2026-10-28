@@ -220,6 +220,32 @@ final class BotToolSupport {
         return value;
     }
 
+    /**
+     * 解析工具输入的统一来源：优先 source，兼容旧 threadId；同时出现视为参数冲突。
+     */
+    static ChatSourceKey threadKey(Map<String, Object> args) {
+        String source = optionalText(args, "source", 1024);
+        String legacyThreadId = optionalText(args, "threadId", 512);
+        if (!source.isEmpty() && !legacyThreadId.isEmpty()) {
+            throw new InvalidArgumentsException("source 与 threadId 不能同时提供");
+        }
+        if (!source.isEmpty()) {
+            try {
+                return ChatSourceKey.fromSourceAddress(MessageSourceAddress.parse(source));
+            } catch (IllegalArgumentException failure) {
+                throw new InvalidArgumentsException("source 非法: " + failure.getMessage());
+            }
+        }
+        if (!legacyThreadId.isEmpty()) {
+            try {
+                return ChatSourceKey.fromThreadId(legacyThreadId);
+            } catch (IllegalArgumentException failure) {
+                throw new InvalidArgumentsException("threadId 非法: " + failure.getMessage());
+            }
+        }
+        throw new InvalidArgumentsException("必须提供 source 或 threadId");
+    }
+
     static String sourceOf(String threadOrSource) {
         if (threadOrSource == null || threadOrSource.isBlank()) {
             return "";

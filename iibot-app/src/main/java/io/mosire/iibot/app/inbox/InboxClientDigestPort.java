@@ -60,6 +60,7 @@ public final class InboxClientDigestPort implements InboxDigestPort {
                     .contentRef(contentRef(digest))
                     .dedupeKey(requireText(dedupeKey, "dedupeKey"))
                     .priority(digest.priority())
+                    .source(digest.source() == null ? null : digest.source().source())
                     .build());
             if (result == null || result.itemId() == null || result.itemId().isBlank()) {
                 throw new IllegalStateException("Inbox push 未返回 itemId");

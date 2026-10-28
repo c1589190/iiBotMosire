@@ -306,8 +306,11 @@ class InboxClientDigestPortTest {
             InboxModels.ItemList list = inbox.client().list("app-a", Set.of("qq"), 10);
             assertThat(list.items()).hasSize(1);
             assertThat(list.items().getFirst().summary()).contains("第二条", "#vip");
+            assertThat(list.items().getFirst().source())
+                    .isEqualTo("qq_group/bot-1/group-9");
             InboxModels.ItemDetail detail = inbox.client().view("app-a", first.itemId());
             assertThat(detail.summary()).contains("第二条", "#vip");
+            assertThat(detail.source()).isEqualTo("qq_group/bot-1/group-9");
             assertThat(detail.content()).isInstanceOf(JsonNode.class);
             JsonNode content = (JsonNode) detail.content();
             assertThat(content.path("threadId").asText()).isEqualTo(GROUP.threadId());

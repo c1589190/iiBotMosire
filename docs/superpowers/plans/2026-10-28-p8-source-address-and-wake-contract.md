@@ -31,6 +31,12 @@
 - ack 固定 read 时 delivered 边界；新消息全唤醒但不重复同 revision；
 - 迁移旧 SQLite fixture 测试。
 
+## 执行记录
+
+- P8.1 `48e3700`：地址核心、MCP source 输出、InboxSource 投影。
+- P8.2 Inbox `a040f25`：item.source 全链路；DSH `b14f7a1`：wake source/view-ack 模板。
+- P8.3：source 输入、read 仅 IN、consumer 游标回填；full 233 tests。
+
 验收：旧库不读 seq 0；OUT 不进入未读 ack 边界；read/ack 间新消息保留下一次。
 
 ## P8.4 展示与收尾

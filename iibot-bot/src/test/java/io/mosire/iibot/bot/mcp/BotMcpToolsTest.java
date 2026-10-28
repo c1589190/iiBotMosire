@@ -72,7 +72,7 @@ class BotMcpToolsTest {
         String threadId = listed.path("data").path("threads").get(0).path("threadId").asText();
 
         JsonNode read = call(tool(tools, "qq_conversation_read"),
-                Map.of("threadId", threadId, "limit", 10));
+                Map.of("source", "qq_group/bot-1/group-9", "limit", 10));
         assertThat(read.path("data").path("source").asText())
                 .isEqualTo("qq_group/bot-1/group-9");
         assertThat(read.path("data").path("messages")).hasSize(1);
@@ -88,7 +88,7 @@ class BotMcpToolsTest {
         assertThat(message.path("data").path("senderName").asText()).isEqualTo("Alice");
 
         JsonNode replied = call(tool(tools, "qq_conversation_send"), Map.of(
-                "threadId", threadId,
+                "source", "qq_group/bot-1/group-9",
                 "text", "收到",
                 "idempotencyKey", "reply-1"));
         assertThat(replied.path("data").path("deliveryState").asText()).isEqualTo("SENT");
@@ -96,7 +96,7 @@ class BotMcpToolsTest {
         assertThat(board.readThread(threadId, 1L, 10)).hasSize(1);
 
         JsonNode replay = call(tool(tools, "qq_conversation_send"), Map.of(
-                "threadId", threadId,
+                "source", "qq_group/bot-1/group-9",
                 "text", "收到",
                 "idempotencyKey", "reply-1"));
         assertThat(replay.path("data").path("alreadyAttempted").asBoolean()).isTrue();
@@ -202,7 +202,7 @@ class BotMcpToolsTest {
         board.append(ChatMessage.inbound(GROUP, "m-3", "qq-1", "Alice", T0, T0,
                 "第三条", "", ""));
         JsonNode ack = call(tool(tools, "qq_conversation_ack"),
-                Map.of("threadId", GROUP.threadId()));
+                Map.of("source", "qq_group/bot-1/group-9"));
         assertThat(ack.path("data").path("acked").asBoolean()).isTrue();
         assertThat(ack.path("data").path("readSeq").asLong()).isEqualTo(1L);
         assertThat(ack.path("data").path("inboxArchived").asBoolean()).isFalse();
@@ -234,6 +234,32 @@ class BotMcpToolsTest {
         assertThat(noOp.path("data").path("acked").asBoolean()).isFalse();
         assertThat(noOp.path("data").path("reason").asText())
                 .isEqualTo("NO_DELIVERED_MESSAGES");
+    }
+
+    @Test
+    void readReturnsInboundOnlyAndSeparatesOutbound() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        board.append(ChatMessage.outbound(GROUP, "out-1", T0, "自己先发的", "", ""));
+        board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, "入站消息", "", ""));
+        InMemoryConsumerConversationStore consumers = new InMemoryConsumerConversationStore();
+        BotQqConversationReadTool read = new BotQqConversationReadTool(
+                board, consumers, CLOCK);
+
+        JsonNode normal = call(read, Map.of(
+                "source", "qq_group/bot-1/group-9", "limit", 10));
+        assertThat(normal.path("data").path("count").asInt()).isEqualTo(1);
+        assertThat(normal.path("data").path("messages").get(0).path("direction").asText())
+                .isEqualTo("IN");
+        assertThat(normal.path("data").path("outboundCount").asInt()).isZero();
+        assertThat(normal.path("data").path("deliveredSeq").asLong()).isEqualTo(2L);
+
+        JsonNode withOutbound = call(read, Map.of(
+                "source", "qq_group/bot-1/group-9", "includeOutbound", true));
+        assertThat(withOutbound.path("data").path("count").asInt()).isEqualTo(1);
+        assertThat(withOutbound.path("data").path("outboundCount").asInt()).isEqualTo(1);
+        assertThat(withOutbound.path("data").path("outbound").get(0)
+                .path("direction").asText()).isEqualTo("OUT");
     }
 
     @Test
@@ -311,12 +337,16 @@ class BotMcpToolsTest {
         JsonNode readRequired = JSON.valueToTree(read.jsonSchema()).path("required");
         JsonNode ackRequired = JSON.valueToTree(ack.jsonSchema()).path("required");
         JsonNode sendRequired = JSON.valueToTree(send.jsonSchema()).path("required");
-        assertThat(readRequired.size()).isEqualTo(1);
-        assertThat(ackRequired.size()).isEqualTo(1);
-        assertThat(readRequired.get(0).asText()).isEqualTo("threadId");
-        assertThat(ackRequired.get(0).asText()).isEqualTo("threadId");
+        assertThat(readRequired.size()).isZero();
+        assertThat(ackRequired.size()).isZero();
         assertThat(sendRequired).extracting(JsonNode::asText)
-                .containsExactly("threadId", "text");
+                .containsExactly("text");
+        assertThat(JSON.valueToTree(read.jsonSchema()).path("properties")
+                .has("source")).isTrue();
+        assertThat(JSON.valueToTree(ack.jsonSchema()).path("properties")
+                .has("source")).isTrue();
+        assertThat(JSON.valueToTree(send.jsonSchema()).path("properties")
+                .has("source")).isTrue();
         assertThat(JSON.valueToTree(read.jsonSchema()).path("properties")
                 .path("limit").path("maximum").asInt()).isEqualTo(100);
         assertThat(schema).doesNotContain("expectedRevision", "snapshotToSeq", "itemId",

@@ -23,12 +23,15 @@ public final class BotThreadHistoryTool implements AgentTool {
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",
             "properties", Map.of(
-                    "threadId", Map.of("type", "string", "minLength", 1),
+                    "source", Map.of("type", "string", "minLength", 1,
+                            "description", "统一来源地址"),
+                    "threadId", Map.of("type", "string", "minLength", 1,
+                            "description", "旧版内部 threadId；新调用方使用 source"),
                     "beforeSeq", Map.of("type", "integer", "minimum", 0,
                             "description", "严格读取小于该 localSeq 的消息；省略则读最新"),
                     "limit", Map.of("type", "integer", "minimum", 1, "maximum", 200,
                             "description", "最多返回条数，默认 50")),
-            "required", List.of("threadId"),
+            "required", List.of(),
             "additionalProperties", false);
 
     private final MessageBoardStore board;
@@ -51,8 +54,7 @@ public final class BotThreadHistoryTool implements AgentTool {
 
     @Override public ToolResult execute(ToolContext context) {
         try {
-            String threadId = BotToolSupport.requiredText(
-                    context.arguments(), "threadId", 512);
+            String threadId = BotToolSupport.threadKey(context.arguments()).threadId();
             ChatThread thread = board.thread(threadId).orElseThrow(() ->
                     new BotToolSupport.InvalidArgumentsException("thread 不存在"));
             long beforeSeq = BotToolSupport.optionalLong(
@@ -93,7 +95,7 @@ public final class BotThreadHistoryTool implements AgentTool {
 
     @Override public Map<String, Object> ledgerArgs(ToolContext context) {
         Map<String, Object> safe = new LinkedHashMap<>();
-        for (String name : List.of("threadId", "beforeSeq", "limit")) {
+        for (String name : List.of("source", "threadId", "beforeSeq", "limit")) {
             if (context.arguments().containsKey(name)) {
                 safe.put(name, context.arguments().get(name));
             }

@@ -47,6 +47,7 @@ public final class SqliteConsumerConversationStore
                           PRIMARY KEY (consumer_id, thread_id)
                         )
                         """);
+                backfillLegacyDigestCursor(statement);
             }
         } catch (IOException | SQLException failure) {
             throw new IllegalStateException("打开 SQLite consumer 游标失败", failure);
@@ -176,6 +177,39 @@ public final class SqliteConsumerConversationStore
             connection.close();
         } catch (SQLException failure) {
             throw new IllegalStateException("关闭 SQLite consumer 游标失败", failure);
+        }
+    }
+
+    /**
+     * P5 之前只有 inbox_digest_state；新 consumer 表为空时从已推进的 digest 游标
+     * 一次性回填，避免旧库升级后第一条 wake 从 seq 0 重放历史。
+     */
+    private void backfillLegacyDigestCursor(Statement ddl) throws SQLException {
+        try (ResultSet table = ddl.executeQuery("""
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'inbox_digest_state'
+                """)) {
+            if (!table.next()) {
+                return;
+            }
+        }
+        String now = Instant.now().toString();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO consumer_thread_state (
+                  consumer_id, thread_id, read_seq, delivered_seq, updated_at
+                )
+                SELECT ?, s.thread_id, s.last_seq, s.last_seq, ?
+                FROM inbox_digest_state s
+                WHERE s.last_seq > 0
+                  AND NOT EXISTS (
+                    SELECT 1 FROM consumer_thread_state c
+                    WHERE c.consumer_id = ? AND c.thread_id = s.thread_id
+                  )
+                """)) {
+            statement.setString(1, DEFAULT_CONSUMER_ID);
+            statement.setString(2, now);
+            statement.setString(3, DEFAULT_CONSUMER_ID);
+            statement.executeUpdate();
         }
     }
 

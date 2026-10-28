@@ -24,14 +24,17 @@ public final class BotReplyTool implements AgentTool {
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",
             "properties", Map.of(
-                    "threadId", Map.of("type", "string", "minLength", 1),
+                    "source", Map.of("type", "string", "minLength", 1,
+                            "description", "统一来源地址，如 qq_group/bot-1/955432692"),
+                    "threadId", Map.of("type", "string", "minLength", 1,
+                            "description", "旧版内部 threadId；新调用方使用 source"),
                     "text", Map.of("type", "string", "minLength", 1, "maxLength", 4000),
                     "replyToMessageId", Map.of("type", "string"),
                     "mentionSender", Map.of("type", "boolean",
                             "description", "群聊中回复时 @ 被回复消息的发送者"),
                     "idempotencyKey", Map.of("type", "string", "minLength", 1,
                             "description", "可选；仅在调用方需要重试时显式传入。省略时服务端生成 UUID。")),
-            "required", List.of("threadId", "text"),
+            "required", List.of("text"),
             "additionalProperties", false);
 
     private final BotReplyService service;
@@ -61,8 +64,9 @@ public final class BotReplyTool implements AgentTool {
                     ? BotToolSupport.requiredText(
                             context.arguments(), "idempotencyKey", 200)
                     : UUID.randomUUID().toString();
+            String threadId = BotToolSupport.threadKey(context.arguments()).threadId();
             BotReplyResult result = service.reply(
-                    BotToolSupport.requiredText(context.arguments(), "threadId", 512),
+                    threadId,
                     BotToolSupport.requiredText(context.arguments(), "text", 4000),
                     BotToolSupport.optionalText(context.arguments(), "replyToMessageId", 256),
                     BotToolSupport.optionalBoolean(context.arguments(), "mentionSender", false),
@@ -89,7 +93,8 @@ public final class BotReplyTool implements AgentTool {
 
     @Override public Map<String, Object> ledgerArgs(ToolContext context) {
         Map<String, Object> safe = new LinkedHashMap<>();
-        for (String name : List.of("threadId", "replyToMessageId", "idempotencyKey")) {
+        for (String name : List.of("source", "threadId", "replyToMessageId",
+                "idempotencyKey")) {
             if (context.arguments().containsKey(name)) {
                 safe.put(name, context.arguments().get(name));
             }
