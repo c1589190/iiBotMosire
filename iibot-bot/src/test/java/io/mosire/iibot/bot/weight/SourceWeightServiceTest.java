@@ -48,6 +48,9 @@ class SourceWeightServiceTest {
         assertThat(mention.totalScore()).isEqualTo(200);
         assertThat(mention.wakeReason()).isEqualTo(WeightWakeReason.MENTION);
         assertThat(mention.matchedSignals()).contains(WeightSignal.MENTION);
+        // 全唤醒：@ 与普通群消息使用同一调度窗口，不再出现“只有 @ 才即时注入”。
+        assertThat(service.enqueueDelayMillis(afterBootstrap, ambient)).isZero();
+        assertThat(service.enqueueDelayMillis(afterBootstrap, mention)).isZero();
     }
 
     @Test

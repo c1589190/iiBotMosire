@@ -2,7 +2,7 @@
 
 面向各类 Agent 软件的**统一 QQ 消息客户端**：通过 OneBot 11 接入 QQ，把私聊/群聊写入消息板，提供统一 MCP 工具，并用 Inbox 唤醒外部 Agent。
 
-> **当前阶段**：P8 统一来源地址与全唤醒已实施（`feat/p8-source-address`）；真实 QQ/DSH/OpenCode 外部联调与 AgentLib 0.2.4 公开发布仍待办。默认 3 模块、统一 `qq_*` MCP、多账号路由、服务端 read/ack、配置/日志 v2 与文档归档；当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
+> **当前阶段**：P8 统一来源地址与全唤醒已实施（P8.6 修复所有入站消息共用合并窗口，不再只有 @ 快通道）；真实 QQ/DSH/OpenCode 外部联调与 AgentLib 0.2.4 公开发布仍待办。默认 3 模块、统一 `qq_*` MCP、多账号路由、服务端 read/ack、配置/日志 v2 与文档归档；当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
 
 ## 当前模块
 

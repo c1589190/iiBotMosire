@@ -109,6 +109,10 @@ config/
 - `control.bearerTokenEnv` 必需；`oneBot.accessTokenEnv` 可选。填写后必须是合法环境变量名，
   且启用账号的 secret 在启动/`--check-config` 时必须非空；disabled 账号不强制；
 - 未知字段 fail-closed，不静默忽略；
+- **当前全唤醒**：`weighting.notifyThreshold/quietMillis/cooldownMillis` 只保留为排序/
+  诊断字段，不作为 wake gate；所有入站消息共用 `messageBoard.summaryDebounceMillis`
+  的合并窗口，不再有“只有 @ 才快”的单独通道；
+- `messageBoard.summaryDebounceMillis` 是所有来源共用的 digest 合并窗口；
 - `logging.levels` 只接受 `io.mosire.iibot.connect` / `bot` / `app` / `inbox`
   及其子包、`iibot.ops`，级别只接受 `TRACE/DEBUG/INFO/WARN/ERROR/OFF`。
 

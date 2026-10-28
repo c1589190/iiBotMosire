@@ -200,12 +200,14 @@ public final class SourceWeightService {
         return store.listPolicies(limit);
     }
 
+    /**
+     * 全唤醒模式下所有入站消息使用同一个调度窗口，不再按 actionable(@/阈值)
+     * 区分快慢；具体防抖时长由 {@code InboxDigestScheduler} 的
+     * {@code digestDebounceMillis} 决定。返回 0 表示“使用调度器默认窗口”。
+     */
     public synchronized long enqueueDelayMillis(SourceWeightPolicy policy,
                                                 MessageWeightDecision decision) {
-        if (decision.actionable()) {
-            return Math.min(2_000L, policy.quietMillis());
-        }
-        return policy.quietMillis();
+        return 0L;
     }
 
     private boolean containsAlias(String lowerText) {

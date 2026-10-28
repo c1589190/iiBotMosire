@@ -66,7 +66,8 @@ public final class InboxDigestScheduler implements AutoCloseable {
         if (closed.get()) {
             throw new IllegalStateException("InboxDigestScheduler 已关闭");
         }
-        long boundedDelay = Math.max(0L, Math.min(86_400_000L, delayMillis));
+        long requested = delayMillis <= 0L ? debounceMillis : delayMillis;
+        long boundedDelay = Math.max(0L, Math.min(86_400_000L, requested));
         long generation = nextGeneration.incrementAndGet();
         generations.put(threadId, generation);
         OpsLog.debug("event=inbox_digest_enqueue threadId={} delayMs={}",

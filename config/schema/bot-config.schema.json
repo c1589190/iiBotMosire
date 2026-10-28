@@ -217,7 +217,8 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 86400000,
-          "default": 2000
+          "default": 2000,
+          "description": "所有入站消息共用的 digest 合并窗口；不是按 @/权重分流的快慢通道"
         },
         "maxPreviewMessages": {
           "type": "integer",
@@ -302,13 +303,15 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 86400000,
-              "default": 180000
+              "default": 180000,
+              "description": "保留字段；当前全唤醒下不参与 wake gate/调度，合并窗口由 messageBoard.summaryDebounceMillis 决定"
             },
             "cooldownMillis": {
               "type": "integer",
               "minimum": 0,
               "maximum": 86400000,
-              "default": 60000
+              "default": 60000,
+              "description": "保留字段；当前全唤醒下不参与 wake gate/调度"
             }
           }
         }

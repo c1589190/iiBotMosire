@@ -52,6 +52,26 @@ class InboxDigestSchedulerTest {
     }
 
     @Test
+    void zeroDelayUsesConfiguredDebounceWindow() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        RecordingPort port = new RecordingPort();
+        InboxDigestService service = new InboxDigestService(board, notes, states, port);
+        board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice", T0, T0,
+                "窗口内", "", ""));
+
+        try (InboxDigestScheduler scheduler = new InboxDigestScheduler(
+                service, Duration.ofMillis(120))) {
+            scheduler.enqueue(GROUP.threadId(), 0L);
+            Thread.sleep(30);
+            assertThat(port.digests).isEmpty();
+            assertThat(port.published.await(2, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(port.digests).hasSize(1);
+    }
+
+    @Test
     void flushNowInvalidatesPendingTimer() {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
