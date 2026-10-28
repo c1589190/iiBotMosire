@@ -65,9 +65,10 @@ class InboxDigestServiceTest {
         InboxDigestService.FlushResult outboundOnly = service.flushThread(GROUP.threadId());
 
         assertThat(outboundOnly.published()).isFalse();
+        assertThat(port.digests.get(itemId).toSeq()).isEqualTo(2L);
         assertThat(states.find(GROUP.threadId())).get()
                 .extracting(InboxDigestState::lastSeq)
-                .isEqualTo(3L);
+                .isEqualTo(2L);
 
         board.append(inbound("m-3", "qq-1", "Alice", "第三条"));
         InboxDigestService.FlushResult appended = service.flushThread(GROUP.threadId());
@@ -201,6 +202,28 @@ class InboxDigestServiceTest {
                 .isEqualTo(ChatDirection.OUT);
         assertThat(states.find(GROUP.threadId()).orElseThrow().lastSeq())
                 .isEqualTo(4L);
+    }
+
+    @Test
+    void ackArchivesInboundItemEvenWhenOwnOutboundMessageFollows() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(board, notes, states, port);
+        board.append(inbound("m-1", "qq-1", "Alice", "需要回复"));
+        InboxDigestService.FlushResult flushed = service.flushThread(GROUP.threadId());
+        board.append(ChatMessage.outbound(GROUP, "reply-1", T0.plusSeconds(1),
+                "自己的回复", "", ""));
+
+        assertThat(port.digests.get(flushed.itemId()).toSeq()).isEqualTo(1L);
+        InboxDigestService.AckResult ack = service.ackThrough(GROUP.threadId(), 1L);
+
+        assertThat(ack.archived()).isTrue();
+        assertThat(ack.remainingToSeq()).isZero();
+        assertThat(states.find(GROUP.threadId())).get()
+                .extracting(InboxDigestState::itemId, InboxDigestState::lastSeq)
+                .containsExactly("", 1L);
     }
 
     @Test

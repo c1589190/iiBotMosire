@@ -70,6 +70,22 @@ public interface MessageBoardStore {
     }
 
     /**
+     * 返回 {@code afterSeq} 之后最后一条入站消息的 localSeq；没有则返回 afterSeq。
+     * Inbox item 的 toSeq 必须落在入站边界内，不能被自己的 OUT 消息推后。
+     */
+    default long lastInboundSeqAfter(String threadId, long afterSeq) {
+        if (threadId == null || threadId.isBlank() || afterSeq < 0L) {
+            throw new IllegalArgumentException("threadId/afterSeq 非法");
+        }
+        return readThread(threadId, afterSeq, 1000).stream()
+                .filter(message -> message.direction()
+                        == io.mosire.iibot.bot.chat.ChatDirection.IN)
+                .mapToLong(ChatMessage::localSeq)
+                .max()
+                .orElse(afterSeq);
+    }
+
+    /**
      * 读取 {@code beforeSeq} 之前最近的 {@code limit} 条消息，按 localSeq 升序。
      * 默认实现适合 fake；SQLite 使用索引。
      */

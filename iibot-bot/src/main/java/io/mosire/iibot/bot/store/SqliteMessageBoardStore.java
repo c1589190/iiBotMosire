@@ -281,6 +281,27 @@ public final class SqliteMessageBoardStore implements MessageBoardStore, AutoClo
     }
 
     @Override
+    public synchronized long lastInboundSeqAfter(String threadId, long afterSeq) {
+        ensureOpen();
+        if (threadId == null || threadId.isBlank() || afterSeq < 0L) {
+            throw new IllegalArgumentException("threadId/afterSeq 非法");
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT MAX(local_seq) AS max_seq
+                FROM chat_message
+                WHERE thread_id = ? AND direction = 'IN' AND local_seq > ?
+                """)) {
+            statement.setString(1, threadId);
+            statement.setLong(2, afterSeq);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? Math.max(afterSeq, result.getLong("max_seq")) : afterSeq;
+            }
+        } catch (SQLException failure) {
+            throw new IllegalStateException("读取 SQLite 最后入站 seq 失败", failure);
+        }
+    }
+
+    @Override
     public synchronized List<ChatMessage> readThreadBefore(
             String threadId, long beforeSeq, int limit) {
         ensureOpen();

@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-28 23:25（Asia/Shanghai）
+> **更新时间**：2026-10-29 00:05（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -83,6 +83,13 @@
   接受 `source`（兼容旧 threadId）；read 默认只返回 IN，OUT 通过
   `includeOutbound` 单独返回且不进入 ack 边界；SQLite consumer 游标从旧
   `inbox_digest_state.last_seq` 回填。
+- **P8.5 P8 corner case 修复（待提交）**：
+  - consumer migration v2 从 active item 的 `inbox_digest_audit.from_seq` 取
+    `fromSeq-1`，覆盖 P8 旧回填/手工种子造成的错误行；无 active item 才用 digest `last_seq`。
+  - Inbox item 的 `toSeq` 改为最后一条入站消息，OUT 不再把 ack 边界推后；新增 ack 后仍有 OUT 的回归用例。
+  - DSH bind/重启在 `lastWake` 为空且 `available>0` 时一次 bootstrap wake（`73da106`）。
+  - `tools/gate.sh full`：PASS，**238 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 61、bot 107、app 70）；DSH `npm test` PASS：140 tests（3 live skipped）。
 - **P8.4 群名/缓存/全唤醒收口已推送 `bcc8646`**：消息板 thread 展示名可由
   `QqPlatformCapability` 的 joinedGroups/friends 异步同步（remark 优先，失败回退
   targetId）；DSH `inbox_adapter_status` 改为回源 board；来源地址进入 MCP 输出和
@@ -124,8 +131,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 当前进行中：
 
-- P1b–P8.4 已完成；iiBot / Inbox / DSH 三分支已合并到各自基线；
-- 剩余：真实外部联调与 AgentLib 0.2.4 公开发布。
+- P1b–P8.4 已完成并合并；P8.5 corner case 修复在 `fix/p8-corner-cases`；
+- 剩余：P8.5 提交/合并、真实外部联调与 AgentLib 0.2.4 公开发布。
 
 非目标：
 
@@ -139,11 +146,11 @@ OneBot 11 / NapCat / LLBot（可多个）
 | 项 | 当前事实 |
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
-| 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.4）；feature 分支保留 `feat/p8-source-address` |
+| 分支 | `fix/p8-corner-cases`（P8.5 待提交）；`refactor/bot-first-main-agent` 为 P0–P8.4 基线 |
 | 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main） |
 | Maven reactor | 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | clean；无运行中 Java 进程 |
+| 工作树 | P8.5 变更待提交；无运行中 Java 进程 |
 | 模块目标 | 已完成：`iibot-connect-agent` 已删除，模块数为 3 |
 
 ## 3. 最近功能门禁
@@ -180,6 +187,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 | P8.3 full | `tools/gate.sh full` PASS：**233 tests / 0 failures / 0 errors / 0 skipped**（connect 61、bot 102、app 70） |
 | P8.4 full | `tools/gate.sh full` PASS：**235 tests / 0 failures / 0 errors / 0 skipped**（connect 61、bot 104、app 70） |
 | P8.4 DSH | `npm test` PASS：139 tests（3 live skipped）；status 回源 board |
+| P8.5 full | `tools/gate.sh full` PASS：**238 tests / 0 failures / 0 errors / 0 skipped**（connect 61、bot 107、app 70） |
+| P8.5 DSH | `npm test` PASS：140 tests（3 live skipped）；bootstrap backlog |
 | P8 跨仓 | Inbox `a040f25`（41 tests）、DSH `b14f7a1`/`bef43ed`（139 tests）、iiBot `bcc8646` |
 
 ## 4. 当前有效设计/维护入口
@@ -219,9 +228,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 ## 7. 下一步
 
-1. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
+1. **提交并合并 P8.5**：`fix/p8-corner-cases`。
+2. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。
-2. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
+3. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
    `PUBLICATION_GAP` / `BLOCKED`。
-3. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack；
+4. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack；
    当前均未实施。

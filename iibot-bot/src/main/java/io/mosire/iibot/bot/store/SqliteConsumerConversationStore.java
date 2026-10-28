@@ -47,7 +47,13 @@ public final class SqliteConsumerConversationStore
                           PRIMARY KEY (consumer_id, thread_id)
                         )
                         """);
-                backfillLegacyDigestCursor(statement);
+                statement.execute("""
+                        CREATE TABLE IF NOT EXISTS consumer_state_migration (
+                          version INTEGER PRIMARY KEY,
+                          applied_at TEXT NOT NULL
+                        )
+                        """);
+                reconcileFromDigest(statement);
             }
         } catch (IOException | SQLException failure) {
             throw new IllegalStateException("打开 SQLite consumer 游标失败", failure);
@@ -181,35 +187,90 @@ public final class SqliteConsumerConversationStore
     }
 
     /**
-     * P5 之前只有 inbox_digest_state；新 consumer 表为空时从已推进的 digest 游标
-     * 一次性回填，避免旧库升级后第一条 wake 从 seq 0 重放历史。
+     * P8 迁移修正：旧 consumer 表可能是按 inbox_digest_state.last_seq 播种的，
+     * 而 active item 的 fromSeq 才定义未读起点。版本 2 一次性按 active item 的
+     * fromSeq-1 回填/校正；没有 active item 时才使用 digest 的 lastSeq。
+     *
+     * <p>只执行一次，避免正常 read 后未 ack 的 delivered 批次被重启覆盖。</p>
      */
-    private void backfillLegacyDigestCursor(Statement ddl) throws SQLException {
+    private void reconcileFromDigest(Statement ddl) throws SQLException {
+        try (ResultSet applied = ddl.executeQuery(
+                "SELECT 1 FROM consumer_state_migration WHERE version = 2")) {
+            if (applied.next()) {
+                return;
+            }
+        }
+        boolean hasDigest;
         try (ResultSet table = ddl.executeQuery("""
                 SELECT 1 FROM sqlite_master
                 WHERE type = 'table' AND name = 'inbox_digest_state'
                 """)) {
-            if (!table.next()) {
-                return;
-            }
+            hasDigest = table.next();
         }
         String now = Instant.now().toString();
-        try (PreparedStatement statement = connection.prepareStatement("""
-                INSERT INTO consumer_thread_state (
-                  consumer_id, thread_id, read_seq, delivered_seq, updated_at
-                )
-                SELECT ?, s.thread_id, s.last_seq, s.last_seq, ?
-                FROM inbox_digest_state s
-                WHERE s.last_seq > 0
-                  AND NOT EXISTS (
-                    SELECT 1 FROM consumer_thread_state c
-                    WHERE c.consumer_id = ? AND c.thread_id = s.thread_id
-                  )
+        if (!hasDigest) {
+            // digest 表尚未创建时不写迁移标记；等 BotRuntime 完成建表后再次打开再校正。
+            return;
+        }
+        boolean hasAudit;
+        try (ResultSet table = ddl.executeQuery("""
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'inbox_digest_audit'
                 """)) {
-            statement.setString(1, DEFAULT_CONSUMER_ID);
-            statement.setString(2, now);
-            statement.setString(3, DEFAULT_CONSUMER_ID);
-            statement.executeUpdate();
+            hasAudit = table.next();
+        }
+        String select = hasAudit
+                ? """
+                  SELECT s.thread_id, s.item_id, s.last_seq,
+                         a.from_seq AS active_from_seq, a.status AS active_status
+                  FROM inbox_digest_state s
+                  LEFT JOIN inbox_digest_audit a
+                    ON a.item_id = s.item_id AND a.thread_id = s.thread_id
+                  """
+                : """
+                  SELECT thread_id, item_id, last_seq,
+                         0 AS active_from_seq, NULL AS active_status
+                  FROM inbox_digest_state
+                  """;
+        try (PreparedStatement read = connection.prepareStatement(select);
+             ResultSet result = read.executeQuery();
+             PreparedStatement write = connection.prepareStatement("""
+                     INSERT INTO consumer_thread_state (
+                       consumer_id, thread_id, read_seq, delivered_seq, updated_at
+                     ) VALUES (?, ?, ?, ?, ?)
+                     ON CONFLICT(consumer_id, thread_id) DO UPDATE SET
+                       read_seq = excluded.read_seq,
+                       delivered_seq = excluded.delivered_seq,
+                       updated_at = excluded.updated_at
+                     """)) {
+            while (result.next()) {
+                String threadId = result.getString("thread_id");
+                String itemId = result.getString("item_id");
+                long lastSeq = Math.max(0L, result.getLong("last_seq"));
+                long fromSeq = result.getLong("active_from_seq");
+                String status = result.getString("active_status");
+                boolean activeItem = itemId != null && !itemId.isBlank()
+                        && "available".equals(status) && fromSeq > 0L;
+                long desired = activeItem ? Math.max(0L, fromSeq - 1L) : lastSeq;
+                write.setString(1, DEFAULT_CONSUMER_ID);
+                write.setString(2, threadId);
+                write.setLong(3, desired);
+                write.setLong(4, desired);
+                write.setString(5, now);
+                write.addBatch();
+            }
+            write.executeBatch();
+        }
+        markMigrationApplied(now);
+    }
+
+    private void markMigrationApplied(String now) throws SQLException {
+        try (PreparedStatement mark = connection.prepareStatement("""
+                INSERT OR IGNORE INTO consumer_state_migration(version, applied_at)
+                VALUES (2, ?)
+                """)) {
+            mark.setString(1, now);
+            mark.executeUpdate();
         }
     }
 

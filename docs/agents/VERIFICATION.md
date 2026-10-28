@@ -23,8 +23,8 @@ tools/gate.sh full
 
 ## 二、当前基线
 
-- 2026-10-28 P8.4 基线：`tools/gate.sh full` PASS，**235 tests / 0 failures / 0 errors /
-  0 skipped**（connect 61、bot 104、app 70）；`tools/gate.sh docs` PASS
+- 2026-10-29 P8.5 基线：`tools/gate.sh full` PASS，**238 tests / 0 failures / 0 errors /
+  0 skipped**（connect 61、bot 107、app 70）；`tools/gate.sh docs` PASS
   （modules=3 files=41 links=103）；`tools/gate.sh selftest` PASS
   （check-docs 11/11、skills-lint 6/6）。
 - 依赖：Jackson 2.22.4、SLF4J 2.0.20、JUnit 6.1.3、Java-WebSocket 1.6.0；

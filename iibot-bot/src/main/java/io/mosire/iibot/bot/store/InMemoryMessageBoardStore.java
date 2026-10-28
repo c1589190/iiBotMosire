@@ -126,6 +126,19 @@ public final class InMemoryMessageBoardStore implements MessageBoardStore {
     }
 
     @Override
+    public synchronized long lastInboundSeqAfter(String threadId, long afterSeq) {
+        if (threadId == null || threadId.isBlank() || afterSeq < 0L) {
+            throw new IllegalArgumentException("threadId/afterSeq 非法");
+        }
+        return byThreadId.getOrDefault(threadId, List.of()).stream()
+                .filter(message -> message.localSeq() > afterSeq)
+                .filter(message -> message.direction() == ChatDirection.IN)
+                .mapToLong(ChatMessage::localSeq)
+                .max()
+                .orElse(afterSeq);
+    }
+
+    @Override
     public synchronized List<ChatMessage> readThreadBefore(
             String threadId, long beforeSeq, int limit) {
         if (threadId == null || threadId.isBlank()) {

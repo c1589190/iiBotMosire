@@ -84,6 +84,18 @@ class InMemoryMessageBoardStoreTest {
     }
 
     @Test
+    void lastInboundSeqIgnoresOwnOutboundMessages() {
+        InMemoryMessageBoardStore store = new InMemoryMessageBoardStore();
+        store.append(inbound("m-1", "alice", "Alice", "收到", T0));
+        store.append(ChatMessage.outbound(GROUP, "reply-1", T0, "回复", "", ""));
+        store.append(inbound("m-2", "alice", "Alice", "再说", T0.plusSeconds(1)));
+
+        assertThat(store.lastInboundSeqAfter(GROUP.threadId(), 0L)).isEqualTo(3L);
+        assertThat(store.lastInboundSeqAfter(GROUP.threadId(), 2L)).isEqualTo(3L);
+        assertThat(store.lastInboundSeqAfter(GROUP.threadId(), 3L)).isEqualTo(3L);
+    }
+
+    @Test
     void displayNameCanBeUpdatedWithoutChangingThreadIdentityOrCounts() {
         InMemoryMessageBoardStore store = new InMemoryMessageBoardStore();
         store.append(inbound("m-1", "alice", "Alice", "你好", T0));

@@ -290,7 +290,8 @@ public final class InboxDigestService {
         if (thread == null) {
             return new UnreadWindow(afterSeq, afterSeq, 0, false, List.of(), List.of());
         }
-        long toSeq = Math.max(afterSeq, thread.lastSeq());
+        // item 边界必须落在入站消息上；OUT 只作为 context，不能被 ack 当成未读边界。
+        long toSeq = Math.max(afterSeq, board.lastInboundSeqAfter(threadId, afterSeq));
         long count = board.countInboundAfter(threadId, afterSeq);
         if (count <= 0L || toSeq <= afterSeq) {
             return new UnreadWindow(afterSeq, toSeq, 0, false, List.of(), List.of());
