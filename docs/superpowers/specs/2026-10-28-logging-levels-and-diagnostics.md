@@ -1,6 +1,6 @@
 # 日志分级、诊断与运维可观测性设计
 
-> **状态**：部分实现（P2，2026-10-28）；JSON logging 配置与 --log-level 待 P3。
+> **状态**：已实现（P2 日志基础 + P3 JSON/CLI 配置应用，2026-10-28）。
 > **本文取代**：[2026-10-27 Bot 运维日志补全设计](2026-10-27-bot-operational-logging.md)（2026-10-28 起由其完整扩展）。
 > **用户原话**：
 > > 「此外还有之前一直没补的运维，包括完善的debug/info log、完善且易用的配置文件系统」
@@ -258,13 +258,15 @@ java -jar iibot-app.jar --log-level DEBUG
 - 出站/回复 `UNKNOWN` 使用 ERROR 且带 `retry=forbidden`；
 - 正文/token/Authorization 零命中测试。
 
-P3 仍需实现：
+P3 已补齐：
 
-- JSON `logging` 配置块和 CLI `--log-level`；
-- 配置加载后动态应用日志设置；
-- `--check-config` 的日志摘要输出。
+- JSON `logging` 配置块；
+- CLI `--log-level`；
+- 配置加载后、首个业务 Logger 初始化前应用 root/ops/包级级别、console/file 开关和轮转属性；
+- `--check-config` / `--print-effective-config` 在配置校验后输出脱敏有效日志配置。
 
 ## 14. 修订记录
 
 - 2026-10-28：将原 2026-10-27 运维事件设计扩展为日志分级、结构化关联、诊断 CLI、配置化轮转和正文/密钥零命中验收；原文件保留为历史设计依据。
 - 2026-10-28 P2：实现日志上下文、系统属性/环境变量级别与滚动配置、关键路径 DEBUG 和脱敏回归；JSON/CLI 配置留 P3。
+- 2026-10-28 P3：JSON `logging` 与 `--log-level` 已接入，配置校验/脱敏输出和 LoggerConfig/Appender 应用测试通过。

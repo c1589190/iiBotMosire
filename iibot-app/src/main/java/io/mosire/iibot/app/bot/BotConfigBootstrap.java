@@ -4,29 +4,27 @@ import io.mosire.iibot.app.config.ConfigException;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
-import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * 首次无配置启动时生成 bot 配置模板。
+ * 首次无配置启动时生成单一完整 bot 配置模板。
  *
- * <p>只有默认配置目录完全没有任何 *.json 时才生成；已有配置绝不覆盖。
- * 生成后调用方应提示用户编辑并退出，不启动 QQ/Inbox/MCP。</p>
+ * <p>只有默认配置目录没有任何 {@code *.json} 时才生成 {@code bot.json}；已有文件绝不
+ * 覆盖。生成文件权限 0600、目录权限 0700，内容只包含环境变量名。调用方收到
+ * {@code generated=true} 后应输出下一步提示并退出 rc=2，不启动 QQ/Inbox/MCP。</p>
  */
 public final class BotConfigBootstrap {
 
-    private static final List<String> TEMPLATE_NAMES = List.of(
-            "00-base.json",
-            "10-napcat.json",
-            "20-control-inbox.json",
-            "30-policy.json");
-    private static final String RESOURCE_ROOT = "/bot-config-template/";
+    public static final String TEMPLATE_NAME = "bot.json";
+    private static final String RESOURCE = "/bot-config-template/bot.json";
 
     private BotConfigBootstrap() {
     }
@@ -36,29 +34,33 @@ public final class BotConfigBootstrap {
         Path directory = configDirectory.toAbsolutePath().normalize();
         try {
             if (Files.exists(directory) && !Files.isDirectory(directory)) {
-                throw new ConfigException("默认配置路径不是目录: " + directory);
+                throw ConfigException.invalid(directory, "/", "directory", "file",
+                        "默认配置路径不是目录: " + directory);
             }
             if (containsJson(directory)) {
                 return new Result(directory, List.of(), false);
             }
             Files.createDirectories(directory);
-            List<Path> generated = new ArrayList<>();
-            for (String name : TEMPLATE_NAMES) {
-                Path target = directory.resolve(name);
-                try (InputStream resource = BotConfigBootstrap.class
-                        .getResourceAsStream(RESOURCE_ROOT + name)) {
-                    if (resource == null) {
-                        throw new ConfigException(
-                                "内置 bot 配置模板缺失: " + RESOURCE_ROOT + name);
-                    }
-                    Files.copy(resource, target, StandardCopyOption.REPLACE_EXISTING);
+            secureDirectory(directory);
+            Path target = directory.resolve(TEMPLATE_NAME);
+            try (InputStream resource = BotConfigBootstrap.class
+                    .getResourceAsStream(RESOURCE)) {
+                if (resource == null) {
+                    throw new ConfigException("内置 bot 配置模板缺失: " + RESOURCE);
                 }
-                secure(target);
-                generated.add(target);
+                try (OutputStream output = Files.newOutputStream(target,
+                        StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                    resource.transferTo(output);
+                }
+            } catch (FileAlreadyExistsException race) {
+                // 竞态下另一个进程已生成；绝不覆盖。
+                return new Result(directory, List.of(), false);
             }
-            return new Result(directory, List.copyOf(generated), true);
+            secureFile(target);
+            return new Result(directory, List.of(target), true);
         } catch (IOException failure) {
-            throw new ConfigException("生成默认 bot 配置失败: " + directory, failure);
+            throw ConfigException.invalid(directory, "/", "writable directory",
+                    "I/O error", "生成默认 bot 配置失败: " + directory, failure);
         }
     }
 
@@ -73,11 +75,22 @@ public final class BotConfigBootstrap {
         }
     }
 
-    private static void secure(Path path) {
+    private static void secureDirectory(Path path) {
         try {
-            Files.setPosixFilePermissions(path,
-                    EnumSet.of(PosixFilePermission.OWNER_READ,
-                            PosixFilePermission.OWNER_WRITE));
+            Files.setPosixFilePermissions(path, EnumSet.of(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.OWNER_EXECUTE));
+        } catch (IOException | UnsupportedOperationException ignored) {
+            // 非 POSIX 文件系统尽力而为。
+        }
+    }
+
+    private static void secureFile(Path path) {
+        try {
+            Files.setPosixFilePermissions(path, EnumSet.of(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE));
         } catch (IOException | UnsupportedOperationException ignored) {
             // 非 POSIX 文件系统尽力而为；模板不含 raw token。
         }

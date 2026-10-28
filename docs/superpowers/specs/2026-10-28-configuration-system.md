@@ -1,6 +1,6 @@
 # 配置文件系统设计
 
-> **状态**：提议（2026-10-28）
+> **状态**：已实现（P3，2026-10-28）
 > **本文取代**：无；在 D-022 多文件配置基础上扩展到多账号、日志、诊断与安全校验。
 > **用户原话**：
 > > 「此外还有之前一直没补的运维，包括完善的debug/info log、完善且易用的配置文件系统」
@@ -347,6 +347,26 @@ java -jar iibot-app.jar --print-effective-config --config config/bot
 - `config/README.md`、`config/examples/*`
 - 新增测试覆盖：来源追踪、错误 pointer、脱敏、环境变量、多账号、日志级别、迁移。
 
-## 14. 修订记录
+## 14. P3 实施记录
+
+已实现：
+
+- 顶层 `$schema/dataDir/accounts/control/inbox/messageBoard/logging` schema；
+- `accounts` alias 映射与多账号配置校验（P3 runtime 仅启动第一个 enabled account）；
+- 来源文件/JSON pointer/expected/actual/hint 结构化错误；
+- `--check-config`、`--print-effective-config`、`--log-level`；
+- 单一 `config/bot/bot.json` 首次生成，0600/0700、不覆盖、rc=2；
+- 脱敏有效配置输出，secret 只显示 `<env:NAME:SET|MISSING>`；
+- JSON `logging` 在首个业务 Logger 初始化前应用，支持 root/ops/包级级别、console/file 开关和轮转属性；
+- schema、单账号示例、多账号示例及手工迁移表。
+
+未实现 / 后续：
+
+- `--migrate-config` 可选迁移命令；
+- P4 多账号运行和出站路由；
+- 配置热更新。
+
+## 15. 修订记录
 
 - 2026-10-28：提出统一 schema、多账号配置、日志配置、有效配置诊断、首次单文件生成和旧配置迁移。
+- 2026-10-28 P3：配置 v2、CLI 诊断、来源追踪、单文件 bootstrap、JSON 日志应用与示例/schema 已实现。

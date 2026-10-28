@@ -45,6 +45,46 @@ class JsonConfigBundleTest {
     }
 
     @Test
+    void tracksFinalSourceAndOverwriteHistoryPerPointer() throws Exception {
+        Files.writeString(tempDir.resolve("00-base.json"), """
+                {
+                  "server": {"host": "127.0.0.1", "port": 1},
+                  "channels": ["qq"],
+                  "scalar": "base",
+                  "nested": {"left": 1}
+                }
+                """);
+        Files.writeString(tempDir.resolve("10-override.json"), """
+                {
+                  "server": {"port": 2},
+                  "channels": ["qq", "other"],
+                  "scalar": 2
+                }
+                """);
+
+        JsonConfigBundle.Bundle bundle = JsonConfigBundle.load(List.of(tempDir));
+
+        assertThat(bundle.originOf("/server/port")).isPresent();
+        assertThat(bundle.originOf("/server/port").orElseThrow().file().getFileName().toString())
+                .isEqualTo("10-override.json");
+        assertThat(bundle.originOf("/server/port").orElseThrow().history())
+                .extracting(path -> path.getFileName().toString())
+                .containsExactly("00-base.json", "10-override.json");
+        assertThat(bundle.originOf("/server/host").orElseThrow().file().getFileName().toString())
+                .isEqualTo("00-base.json");
+        assertThat(bundle.originOf("/channels").orElseThrow().file().getFileName().toString())
+                .isEqualTo("10-override.json");
+        assertThat(bundle.originOf("/scalar").orElseThrow().file().getFileName().toString())
+                .isEqualTo("10-override.json");
+        // 覆盖数组/标量后不保留旧子树来源；数组新元素来源是覆盖文件。
+        assertThat(bundle.originOf("/channels/0").orElseThrow().file().getFileName().toString())
+                .isEqualTo("10-override.json");
+        assertThat(bundle.nearestSourceOf("/server/missing"))
+                .get().extracting(path -> path.getFileName().toString())
+                .isEqualTo("10-override.json");
+    }
+
+    @Test
     void rejectsSourcesFromDifferentDirectories() throws Exception {
         Path first = Files.createDirectories(tempDir.resolve("first"));
         Path second = Files.createDirectories(tempDir.resolve("second"));
@@ -53,24 +93,29 @@ class JsonConfigBundleTest {
 
         assertThatThrownBy(() -> JsonConfigBundle.load(List.of(firstFile, secondFile)))
                 .isInstanceOf(ConfigException.class)
-                .hasMessageContaining("同一目录");
+                .hasMessageContaining("同一目录")
+                .hasMessageContaining("jsonPointer:");
     }
 
     @Test
-    void rejectsDuplicateKeysInsideOneFile() throws Exception {
+    void rejectsDuplicateKeysInsideOneFileWithFileAndPointer() throws Exception {
         Path file = Files.writeString(tempDir.resolve("bad.json"), """
                 {"a": 1, "a": 2}
                 """);
 
         assertThatThrownBy(() -> JsonConfigBundle.load(List.of(file)))
                 .isInstanceOf(ConfigException.class)
-                .hasMessageContaining("重复字段");
+                .hasMessageContaining("重复字段")
+                .hasMessageContaining(file.toString())
+                .hasMessageContaining("jsonPointer:");
     }
 
     @Test
-    void emptyDirectoryFailsClosed() throws Exception {
+    void emptyDirectoryFailsClosedWithStructuredError() throws Exception {
         assertThatThrownBy(() -> JsonConfigBundle.load(List.of(tempDir)))
                 .isInstanceOf(ConfigException.class)
-                .hasMessageContaining("没有 *.json");
+                .hasMessageContaining("没有 *.json")
+                .hasMessageContaining("file:")
+                .hasMessageContaining("jsonPointer:");
     }
 }

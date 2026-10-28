@@ -1,0 +1,364 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mosire.local/iibot/bot-config.schema.json",
+  "title": "iiBotMosire bot config v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dataDir", "accounts", "control", "inbox"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "dataDir": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": ".*\\S.*",
+      "description": "消息板、SQLite 和媒体根目录；相对路径以合并后配置目录为基准。"
+    },
+    "accounts": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9._-]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/account"
+      },
+      "description": "alias -> account 映射；P3 runtime 只启动第一个 enabled account。"
+    },
+    "control": {
+      "$ref": "#/$defs/control"
+    },
+    "inbox": {
+      "$ref": "#/$defs/inbox"
+    },
+    "messageBoard": {
+      "$ref": "#/$defs/messageBoard"
+    },
+    "logging": {
+      "$ref": "#/$defs/logging"
+    }
+  },
+  "$defs": {
+    "envName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "description": "只允许环境变量名，不允许保存 raw secret。"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "OFF"]
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "adapter", "accountId", "oneBot"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "adapter": {
+          "const": "onebot11"
+        },
+        "accountId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*",
+          "description": "稳定业务 accountId，也是消息板分区键；所有账号必须唯一。"
+        },
+        "oneBot": {
+          "$ref": "#/$defs/oneBot"
+        }
+      }
+    },
+    "oneBot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eventWebSocketUri", "httpBaseUri"],
+      "properties": {
+        "eventWebSocketUri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^wss?://",
+          "description": "OneBot 11 事件 WebSocket URI，必须带 host。"
+        },
+        "httpBaseUri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://",
+          "description": "OneBot 11 HTTP Action 根 URI，必须带 host。"
+        },
+        "accessTokenEnv": {
+          "type": "string",
+          "pattern": "^(|([A-Za-z_][A-Za-z0-9_]*))$",
+          "description": "可选；oneBot access token 的环境变量名，不保存值。"
+        },
+        "privateTempGroupId": {
+          "type": "string"
+        },
+        "suppressSelfMessages": {
+          "type": "boolean",
+          "default": true
+        },
+        "requestTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10
+        },
+        "maxTextLength": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2000
+        }
+      }
+    },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bearerTokenEnv"],
+      "properties": {
+        "host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "只允许回环地址。"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 8765
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/[^?#\\s]*$",
+          "default": "/mcp/bot"
+        },
+        "bearerTokenEnv": {
+          "$ref": "#/$defs/envName"
+        }
+      }
+    },
+    "inbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dataDir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inboxId": {
+          "type": "string",
+          "minLength": 1,
+          "default": "iibot-bot"
+        },
+        "bindingLabel": {
+          "type": "string",
+          "minLength": 1,
+          "default": "dsh-bot"
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": ["qq"]
+        },
+        "bindingTtlHours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8760,
+          "default": 24
+        },
+        "apiHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "只允许回环地址。"
+        },
+        "apiPort": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 0
+        },
+        "mcpHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "只允许回环地址。"
+        },
+        "mcpPort": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 0
+        },
+        "mcpPath": {
+          "type": "string",
+          "pattern": "^/[^?#\\s]*$",
+          "default": "/mcp"
+        },
+        "heartbeatMillis": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 15000
+        },
+        "claimSweepIntervalMillis": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5000
+        }
+      }
+    },
+    "messageBoard": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "summaryDebounceMillis": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400000,
+          "default": 2000
+        },
+        "maxPreviewMessages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 20
+        },
+        "outbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sendTimeoutSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600,
+              "default": 15
+            },
+            "minSendIntervalMillis": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3600000,
+              "default": 150
+            }
+          }
+        },
+        "weighting": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "defaultPrivateSourceWeight": {
+              "type": "integer",
+              "minimum": -1000,
+              "maximum": 1000,
+              "default": 300
+            },
+            "defaultGroupSourceWeight": {
+              "type": "integer",
+              "minimum": -1000,
+              "maximum": 1000,
+              "default": 0
+            },
+            "defaultNotifyThreshold": {
+              "type": "integer",
+              "minimum": -1000,
+              "maximum": 1000,
+              "default": 100
+            },
+            "signalWeights": {
+              "type": "object",
+              "propertyNames": {
+                "enum": ["DM", "MENTION", "REPLY_TO_BOT", "NAME", "COMMAND"]
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": -1000,
+                "maximum": 1000
+              }
+            },
+            "keywordWeights": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": -1000,
+                "maximum": 1000
+              }
+            },
+            "aliases": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "commandPrefixes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "quietMillis": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400000,
+              "default": 180000
+            },
+            "cooldownMillis": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400000,
+              "default": 60000
+            }
+          }
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "default": "./logs"
+        },
+        "console": {
+          "type": "boolean",
+          "default": true
+        },
+        "file": {
+          "type": "boolean",
+          "default": true
+        },
+        "rootLevel": {
+          "$ref": "#/$defs/level"
+        },
+        "opsLevel": {
+          "$ref": "#/$defs/level"
+        },
+        "levels": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^(io\\.mosire\\.iibot\\.(connect|bot|app|inbox)(\\..+)?|iibot\\.ops)$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/level"
+          },
+          "description": "已支持 connect/bot/app/inbox 包及其子包；未知包名由 loader fail-closed。"
+        },
+        "maxFileSize": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*\\s?(B|KB|MB|GB)$",
+          "default": "20MB"
+        },
+        "maxHistory": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 30
+        }
+      }
+    }
+  }
+}

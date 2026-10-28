@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-28 20:35（Asia/Shanghai）
+> **更新时间**：2026-10-28 20:50（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -23,15 +23,21 @@
   - `tools/gate.sh docs`：PASS（modules=4 files=78 links=194）。
   - `tools/gate.sh full`：PASS，174 tests / 0 failures / 0 errors / 0 skipped。
   - simulation2 `bash -n` + `01-prepare.sh` 现有配置复用 rc=0。
-- **P2 已完成**：日志上下文（boot/trace/call）、root/ops 级别与滚动配置、
+- **P2 已完成并推送 `e84c679`**：日志上下文（boot/trace/call）、root/ops 级别与滚动配置、
   关键路径 INFO/DEBUG、MCP 工具/入站/出站/Inbox 关联、UNKNOWN 不重试日志和
   正文/token 零命中回归。
   - `tools/gate.sh full`：PASS，192 tests / 0 failures / 0 errors / 0 skipped
     （connect 58、connect-agent 21、bot 69、app 44）。
-  - P3 仍需：JSON `logging` 配置、`--log-level`、`--check-config` 的动态应用。
+- **P3 已完成**：配置 v2（多账号 schema、`messageBoard`、JSON `logging`）、来源文件/JSON pointer
+  错误定位、`--check-config`、`--print-effective-config`、`--log-level`、单一
+  `config/bot/bot.json` 首次生成和 schema/examples。
+  - `tools/gate.sh full`：PASS，**208 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 58、connect-agent 21、bot 69、app 60）。
+  - `tools/gate.sh docs`：PASS（modules=4 files=78 links=195）。
+  - P3 runtime 仍只启动第一个 enabled account；P4 才实现多账号路由。
 - **本轮代码状态**：默认 reactor 4 模块（connect / connect-agent / bot / app）；
   文游 MCP、taskflow class、旧 simulation/config legacy 已从默认工作树移除；
-  P2 日志已通过 fake/embedded loopback 测试。
+  P2 日志与 P3 配置 v2 已通过 fake/embedded loopback 测试。
 
 ## 1. 当前目标 / 进行中范围
 
@@ -48,8 +54,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 当前进行中：
 
-- P1b、P2 已完成；
-- 下一步 P3：JSON `logging` 配置、`--log-level`、多账号配置 schema 与 `--check-config`。
+- P1b、P2、P3 已完成；
+- 下一步 P4：多 Adapter/账号注册与出站路由。
 
 非目标：
 
@@ -64,10 +70,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/unified-qq-agent-client`，跟踪 `origin/refactor/unified-qq-agent-client` |
-| 已推送提交 | `12ca813` docs、`de19c46` baseline、`0acd0a0` P1a、`207a41e` P1a evidence |
+| 已推送提交 | `12ca813` docs、`de19c46` baseline、`0acd0a0` P1a、`207a41e` P1a evidence、`bdef235` P1b、`e84c679` P2 |
 | Maven reactor | 4 模块：`iibot-connect` / `iibot-connect-agent` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | P1b 变更待提交；无运行中 Java 进程 |
+| 工作树 | P3 变更待提交；无运行中 Java 进程 |
 | 模块目标 | `iibot-connect-agent` 在 P6 整合后删除 |
 
 ## 3. 最近功能门禁
@@ -82,6 +88,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 | P1b full | `tools/gate.sh full` PASS：174 tests / 0 failures / 0 errors / 0 skipped |
 | P2 full | `tools/gate.sh full` PASS：**192 tests / 0 failures / 0 errors / 0 skipped**（connect 58、connect-agent 21、bot 69、app 44） |
 | P2 docs | `tools/gate.sh docs` PASS（modules=4 files=78 links=194） |
+| P3 full | `tools/gate.sh full` PASS：**208 tests / 0 failures / 0 errors / 0 skipped**（connect 58、connect-agent 21、bot 69、app 60） |
+| P3 docs | `tools/gate.sh docs` PASS（modules=4 files=78 links=195） |
 
 ## 4. 当前有效设计/维护入口
 
@@ -122,10 +130,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 ## 7. 下一步
 
-1. **P3 配置系统 v2**：JSON `logging` 配置、`--log-level`、多账号 schema、
-   `--check-config` / `--print-effective-config`、单文件首次生成和迁移。
-2. **P4–P6**：多 Adapter/账号路由 → read/ack 与 Inbox 同步 → 统一 `qq_*` MCP 并删除
-   `iibot-connect-agent`。
-3. **P7**：依赖 patch 升级、JUnit 6 独立迁移、文档全量重写、干净 Maven 仓库验证。
-4. **真实运行验收**：所有真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
+1. **提交并推送 P3 checkpoint**：当前分支 `refactor/unified-qq-agent-client`。
+2. **P4 多 Adapter/账号注册与路由**：AccountRegistry、多 Adapter 启动、按 thread.accountId()
+   选择出站 Adapter；P3 配置已预留 accounts。
+3. **P5/P6**：read/ack 与 Inbox 同步 → 统一 `qq_*` MCP 并删除 `iibot-connect-agent`。
+4. **P7**：依赖 patch 升级、JUnit 6 独立迁移、文档全量重写、干净 Maven 仓库验证。
+5. **真实运行验收**：所有真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。

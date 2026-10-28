@@ -3,10 +3,16 @@ package io.mosire.iibot.app.config;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 
-/** 通用配置源 CLI 解析：支持一个或多个 --config，省略时使用调用方给的默认目录。 */
+/** 配置/诊断 CLI 参数：--config、--check-config、--print-effective-config、--log-level。 */
 public final class ConfigArguments {
+
+    public static final Set<String> LOG_LEVELS =
+            Set.of("TRACE", "DEBUG", "INFO", "WARN", "ERROR", "OFF");
 
     private ConfigArguments() {
     }
@@ -16,6 +22,9 @@ public final class ConfigArguments {
         List<Path> sources = new ArrayList<>();
         boolean help = false;
         boolean explicitConfig = false;
+        boolean checkConfig = false;
+        boolean printEffectiveConfig = false;
+        String logLevel = null;
         if (args != null) {
             for (int index = 0; index < args.length; index++) {
                 String arg = args[index];
@@ -41,19 +50,63 @@ public final class ConfigArguments {
                     explicitConfig = true;
                     continue;
                 }
+                if ("--check-config".equals(arg)) {
+                    checkConfig = true;
+                    continue;
+                }
+                if ("--print-effective-config".equals(arg)) {
+                    printEffectiveConfig = true;
+                    continue;
+                }
+                if ("--log-level".equals(arg)) {
+                    if (index + 1 >= args.length || args[index + 1].isBlank()
+                            || args[index + 1].startsWith("--")) {
+                        throw new ConfigException("--log-level 需要一个级别参数");
+                    }
+                    logLevel = normalizeLevel(args[++index]);
+                    continue;
+                }
+                if (arg.startsWith("--log-level=")) {
+                    String value = arg.substring("--log-level=".length()).trim();
+                    if (value.isEmpty()) {
+                        throw new ConfigException("--log-level 需要一个级别参数");
+                    }
+                    logLevel = normalizeLevel(value);
+                    continue;
+                }
                 throw new ConfigException("未知参数: " + arg);
             }
+        }
+        if (checkConfig && printEffectiveConfig) {
+            throw new ConfigException(
+                    "--check-config 与 --print-effective-config 不能同时使用");
         }
         if (sources.isEmpty()) {
             sources.add(defaultSource);
         }
-        return new ParseResult(List.copyOf(sources), help, explicitConfig);
+        return new ParseResult(List.copyOf(sources), help, explicitConfig,
+                checkConfig, printEffectiveConfig, Optional.ofNullable(logLevel));
+    }
+
+    private static String normalizeLevel(String value) {
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        if (!LOG_LEVELS.contains(normalized)) {
+            throw new ConfigException("--log-level 必须是 TRACE/DEBUG/INFO/WARN/ERROR/OFF");
+        }
+        return normalized;
     }
 
     public record ParseResult(List<Path> sources, boolean helpRequested,
-                              boolean explicitConfig) {
+                              boolean explicitConfig, boolean checkConfig,
+                              boolean printEffectiveConfig,
+                              Optional<String> logLevel) {
         public ParseResult {
             sources = List.copyOf(Objects.requireNonNull(sources, "sources"));
+            logLevel = Objects.requireNonNull(logLevel, "logLevel");
+        }
+
+        public boolean diagnosticRequested() {
+            return checkConfig || printEffectiveConfig;
         }
     }
 }

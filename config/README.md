@@ -1,117 +1,199 @@
-# config
+# config — Bot 配置系统 v2
 
-> **2026-10-28 规划中变更**：配置系统将按
-> [配置文件系统设计](../docs/superpowers/specs/2026-10-28-configuration-system.md)
-> 升级为多账号 schema、单文件首次生成、`--check-config` 和脱敏有效配置输出。
-> 本文件以下内容描述当前 P1 实现，实施 P3 后整体替换。
+> 设计依据：[配置文件系统设计](../docs/superpowers/specs/2026-10-28-configuration-system.md)、
+> [日志分级与诊断](../docs/superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md)。
+> P3 已实现单文件首次生成、多账号 schema、严格校验、来源追踪、脱敏诊断和 JSON 日志配置。
+> P3 runtime 仍只选第一个 enabled account；P4 才启动全部账号。
 
-运行配置目录。Bot 是唯一启动模式：
-
-```bash
-java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar
-```
-
-如果 `config/bot/` 中没有任何 `*.json`，第一次启动会自动生成
-`00-base.json`、`10-napcat.json`、`20-control-inbox.json`、`30-policy.json`
-四个模板并退出（exit 2），不会启动 QQ/Inbox/MCP。编辑模板并设置环境变量后，
-再次执行同一命令即可启动。已有 JSON 不会被覆盖。
-
-不带 `--config` 时读取 `config/bot/`。
-
-## 日志
-
-默认同时写控制台和滚动文件：
-
-```text
-logs/iibot.log        # 技术日志
-logs/iibot-ops.log    # event=... 运维事件流
-```
-
-可通过系统属性/环境变量覆盖：
-
-| 配置 | 系统属性 | 环境变量 | 默认 |
-|---|---|---|---|
-| 日志目录 | `-Diibot.log.dir` | `IIBOT_LOG_DIR` | `logs` |
-| 技术日志级别 | `-Diibot.log.level` | `IIBOT_LOG_LEVEL` | `INFO` |
-| 运维日志级别 | `-Diibot.ops.log.level` | `IIBOT_OPS_LOG_LEVEL` | `INFO` |
-| 单文件最大值 | `-Diibot.log.maxSize` | `IIBOT_LOG_MAX_SIZE` | `20 MB` |
-| 归档保留数 | `-Diibot.log.maxHistory` | `IIBOT_LOG_MAX_HISTORY` | `30` |
-
-两个文件按天和大小滚动，归档 gzip 压缩。日志只记录 ID、状态、计数、错误码与耗时，
-不记录聊天正文、token、Authorization 或完整协议 JSON。`debug` 仅用于临时排障；
-P3 会把 `logging` 块纳入 JSON 配置，并提供 `--log-level`。
-
-完整目标设计见
-[日志分级与诊断](../docs/superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md)。
-
-## 多文件规则
-
-- `--config` 可重复；值可以是单个 JSON 文件，也可以是目录。
-- 目录只读取直接子级的 `*.json`，按文件名升序装载。
-- 多个源必须位于同一目录；配置中的相对路径以该目录为基准。
-- 对象递归合并；数组、标量和 `null` 以后文件为准。
-- 同一个 JSON 文件内重复 key 仍然拒绝，不会静默覆盖。
-- raw token / QQ 凭据只放环境变量；配置只写 `*TokenEnv` / `accessTokenEnv` 名称。
-
-## Inbox embedded 网络参数
-
-`inbox` 块支持：
-
-```json
-{
-  "apiHost": "127.0.0.1",
-  "apiPort": 0,
-  "mcpHost": "127.0.0.1",
-  "mcpPort": 0,
-  "mcpPath": "/mcp",
-  "heartbeatMillis": 15000,
-  "claimSweepIntervalMillis": 5000
-}
-```
-
-`apiPort/mcpPort=0` 表示随机回环端口；固定端口绑定失败会 fail-closed。
-`apiHost/mcpHost` 只允许 loopback；`mcpPath` 必须是以 `/` 开头且不含
-query/fragment 的路径。
-
-## Inbox 未读预览
-
-Inbox item 只保存每个来源的最后 `n` 条未读摘要作为预览；完整正文仍由
-`bot_thread_read` / `bot_thread_history` 等工具读取。
-
-`n` 使用现有两个配置项的有效上限：
-
-```json
-{
-  "summary": { "maxMessagesPerDigest": 100 },
-  "weighting": { "maxMessagesPerDigest": 20 }
-}
-```
-
-上例有效预览上限为 20。item content 还会返回 `unreadCount` 与
-`hasMoreUnread`；预览不足时 Agent 必须读取完整来源历史，不能把预览当全文。
-
-## 当前布局
+## 目录
 
 ```text
 config/
-  bot/
-    README.md
-  examples/
-    bot/       # 可复制到 config/bot/ 的示例片段
+  README.md
+  schema/bot-config.schema.json   # 机器可读 schema，结构必须与 loader 一致
+  examples/bot.full.json          # 单账号完整脱敏示例
+  examples/bot.multi-account.json # 多账号示例，供 P4 使用
+  bot/README.md                   # 默认运行目录说明
+  bot/bot.json                    # 首次启动生成，本地文件，gitignored
 ```
 
-当前实际运行配置由首次启动生成到 `config/bot/`。示例片段在
-`config/examples/bot/`，不是默认运行配置；先复制并改掉占位账号/环境变量名。
+`config/bot/*.json` 默认不提交；只提交 schema、README 和 `config/examples/` 下的脱敏示例。
 
-## 显式示例
+## 从零开始
+
+1. 在仓库根目录运行首次启动：
+
+   ```bash
+   java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar
+   ```
+
+   当 `config/bot/` 中没有任何 `*.json` 时，程序生成单一完整模板
+   `config/bot/bot.json`（目录 0700、文件 0600），输出下一步提示并以 **rc=2** 退出。
+   此过程只写本地文件，不启动 QQ/Inbox/MCP，不访问网络。
+
+2. 编辑 `config/bot/bot.json`：至少把 `accounts.main.accountId` 改成真实 QQ 账号，
+   确认 OneBot WS/HTTP 地址，并设置：
+
+   ```bash
+   export IIBOT_NAPCAT_ACCESS_TOKEN='...'
+   export IIBOT_CONTROL_TOKEN='...'
+   ```
+
+   配置只保存环境变量名，绝不保存 token 值。
+
+3. 校验配置，不连接网络：
+
+   ```bash
+   java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar --check-config
+   ```
+
+   rc=0 表示结构、跨字段、loopback 与 secret 环境变量均通过；rc=1 表示配置不可启动。
+   stdout 会输出 sources、secret 的 `SET`/`MISSING` 状态和脱敏有效配置；错误只写 stderr。
+
+4. 打印脱敏有效配置：
+
+   ```bash
+   java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar --print-effective-config
+   ```
+
+5. 启动：
+
+   ```bash
+   java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar
+   ```
+
+## Schema
+
+顶层字段：
+
+| 字段 | 必需 | 说明 |
+|---|---|---|
+| `$schema` | 否 | 建议指向 `../schema/bot-config.schema.json` |
+| `dataDir` | 是 | 消息板/SQLite/媒体根目录；相对合并后配置目录解析 |
+| `accounts` | 是 | `alias -> account` 对象，至少一个 enabled |
+| `control` | 是 | Bot MCP 监听设置与 bearer token 环境变量名 |
+| `inbox` | 是 | embedded Inbox 设置 |
+| `messageBoard` | 否 | 摘要防抖、预览上限、outbox 和 weighting |
+| `logging` | 否 | 日志目录、console/file、root/ops/包级级别和轮转 |
+
+账号形状：
+
+```json
+{
+  "accounts": {
+    "main": {
+      "enabled": true,
+      "adapter": "onebot11",
+      "accountId": "100000001",
+      "oneBot": {
+        "eventWebSocketUri": "ws://127.0.0.1:3001/",
+        "httpBaseUri": "http://127.0.0.1:3000/",
+        "accessTokenEnv": "IIBOT_NAPCAT_ACCESS_TOKEN",
+        "privateTempGroupId": "",
+        "suppressSelfMessages": true,
+        "requestTimeoutSeconds": 10,
+        "maxTextLength": 2000
+      }
+    }
+  }
+}
+```
+
+严格规则：
+
+- `accounts` 至少一个 `enabled=true`；P3 runtime 只取配置中第一个 enabled account；
+- alias 必须匹配 `[A-Za-z0-9._-]+`；所有 `accountId` 必须全局唯一；
+- `adapter` 首版只允许 `onebot11`；
+- WS URI 只允许 `ws/wss`，HTTP base URI 只允许 `http/https`，都必须带 host；
+- `control.host`、`inbox.apiHost`、`inbox.mcpHost` 只允许回环地址；
+- `control.bearerTokenEnv` 必需；`oneBot.accessTokenEnv` 可选。填写后必须是合法环境变量名，
+  且启动/`--check-config` 时环境变量必须非空；
+- 未知字段 fail-closed，不静默忽略；
+- `logging.levels` 只接受 `io.mosire.iibot.connect` / `bot` / `app` / `inbox`
+  及其子包、`iibot.ops`，级别只接受 `TRACE/DEBUG/INFO/WARN/ERROR/OFF`。
+
+## 多文件合并
+
+- `--config` 可重复，值可以是文件或目录；目录只读直接子级非隐藏 `*.json`，按文件名升序；
+  隐藏文件（`.` 开头）不参与读取；`*.local.json` 是显式参与合并的本地覆盖文件，不靠隐式忽略；
+- 多个源必须在同一目录；相对路径以该目录为基准；
+- 对象递归深合并；数组、标量和 `null` 由后文件整体覆盖；
+- 同一个 JSON 文件内重复 key 拒绝；
+- 合并后每个 JSON pointer 保留来源文件与覆盖链；错误包含 `file`、`jsonPointer`、
+  `expected`、`actual`、`hint`。
+
+示例：
 
 ```bash
-# 一个目录
-java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar --config config/bot
-
-# 多个文件；按参数顺序覆盖
 java -jar iibot-app/target/iibot-app-0.1.0-SNAPSHOT.jar \
-  --config config/bot/00-base.json \
-  --config config/bot/10-napcat.json \
-  --config config/bot/20-local-override.json
+  --config config/bot/bot.json \
+  --config config/bot/local.override.json \
+  --check-config
 ```
+
+## CLI
+
+```text
+--config <file-or-dir>          可重复；目录按文件名排序深合并
+--check-config                  加载+校验，不启动网络；rc=0/1
+--print-effective-config        输出脱敏有效 JSON；secret 只显示 env 名/状态
+--log-level <LEVEL>             TRACE|DEBUG|INFO|WARN|ERROR|OFF；覆盖本次 root/ops
+-h, --help                      帮助
+```
+
+`--check-config` 和 `--print-effective-config` 都不会构造 BotRuntime；真实 QQ/DSH/MCP/Inbox
+联调必须另行获得授权，未运行时要写 `NOT_RUN`。
+
+配置错误示例（stderr）：
+
+```text
+CONFIG_INVALID
+file: /path/config/bot/bot.json
+jsonPointer: /accounts/main/oneBot/httpBaseUri
+expected: http/https URI with host
+actual: string
+hint: URI 缺少 host: not-a-uri
+```
+
+## 日志
+
+`logging` 块在首个业务 Logger 初始化前生效：
+
+```json
+{
+  "logging": {
+    "directory": "../logs",
+    "console": true,
+    "file": true,
+    "rootLevel": "INFO",
+    "opsLevel": "INFO",
+    "levels": {
+      "io.mosire.iibot.connect": "INFO",
+      "io.mosire.iibot.bot": "INFO",
+      "io.mosire.iibot.app": "INFO"
+    },
+    "maxFileSize": "20MB",
+    "maxHistory": 30
+  }
+}
+```
+
+优先级：`--log-level`（root/ops）> JSON `logging.rootLevel/opsLevel` > 早期环境变量/系统属性
+fallback > 内置默认。包级 `logging.levels` 按配置应用；`--log-level` 不覆盖显式包级级别。
+日志文件 `iibot.log`/`iibot-ops.log` 使用 0600 权限，按天和大小滚动并 gzip。
+日志禁止正文、token、Authorization 和完整协议 JSON。
+
+## 旧配置手工迁移
+
+| 旧字段 | 新字段 |
+|---|---|
+| 顶层 `accountId` | `accounts.<alias>.accountId` |
+| `napcat` | `accounts.<alias>.oneBot` |
+| `summary.debounceMillis` | `messageBoard.summaryDebounceMillis` |
+| `summary.maxMessagesPerDigest` | `messageBoard.maxPreviewMessages` |
+| 顶层 `outbox` | `messageBoard.outbox` |
+| 顶层 `weighting` | `messageBoard.weighting` |
+| `weighting.maxMessagesPerDigest` | 删除；使用 `messageBoard.maxPreviewMessages` |
+| 无 | `logging` |
+
+`--migrate-config` 不是 P3 必需项；当前支持文档手工迁移。旧 `--mode legacy` 和文游配置不迁移。

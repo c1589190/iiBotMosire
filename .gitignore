@@ -18,6 +18,7 @@ logs/
 .DS_Store
 
 # Local secrets and runtime data
+config/bot/*.json
 config/local/
 config/*.secret.*
 data/

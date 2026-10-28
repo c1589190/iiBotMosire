@@ -1,6 +1,8 @@
 package io.mosire.iibot.app.logging;
 
+import io.mosire.iibot.app.bot.BotConfig;
 import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.appender.RollingFileAppender;
 import org.apache.logging.log4j.core.appender.rolling.CompositeTriggeringPolicy;
@@ -15,6 +17,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -71,6 +74,83 @@ class LoggingConfigurationTest {
                     (DefaultRolloverStrategy) appender.getManager().getRolloverStrategy();
             assertThat(rollover.getMaxIndex()).isEqualTo(7);
         });
+    }
+
+
+    @Test
+    void jsonLoggingBlockActuallyChangesRootOpsAndPackageLoggerConfigs() throws Exception {
+        Path logDir = tempDir.resolve("logs-json");
+        BotConfig.Logging logging = new BotConfig.Logging(logDir, true, true,
+                "TRACE", "WARN", Map.of(
+                        "io.mosire.iibot.connect", "DEBUG",
+                        "io.mosire.iibot.bot", "ERROR",
+                        "io.mosire.iibot.app", "INFO"),
+                "5MB", 7);
+
+        LoggingConfigurer.apply(logging, null);
+
+        LoggerContext context = (LoggerContext) LogManager.getContext(false);
+        org.apache.logging.log4j.core.config.Configuration configuration =
+                context.getConfiguration();
+        assertThat(configuration.getRootLogger().getLevel()).isEqualTo(Level.TRACE);
+        assertThat(configuration.getLoggerConfig("iibot.ops").getLevel())
+                .isEqualTo(Level.WARN);
+        assertThat(configuration.getLoggerConfig("io.mosire.iibot.connect").getLevel())
+                .isEqualTo(Level.DEBUG);
+        assertThat(configuration.getLoggerConfig("io.mosire.iibot.bot").getLevel())
+                .isEqualTo(Level.ERROR);
+        assertThat(configuration.getLoggerConfig("io.mosire.iibot.app").getLevel())
+                .isEqualTo(Level.INFO);
+
+        RollingFileAppender appender = configuration.getAppender("appFile");
+        CompositeTriggeringPolicy policies =
+                (CompositeTriggeringPolicy) appender.getTriggeringPolicy();
+        SizeBasedTriggeringPolicy sizePolicy = Arrays.stream(policies.getTriggeringPolicies())
+                .filter(SizeBasedTriggeringPolicy.class::isInstance)
+                .map(SizeBasedTriggeringPolicy.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(sizePolicy.getMaxFileSize()).isEqualTo(5L * 1024L * 1024L);
+        DefaultRolloverStrategy rollover =
+                (DefaultRolloverStrategy) appender.getManager().getRolloverStrategy();
+        assertThat(rollover.getMaxIndex()).isEqualTo(7);
+    }
+
+    @Test
+    void cliLogLevelOverridesRootAndOpsButNotExplicitPackageLevels() {
+        BotConfig.Logging logging = new BotConfig.Logging(
+                tempDir.resolve("logs-cli"), false, false,
+                "INFO", "INFO", Map.of("io.mosire.iibot.connect", "INFO"),
+                "20MB", 30);
+
+        LoggingConfigurer.apply(logging, "DEBUG");
+
+        LoggerContext context = (LoggerContext) LogManager.getContext(false);
+        org.apache.logging.log4j.core.config.Configuration configuration =
+                context.getConfiguration();
+        assertThat(configuration.getRootLogger().getLevel()).isEqualTo(Level.DEBUG);
+        assertThat(configuration.getLoggerConfig("iibot.ops").getLevel())
+                .isEqualTo(Level.DEBUG);
+        assertThat(configuration.getLoggerConfig("io.mosire.iibot.connect").getLevel())
+                .isEqualTo(Level.INFO);
+    }
+
+
+    @Test
+    void jsonLoggingConsoleAndFileFlagsRemoveActualAppenderRefs() {
+        BotConfig.Logging logging = new BotConfig.Logging(
+                tempDir.resolve("logs-disabled"), false, false,
+                "INFO", "INFO", Map.of(), "20MB", 30);
+
+        LoggingConfigurer.apply(logging, null);
+
+        LoggerContext context = (LoggerContext) LogManager.getContext(false);
+        org.apache.logging.log4j.core.config.Configuration configuration =
+                context.getConfiguration();
+        assertThat(configuration.getRootLogger().getAppenders())
+                .doesNotContainKeys("console", "appFile");
+        assertThat(configuration.getLoggerConfig("iibot.ops").getAppenders())
+                .doesNotContainKeys("opsConsole", "opsFile");
     }
 
     private void withConfiguration(String label, String rootLevel, String opsLevel,
