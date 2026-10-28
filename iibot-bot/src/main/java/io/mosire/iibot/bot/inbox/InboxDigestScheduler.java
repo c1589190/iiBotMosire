@@ -1,6 +1,8 @@
 package io.mosire.iibot.bot.inbox;
 
 import io.mosire.iibot.connect.ops.OpsLog;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -21,6 +23,8 @@ import java.util.function.Consumer;
  * 调度线程只做 flush，不直接把异常抛给 adapter 回调。</p>
  */
 public final class InboxDigestScheduler implements AutoCloseable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(InboxDigestScheduler.class);
 
     private final InboxDigestService service;
     private final long debounceMillis;
@@ -115,8 +119,11 @@ public final class InboxDigestScheduler implements AutoCloseable {
     }
 
     private void flushSafely(String threadId) {
+        LOG.debug("event=inbox_digest_flush_start threadId={} pending={}",
+                threadId, pendingCount());
         try {
             service.flushThread(threadId);
+            LOG.debug("event=inbox_digest_flush_done threadId={}", threadId);
         } catch (Throwable failure) {
             lastError.set(failure);
             OpsLog.error("event=inbox_digest_failed threadId={} errorType={}",

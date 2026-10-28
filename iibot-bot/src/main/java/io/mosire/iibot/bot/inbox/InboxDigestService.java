@@ -622,6 +622,8 @@ public final class InboxDigestService {
         // messages that arrived after the snapshot must become a new unread item.
         long effectiveCursor = Math.max(0L, cursor);
         states.save(InboxDigestState.cursorOnly(threadId, effectiveCursor));
+        OpsLog.debug("event=inbox_cursor_advanced threadId={} itemId={} cursor={}",
+                threadId, itemId, effectiveCursor);
         OpsLog.info("event=inbox_ack threadId={} itemId={} outcome=archived "
                         + "revision={} digestedThroughSeq={}", threadId, itemId,
                 currentRevision, effectiveCursor);

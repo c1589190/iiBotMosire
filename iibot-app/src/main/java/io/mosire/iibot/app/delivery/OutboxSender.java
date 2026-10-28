@@ -4,6 +4,7 @@ import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.connect.core.OutboundSegment;
 import io.mosire.iibot.connect.core.SendReceipt;
+import io.mosire.iibot.connect.ops.LogContext;
 import io.mosire.iibot.connect.ops.OpsLog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -247,6 +248,14 @@ public final class OutboxSender {
     }
 
     private SendOutcome send(int index, String idempotencyKey, OutboundMessage outbound) {
+        try (LogContext.Scope ignored = LogContext.openTrace(
+                LogContext.newTraceId("outbound"))) {
+            return sendScoped(index, idempotencyKey, outbound);
+        }
+    }
+
+    private SendOutcome sendScoped(int index, String idempotencyKey,
+                                   OutboundMessage outbound) {
         try {
             awaitSendInterval();
         } catch (PacingInterruptedException interrupted) {
@@ -258,6 +267,10 @@ public final class OutboxSender {
             log(outcome);
             return outcome;
         }
+        LOG.debug("event=outbound_route key={} targetType={} targetId={} segments={}",
+                idempotencyKey, outbound.targetType(), outbound.targetId(),
+                outbound.richSegments().isEmpty()
+                        ? outbound.textSegments().size() : outbound.richSegments().size());
         try {
             SendReceipt receipt = adapter.send(outbound).toCompletableFuture()
                     .get(sendTimeout.toMillis(), TimeUnit.MILLISECONDS);
@@ -313,9 +326,21 @@ public final class OutboxSender {
             case UNKNOWN -> LOG.error("outbox 状态未知 key={} code={} detail={}",
                     outcome.idempotencyKey(), outcome.errorCode(), outcome.detail());
         }
-        OpsLog.info("event=outbound_send key={} state={} code={} messageIds={}",
-                outcome.idempotencyKey(), outcome.state(),
-                outcome.errorCode() == null ? "" : outcome.errorCode(),
-                outcome.adapterMessageIds());
+        switch (outcome.state()) {
+            case SENT -> OpsLog.info("event=outbound_send key={} state={} code={} "
+                            + "messageIds={}", outcome.idempotencyKey(), outcome.state(),
+                    outcome.errorCode() == null ? "" : outcome.errorCode(),
+                    outcome.adapterMessageIds());
+            case FAILED_BEFORE_SEND -> OpsLog.warn("event=outbound_send key={} state={} "
+                            + "code={} messageIds={}", outcome.idempotencyKey(),
+                    outcome.state(),
+                    outcome.errorCode() == null ? "" : outcome.errorCode(),
+                    outcome.adapterMessageIds());
+            case UNKNOWN -> OpsLog.error("event=outbound_send key={} state={} code={} "
+                            + "messageIds={} retry=forbidden", outcome.idempotencyKey(),
+                    outcome.state(),
+                    outcome.errorCode() == null ? "" : outcome.errorCode(),
+                    outcome.adapterMessageIds());
+        }
     }
 }

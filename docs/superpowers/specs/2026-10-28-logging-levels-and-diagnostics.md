@@ -1,6 +1,6 @@
 # 日志分级、诊断与运维可观测性设计
 
-> **状态**：提议（2026-10-28）
+> **状态**：部分实现（P2，2026-10-28）；JSON logging 配置与 --log-level 待 P3。
 > **本文取代**：[2026-10-27 Bot 运维日志补全设计](2026-10-27-bot-operational-logging.md)（2026-10-28 起由其完整扩展）。
 > **用户原话**：
 > > 「此外还有之前一直没补的运维，包括完善的debug/info log、完善且易用的配置文件系统」
@@ -242,6 +242,29 @@ java -jar iibot-app.jar --log-level DEBUG
 - `iibot-app/src/main/java/io/mosire/iibot/app/inbox/BotInboxRuntime.java`
 - 新增日志测试使用临时目录与捕获 appender；禁止对真实 QQ 发送测试。
 
-## 13. 修订记录
+## 13. P2 实施记录（2026-10-28）
+
+已实现：
+
+- `LogContext` / MDC 关联：`bootId`、`traceId`、`callId`；作用域关闭后恢复并清理；
+- root/ops 级别与日志目录通过系统属性/环境变量覆盖：
+  - `iibot.log.level` / `IIBOT_LOG_LEVEL`
+  - `iibot.ops.log.level` / `IIBOT_OPS_LOG_LEVEL`
+  - `iibot.log.dir` / `IIBOT_LOG_DIR`
+  - `iibot.log.maxSize` / `IIBOT_LOG_MAX_SIZE`
+  - `iibot.log.maxHistory` / `IIBOT_LOG_MAX_HISTORY`
+- 技术日志与 ops console 分离，避免 ops 行重复 trace 字段；
+- INFO/DEBUG 覆盖启动、配置摘要、入站、去重、摘要调度、Inbox 动作、MCP 工具、回复和出站；
+- 出站/回复 `UNKNOWN` 使用 ERROR 且带 `retry=forbidden`；
+- 正文/token/Authorization 零命中测试。
+
+P3 仍需实现：
+
+- JSON `logging` 配置块和 CLI `--log-level`；
+- 配置加载后动态应用日志设置；
+- `--check-config` 的日志摘要输出。
+
+## 14. 修订记录
 
 - 2026-10-28：将原 2026-10-27 运维事件设计扩展为日志分级、结构化关联、诊断 CLI、配置化轮转和正文/密钥零命中验收；原文件保留为历史设计依据。
+- 2026-10-28 P2：实现日志上下文、系统属性/环境变量级别与滚动配置、关键路径 DEBUG 和脱敏回归；JSON/CLI 配置留 P3。

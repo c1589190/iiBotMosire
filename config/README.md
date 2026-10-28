@@ -27,9 +27,19 @@ logs/iibot.log        # 技术日志
 logs/iibot-ops.log    # event=... 运维事件流
 ```
 
-可通过 `-Diibot.log.dir=/path` 或环境变量 `IIBOT_LOG_DIR=/path` 改目录。
-两个文件均按天和 20 MB 滚动，归档 gzip 压缩，最多保留 30 个。
-日志只记录 ID、状态、计数、错误码与耗时，不记录聊天正文、token 或完整协议 JSON。
+可通过系统属性/环境变量覆盖：
+
+| 配置 | 系统属性 | 环境变量 | 默认 |
+|---|---|---|---|
+| 日志目录 | `-Diibot.log.dir` | `IIBOT_LOG_DIR` | `logs` |
+| 技术日志级别 | `-Diibot.log.level` | `IIBOT_LOG_LEVEL` | `INFO` |
+| 运维日志级别 | `-Diibot.ops.log.level` | `IIBOT_OPS_LOG_LEVEL` | `INFO` |
+| 单文件最大值 | `-Diibot.log.maxSize` | `IIBOT_LOG_MAX_SIZE` | `20 MB` |
+| 归档保留数 | `-Diibot.log.maxHistory` | `IIBOT_LOG_MAX_HISTORY` | `30` |
+
+两个文件按天和大小滚动，归档 gzip 压缩。日志只记录 ID、状态、计数、错误码与耗时，
+不记录聊天正文、token、Authorization 或完整协议 JSON。`debug` 仅用于临时排障；
+P3 会把 `logging` 块纳入 JSON 配置，并提供 `--log-level`。
 
 完整目标设计见
 [日志分级与诊断](../docs/superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md)。

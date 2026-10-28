@@ -9,7 +9,10 @@ import io.mosire.iibot.bot.weight.MessageWeightDecision;
 import io.mosire.iibot.bot.weight.SourceWeightPolicy;
 import io.mosire.iibot.bot.weight.SourceWeightService;
 import io.mosire.iibot.connect.core.InboundMessage;
+import io.mosire.iibot.connect.ops.LogContext;
 import io.mosire.iibot.connect.ops.OpsLog;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -20,6 +23,8 @@ import java.util.function.Consumer;
  * <p>身份只来自 adapter 已解析的 selfId/userId/groupId；聊天文本不参与身份判断。</p>
  */
 public final class BotIngestionService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(BotIngestionService.class);
 
     private final MessageBoardStore board;
     private final DigestTrigger digestTrigger;
@@ -39,7 +44,18 @@ public final class BotIngestionService {
     /** 记录一条入站消息；重复 messageKey 不会再次触发 digest。 */
     public IngestResult ingest(InboundMessage message) {
         Objects.requireNonNull(message, "message");
+        try (LogContext.Scope ignored = LogContext.openTrace(
+                LogContext.newTraceId("inbound"))) {
+            return ingestScoped(message);
+        }
+    }
+
+    private IngestResult ingestScoped(InboundMessage message) {
         ChatSourceKey source = sourceOf(message);
+        LOG.debug("event=inbound_received threadId={} messageKey={} chatType={} "
+                        + "segments={} hasReply={}",
+                source.threadId(), message.messageId(), source.chatType(),
+                message.segments().size(), !message.replyToMessageId().isEmpty());
         ChatMessage candidate = ChatMessage.inbound(
                 source,
                 message.messageId(),
@@ -53,6 +69,9 @@ public final class BotIngestionService {
         MessageAppendResult result;
         try {
             result = board.append(candidate, message.segments());
+            LOG.debug("event=inbound_persist threadId={} messageKey={} localSeq={} "
+                            + "created={}", source.threadId(), result.message().messageKey(),
+                    result.message().localSeq(), result.created());
         } catch (RuntimeException failure) {
             OpsLog.error("event=inbound_ingest threadId={} messageKey={} outcome=error "
                             + "errorType={}", source.threadId(), candidate.messageKey(),
@@ -74,6 +93,8 @@ public final class BotIngestionService {
                             + "chatType={} outcome=accepted delayMs={}",
                     source.threadId(), result.message().messageKey(),
                     result.message().localSeq(), source.chatType(), delayMillis);
+            LOG.debug("event=inbound_digest_scheduled threadId={} delayMs={}",
+                    source.threadId(), delayMillis);
             try {
                 digestTrigger.enqueue(result.message().source().threadId(), delayMillis);
             } catch (RuntimeException failure) {
@@ -87,6 +108,8 @@ public final class BotIngestionService {
                             + "chatType={} outcome=duplicate",
                     source.threadId(), result.message().messageKey(),
                     result.message().localSeq(), source.chatType());
+            LOG.debug("event=inbound_dedupe_hit threadId={} messageKey={}",
+                    source.threadId(), result.message().messageKey());
         }
         return new IngestResult(result.message(), result.created());
     }

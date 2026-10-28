@@ -1,6 +1,7 @@
 package io.mosire.iibot.bot;
 
 import io.mosire.iibot.bot.chat.ChatMessage;
+import io.mosire.iibot.bot.chat.DeliveryState;
 import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.inbox.InboxDigest;
 import io.mosire.iibot.bot.inbox.InboxDigestConflictException;
@@ -10,8 +11,11 @@ import io.mosire.iibot.bot.inbox.InboxDigestService;
 import io.mosire.iibot.bot.inbox.InMemoryInboxDigestStateStore;
 import io.mosire.iibot.bot.ingest.BotIngestionService;
 import io.mosire.iibot.bot.note.InMemoryUserNoteStore;
+import io.mosire.iibot.bot.reply.BotReplySendResult;
+import io.mosire.iibot.bot.reply.BotReplyService;
 import io.mosire.iibot.bot.store.InMemoryMessageBoardStore;
 import io.mosire.iibot.connect.core.InboundMessage;
+import io.mosire.iibot.connect.ops.LogContext;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LogEvent;
@@ -41,6 +45,8 @@ class BotOpsLoggingCoverageTest {
     private static final Clock CLOCK = Clock.fixed(T0, ZoneOffset.UTC);
     private static final ChatSourceKey GROUP = ChatSourceKey.groupChat("bot-1", "group-9");
     private static final String SECRET_BODY = "运维日志绝不能包含的聊天正文";
+    private static final String SECRET_TOKEN = "test-token-5f8a";
+    private static final String SECRET_AUTHORIZATION = "Bearer " + SECRET_TOKEN;
 
     private Logger opsLogger;
     private Level previousLevel;
@@ -62,6 +68,7 @@ class BotOpsLoggingCoverageTest {
         opsLogger.removeAppender(appender);
         appender.stop();
         Configurator.setLevel("iibot.ops", previousLevel);
+        LogContext.clear();
     }
 
     @Test
@@ -70,18 +77,24 @@ class BotOpsLoggingCoverageTest {
         BotIngestionService ingestion = new BotIngestionService(board,
                 (BotIngestionService.DigestTrigger) (threadId, delayMillis) -> { }, null);
         InboundMessage message = new InboundMessage("adapter-1", "bot-1", "m-1", "qq-1",
-                InboundMessage.SessionType.GROUP, "group-9", SECRET_BODY, T0, "dedupe-1");
+                InboundMessage.SessionType.GROUP, "group-9",
+                SECRET_BODY + " " + SECRET_AUTHORIZATION, T0, "dedupe-1");
 
         ingestion.ingest(message);
         ingestion.ingest(message);
 
         assertThat(appender.messages).anySatisfy(line -> assertThat(line)
                 .contains("event=inbound_ingest", "threadId=" + GROUP.threadId(),
-                        "outcome=accepted"))
+                        "outcome=accepted", "traceId=inbound:"))
                 .anySatisfy(line -> assertThat(line)
-                        .contains("event=inbound_ingest", "outcome=duplicate"));
-        assertThat(appender.messages).allSatisfy(line ->
-                assertThat(line).doesNotContain(SECRET_BODY));
+                        .contains("event=inbound_ingest", "outcome=duplicate",
+                                "traceId=inbound:"));
+        assertThat(appender.messages).allSatisfy(line -> {
+            assertThat(line).doesNotContain(SECRET_BODY);
+            assertThat(line).doesNotContain(SECRET_TOKEN);
+            assertThat(line).doesNotContain("Authorization");
+        });
+        assertThat(LogContext.currentTraceId()).isNull();
     }
 
     @Test
@@ -104,8 +117,34 @@ class BotOpsLoggingCoverageTest {
                 .anySatisfy(line -> assertThat(line)
                         .contains("event=inbox_ack", "outcome=archived",
                                 "itemId=" + published.itemId()));
-        assertThat(appender.messages).allSatisfy(line ->
-                assertThat(line).doesNotContain(SECRET_BODY));
+        assertThat(appender.messages).allSatisfy(line -> {
+            assertThat(line).doesNotContain(SECRET_BODY);
+            assertThat(line).doesNotContain(SECRET_TOKEN);
+            assertThat(line).doesNotContain("Authorization");
+        });
+    }
+
+    @Test
+    void replyLogsStateAndTraceWithoutBodyOrToken() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, SECRET_BODY, "", ""));
+        BotReplyService service = new BotReplyService(board,
+                (source, text, replyToMessageId, idempotencyKey) ->
+                        new BotReplySendResult(DeliveryState.SENT,
+                                List.of("out-1"), ""), CLOCK);
+
+        service.reply(GROUP.threadId(), SECRET_BODY + " " + SECRET_AUTHORIZATION,
+                null, "reply-secret-1");
+
+        assertThat(appender.messages).anySatisfy(line -> assertThat(line)
+                .contains("event=reply_send", "state=SENT", "traceId=reply:"));
+        assertThat(appender.messages).allSatisfy(line -> {
+            assertThat(line).doesNotContain(SECRET_BODY);
+            assertThat(line).doesNotContain(SECRET_TOKEN);
+            assertThat(line).doesNotContain("Authorization");
+        });
+        assertThat(LogContext.currentTraceId()).isNull();
     }
 
     private static final class FakePort implements InboxDigestPort {

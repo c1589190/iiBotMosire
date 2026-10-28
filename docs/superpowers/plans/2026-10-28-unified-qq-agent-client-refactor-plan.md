@@ -7,7 +7,7 @@
 > - [配置文件系统](../specs/2026-10-28-configuration-system.md)
 > - [用户需求原稿 D-025..D-028](../specs/2026-10-24-user-requirements-source.md)
 >
-> **当前执行状态**：P0、P1a、P1b 完成并推送；下一步 P2 日志基础设施。
+> **当前执行状态**：P0、P1a、P1b、P2 完成并待提交；下一步 P3 配置系统 v2。
 > **禁止事项**：未经用户当次指令不启动真实 QQ、不挂载 Bot MCP、不执行真实外发、不 commit/push。
 
 ## 1. 目标
@@ -521,5 +521,7 @@ cd ../iiBotMosire
 - 2026-10-28：完成本计划及三份设计文档，作为独立 P0 checkpoint 提交；未改生产代码、未跑 Maven、未启动 QQ/Inbox/MCP。
 
 - 2026-10-28：用户确认继续使用 AgentLib 0.2.4；采用新分支按责任区提交/推送；整合并删除 `iibot-connect-agent`；读取只预览、处理完显式 ack。
-- 2026-10-28 P1a：删除 `iibot-taskflow` 与 app 旧文游/legacy 包；`iibot-app` 收缩为 20 个 main、12 个 test 源文件；根 reactor 4 模块；`tools/gate.sh docs` PASS；`tools/gate.sh full` PASS（174 tests / 0 failures / 0 errors / 0 skipped）。提交 `0acd0a0`，已推送 `origin/refactor/unified-qq-agent-client`。
+- 2026-10-28 P1a：删除 `iibot-taskflow` 与 app 旧文游/legacy 包；`iibot-app` 收缩为 20 个 main、12 个 test 源文件；根 reactor 4 模块；`tools/gate.sh docs` PASS；`tools/gate.sh full` PASS（174 tests / 0 failures / 0 errors / 0 skipped）。
+- 2026-10-28 P2：实现 SLF4J MDC `LogContext`、root/ops 日志级别与滚动配置、入站/MCP/出站/Inbox 关联 ID 和关键 DEBUG 覆盖；`tools/gate.sh full` PASS（192 tests / 0 failures / 0 errors / 0 skipped）。提交 `0acd0a0`，已推送 `origin/refactor/unified-qq-agent-client`。
 - 2026-10-28 P1b：删除 legacy `simulation/` 与 `config/legacy`；simulation2 `01-prepare.sh` 改为复用现有 `bot.sim.local.json` 或从示例生成。`tools/gate.sh docs` PASS（files=78 links=194）；`tools/gate.sh full` PASS（174 tests / 0 failures / 0 errors / 0 skipped）。
+- 2026-10-28 P2：实现 SLF4J MDC `LogContext`、root/ops 日志级别与滚动配置、入站/MCP/出站/Inbox 关联 ID 和关键 DEBUG 覆盖；`tools/gate.sh full` PASS（192 tests / 0 failures / 0 errors / 0 skipped）。

@@ -1,23 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN">
   <Properties>
+    <!-- 日志目录：-Diibot.log.dir 优先，其次 IIBOT_LOG_DIR，最后 defaults/logs。 -->
     <Property name="LOG_DIR">${sys:iibot.log.dir:-${env:IIBOT_LOG_DIR:-logs}}</Property>
+    <!-- 级别：-Diibot.log.level / IIBOT_LOG_LEVEL，默认 INFO；启动后可临时设 DEBUG。 -->
+    <Property name="ROOT_LEVEL">${sys:iibot.log.level:-${env:IIBOT_LOG_LEVEL:-INFO}}</Property>
+    <Property name="OPS_LEVEL">${sys:iibot.ops.log.level:-${env:IIBOT_OPS_LOG_LEVEL:-INFO}}</Property>
+    <!-- 滚动：-Diibot.log.maxSize / IIBOT_LOG_MAX_SIZE 默认 20 MB；
+         -Diibot.log.maxHistory / IIBOT_LOG_MAX_HISTORY 默认 30。 -->
+    <Property name="MAX_FILE_SIZE">${sys:iibot.log.maxSize:-${env:IIBOT_LOG_MAX_SIZE:-20 MB}}</Property>
+    <Property name="MAX_HISTORY">${sys:iibot.log.maxHistory:-${env:IIBOT_LOG_MAX_HISTORY:-30}}</Property>
   </Properties>
   <Appenders>
     <Console name="console" target="SYSTEM_OUT">
-      <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%t] %logger{36} - %msg%n"/>
+      <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%t] traceId=%X{traceId} callId=%X{callId} bootId=%X{bootId} %logger{36} - %msg%n"/>
+    </Console>
+
+    <Console name="opsConsole" target="SYSTEM_OUT">
+      <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %msg%n"/>
     </Console>
 
     <RollingFile name="appFile"
                  fileName="${LOG_DIR}/iibot.log"
                  filePattern="${LOG_DIR}/iibot-%d{yyyy-MM-dd}-%i.log.gz"
                  filePermissions="rw-------">
-      <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%t] %logger{36} - %msg%n"/>
+      <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%t] traceId=%X{traceId} callId=%X{callId} bootId=%X{bootId} %logger{36} - %msg%n"/>
       <Policies>
         <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
-        <SizeBasedTriggeringPolicy size="20 MB"/>
+        <SizeBasedTriggeringPolicy size="${MAX_FILE_SIZE}"/>
       </Policies>
-      <DefaultRolloverStrategy max="30"/>
+      <DefaultRolloverStrategy max="${MAX_HISTORY}"/>
     </RollingFile>
 
     <RollingFile name="opsFile"
@@ -27,17 +39,17 @@
       <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %msg%n"/>
       <Policies>
         <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
-        <SizeBasedTriggeringPolicy size="20 MB"/>
+        <SizeBasedTriggeringPolicy size="${MAX_FILE_SIZE}"/>
       </Policies>
-      <DefaultRolloverStrategy max="30"/>
+      <DefaultRolloverStrategy max="${MAX_HISTORY}"/>
     </RollingFile>
   </Appenders>
   <Loggers>
-    <Logger name="iibot.ops" level="INFO" additivity="false">
+    <Logger name="iibot.ops" level="${OPS_LEVEL}" additivity="false">
       <AppenderRef ref="opsFile"/>
-      <AppenderRef ref="console"/>
+      <AppenderRef ref="opsConsole"/>
     </Logger>
-    <Root level="INFO">
+    <Root level="${ROOT_LEVEL}">
       <AppenderRef ref="console"/>
       <AppenderRef ref="appFile"/>
     </Root>

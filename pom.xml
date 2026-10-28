@@ -28,6 +28,7 @@
     <sqlite.version>3.53.4.0</sqlite.version>
     <junit.version>5.11.4</junit.version>
     <assertj.version>3.27.7</assertj.version>
+    <log4j.version>2.26.1</log4j.version>
     <java.websocket.version>1.5.7</java.websocket.version>
     <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
     <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
@@ -94,6 +95,21 @@
         <artifactId>Java-WebSocket</artifactId>
         <version>${java.websocket.version}</version>
         <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-api</artifactId>
+        <version>${log4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-core</artifactId>
+        <version>${log4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-slf4j2-impl</artifactId>
+        <version>${log4j.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

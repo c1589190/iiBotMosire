@@ -8,7 +8,10 @@ import io.mosire.iibot.bot.chat.DeliveryState;
 import io.mosire.iibot.bot.store.MessageAppendResult;
 import io.mosire.iibot.connect.core.MessageSegment;
 import io.mosire.iibot.bot.store.MessageBoardStore;
+import io.mosire.iibot.connect.ops.LogContext;
 import io.mosire.iibot.connect.ops.OpsLog;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -23,6 +26,8 @@ import java.util.Objects;
 public final class BotReplyService {
 
     public static final int MAX_TEXT_CHARS = 4000;
+
+    private static final Logger LOG = LoggerFactory.getLogger(BotReplyService.class);
 
     private final MessageBoardStore board;
     private final BotReplyPort port;
@@ -40,6 +45,15 @@ public final class BotReplyService {
 
     public BotReplyResult reply(String threadId, String text, String replyToMessageId,
                                 boolean mentionSender, String idempotencyKey) {
+        try (LogContext.Scope ignored = LogContext.openTrace(
+                LogContext.newTraceId("reply"))) {
+            return replyScoped(threadId, text, replyToMessageId, mentionSender,
+                    idempotencyKey);
+        }
+    }
+
+    private BotReplyResult replyScoped(String threadId, String text, String replyToMessageId,
+                                       boolean mentionSender, String idempotencyKey) {
         ChatThread thread = board.thread(requireText(threadId, "threadId"))
                 .orElseThrow(() -> new BotReplyException("THREAD_NOT_FOUND",
                         "thread 不存在"));
@@ -50,6 +64,9 @@ public final class BotReplyService {
         }
         String key = requireText(idempotencyKey, "idempotencyKey");
         String normalizedReplyTo = replyToMessageId == null ? "" : replyToMessageId.trim();
+        LOG.debug("event=reply_routing threadId={} key={} mention={} hasReplyTo={}",
+                thread.source().threadId(), key, mentionSender,
+                !normalizedReplyTo.isEmpty());
         String mentionQqId = "";
         if (mentionSender) {
             if (thread.source().chatType() != ChatType.GROUP) {
@@ -92,6 +109,11 @@ public final class BotReplyService {
         }
         segments.add(MessageSegment.text(segmentIndex, normalizedText));
         MessageAppendResult appended = board.append(candidate, segments);
+        if (appended.created()) {
+            LOG.debug("event=reply_state threadId={} key={} state=PENDING localSeq={} "
+                            + "segments={}", thread.source().threadId(), key,
+                    appended.message().localSeq(), segments.size());
+        }
         if (!appended.created()) {
             ChatMessage message = appended.message();
             OpsLog.info("event=reply_idempotent_hit threadId={} key={} state={}",
@@ -120,10 +142,22 @@ public final class BotReplyService {
                 sendResult.state(),
                 sendResult.messageIds().isEmpty() ? null : sendResult.messageIds().getFirst(),
                 clock.instant());
-        OpsLog.info("event=reply_send threadId={} key={} state={} code={} messageIds={}",
+        LOG.debug("event=reply_state threadId={} key={} state={} messageIds={}",
                 thread.source().threadId(), key, sendResult.state(),
-                sendResult.errorCode() == null ? "" : sendResult.errorCode(),
                 sendResult.messageIds());
+        String resultCode = sendResult.errorCode() == null ? "" : sendResult.errorCode();
+        switch (sendResult.state()) {
+            case SENT -> OpsLog.info("event=reply_send threadId={} key={} state={} "
+                            + "code={} messageIds={}", thread.source().threadId(), key,
+                    sendResult.state(), resultCode, sendResult.messageIds());
+            case FAILED_BEFORE_SEND -> OpsLog.warn("event=reply_send threadId={} key={} "
+                            + "state={} code={} messageIds={}", thread.source().threadId(),
+                    key, sendResult.state(), resultCode, sendResult.messageIds());
+            case UNKNOWN -> OpsLog.error("event=reply_send threadId={} key={} state={} "
+                            + "code={} messageIds={} retry=forbidden",
+                    thread.source().threadId(), key, sendResult.state(), resultCode,
+                    sendResult.messageIds());
+        }
         return new BotReplyResult(updated, false, sendResult.state(),
                 sendResult.messageIds(), sendResult.errorCode());
     }

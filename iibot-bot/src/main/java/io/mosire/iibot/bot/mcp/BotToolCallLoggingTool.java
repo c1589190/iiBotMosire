@@ -6,7 +6,10 @@ import io.mosire.agentlib.permission.ToolSpec;
 import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolResult;
+import io.mosire.iibot.connect.ops.LogContext;
 import io.mosire.iibot.connect.ops.OpsLog;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -22,6 +25,8 @@ import java.util.Set;
  * 备注、keyword 或凭据进入日志。日志异常不改变原工具返回或抛出的异常。</p>
  */
 final class BotToolCallLoggingTool implements AgentTool {
+
+    private static final Logger LOG = LoggerFactory.getLogger(BotToolCallLoggingTool.class);
 
     private final AgentTool delegate;
 
@@ -71,26 +76,31 @@ final class BotToolCallLoggingTool implements AgentTool {
 
     @Override
     public ToolResult execute(ToolContext context) {
-        long started = System.nanoTime();
-        String argKeys = argumentKeys(context);
-        try {
-            ToolResult result = delegate.execute(context);
-            long elapsedMs = elapsedMillis(started);
-            if (result != null && result.success()) {
-                OpsLog.info("event=mcp_tool_call tool={} outcome=ok elapsedMs={} argKeys={}",
-                        name(), elapsedMs, argKeys);
-            } else {
-                String code = result == null ? "NULL_RESULT" : result.code();
-                OpsLog.warn("event=mcp_tool_call tool={} outcome=error code={} "
-                                + "elapsedMs={} argKeys={}",
-                        name(), safeCode(code), elapsedMs, argKeys);
+        try (LogContext.Scope scope = LogContext.openToolCall()) {
+            long started = System.nanoTime();
+            String argKeys = argumentKeys(context);
+            LOG.debug("event=mcp_tool_call_started tool={} callId={} argKeys={}",
+                    name(), scope.callId(), argKeys);
+            try {
+                ToolResult result = delegate.execute(context);
+                long elapsedMs = elapsedMillis(started);
+                if (result != null && result.success()) {
+                    OpsLog.info("event=mcp_tool_call tool={} outcome=ok elapsedMs={} "
+                                    + "argKeys={}", name(), elapsedMs, argKeys);
+                } else {
+                    String code = result == null ? "NULL_RESULT" : result.code();
+                    OpsLog.warn("event=mcp_tool_call tool={} outcome=error code={} "
+                                    + "elapsedMs={} argKeys={}",
+                            name(), safeCode(code), elapsedMs, argKeys);
+                }
+                return result;
+            } catch (RuntimeException failure) {
+                OpsLog.error("event=mcp_tool_call tool={} outcome=exception "
+                                + "errorType={} elapsedMs={} argKeys={}",
+                        name(), failure.getClass().getSimpleName(),
+                        elapsedMillis(started), argKeys);
+                throw failure;
             }
-            return result;
-        } catch (RuntimeException failure) {
-            OpsLog.error("event=mcp_tool_call tool={} outcome=exception "
-                            + "errorType={} elapsedMs={} argKeys={}",
-                    name(), failure.getClass().getSimpleName(), elapsedMillis(started), argKeys);
-            throw failure;
         }
     }
 

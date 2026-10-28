@@ -6,6 +6,7 @@ import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.inbox.BotInboxRuntimeOptions;
 import io.mosire.iibot.connect.napcat.NapCatAdapter;
 import io.mosire.iibot.connect.napcat.NapCatConfig;
+import io.mosire.iibot.connect.ops.LogContext;
 import io.mosire.iibot.connect.ops.OpsLog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,11 +61,24 @@ public final class BotMain {
      * 首次生成模板后直接退出，不启动 QQ/Inbox/MCP。
      */
     public static void run(List<Path> configSources, boolean bootstrapDefaultIfMissing) {
+        String bootId = LogContext.newBootId();
+        try (LogContext.Scope ignored = LogContext.openBoot(bootId)) {
+            runWithBootId(configSources, bootstrapDefaultIfMissing, bootId);
+        }
+    }
+
+    private static void runWithBootId(List<Path> configSources,
+                                      boolean bootstrapDefaultIfMissing, String bootId) {
         BotRuntime runtime = null;
-        OpsLog.info("event=process_start pid={} javaVersion={} cwd={} mode=bot "
-                        + "configSources={}", ProcessHandle.current().pid(),
+        OpsLog.info("event=process_start pid={} bootId={} javaVersion={} cwd={} mode=bot "
+                        + "configSources={}", ProcessHandle.current().pid(), bootId,
                 System.getProperty("java.version"), Path.of("").toAbsolutePath(),
                 configSources);
+        LOG.debug("event=log_config source=log4j2 logDir={} rootLevel={} opsLevel={}",
+                logDirectory(), System.getProperty("iibot.log.level",
+                        System.getenv().getOrDefault("IIBOT_LOG_LEVEL", "INFO")),
+                System.getProperty("iibot.ops.log.level",
+                        System.getenv().getOrDefault("IIBOT_OPS_LOG_LEVEL", "INFO")));
         try {
             if (configSources == null || configSources.isEmpty()) {
                 throw new ConfigException("至少需要一个配置源");
@@ -81,6 +95,16 @@ public final class BotMain {
                 }
             }
             BotConfig config = BotConfigLoader.load(configSources);
+            OpsLog.info("event=config_loaded sources={} accountId={} dataDir={} "
+                            + "controlHost={} controlPort={} controlPath={} inboxId={} "
+                            + "digestDebounceMs={} maxMessagesPerDigest={}",
+                    configSources.size(), config.accountId(), config.dataDir(),
+                    config.control().host(), config.control().port(),
+                    config.control().path(), config.inbox().inboxId(),
+                    config.summary().debounceMillis(),
+                    config.summary().maxMessagesPerDigest());
+            LOG.debug("event=config_sources sources={} baseDataDir={} inboxDataDir={}",
+                    configSources, config.dataDir(), config.inbox().dataDir());
             SecretProvider secrets = SecretProvider.environment();
             String controlToken = secrets.lookup(config.control().bearerTokenEnv())
                     .filter(value -> !value.isBlank())
@@ -93,6 +117,16 @@ public final class BotMain {
                     .orElse(null);
             NapCatConfig napcat = napCatConfig(config, napcatToken);
             NapCatAdapter adapter = new NapCatAdapter(napcat);
+            OpsLog.info("event=account_registered accountId={} adapter={}",
+                    config.accountId(), adapter.adapterId());
+            LOG.debug("event=adapter_configured adapter={} accountId={} wsScheme={} "
+                            + "httpScheme={} accessTokenEnvConfigured={} "
+                            + "suppressSelfMessages={}",
+                    adapter.adapterId(), config.accountId(),
+                    config.napcat().eventWebSocketUri().getScheme(),
+                    config.napcat().httpBaseUri().getScheme(),
+                    config.napcat().accessTokenEnv().isPresent(),
+                    config.napcat().suppressSelfMessages());
             BotInboxRuntimeOptions inboxOptions = new BotInboxRuntimeOptions(
                     config.inbox().dataDir(),
                     config.inbox().inboxId(),
@@ -124,8 +158,10 @@ public final class BotMain {
             BotRuntime shutdownTarget = runtime;
             Runtime.getRuntime().addShutdownHook(
                     new Thread(() -> {
-                        OpsLog.info("event=bot_shutdown_requested");
-                        shutdownTarget.close();
+                        try (LogContext.Scope ignored = LogContext.openBoot(bootId)) {
+                            OpsLog.info("event=bot_shutdown_requested");
+                            shutdownTarget.close();
+                        }
                     }, "iibot-bot-shutdown"));
             LOG.info("iiBot bot-first 已启动。按 Ctrl+C 退出。");
             OpsLog.info("event=bot_runtime_waiting controlPort={} inboxApiPort={} "
@@ -144,6 +180,15 @@ public final class BotMain {
             }
             System.exit(1);
         }
+    }
+
+    private static String logDirectory() {
+        String system = System.getProperty("iibot.log.dir");
+        if (system != null && !system.isBlank()) {
+            return system;
+        }
+        String environment = System.getenv("IIBOT_LOG_DIR");
+        return environment == null || environment.isBlank() ? "logs" : environment;
     }
 
     private static NapCatConfig napCatConfig(BotConfig config, String accessToken) {

@@ -27,7 +27,10 @@ import io.mosire.iibot.connect.core.ForwardCapability;
 import io.mosire.iibot.connect.core.MediaCapability;
 import io.mosire.iibot.connect.core.RecentQqProvider;
 import io.mosire.iibot.connect.core.MessagingAdapter;
+import io.mosire.iibot.connect.ops.LogContext;
 import io.mosire.iibot.connect.ops.OpsLog;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -45,6 +48,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * secretary、player、turn 或 world 服务。</p>
  */
 public final class BotRuntime implements AutoCloseable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(BotRuntime.class);
 
     private final BotRuntimeOptions options;
     private final MessagingAdapter adapter;
@@ -91,6 +96,14 @@ public final class BotRuntime implements AutoCloseable {
         Objects.requireNonNull(adapter, "adapter");
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(clock, "clock");
+        try (LogContext.Scope ignored = LogContext.openTrace(
+                LogContext.newTraceId("startup"))) {
+            return startScoped(adapter, options, clock);
+        }
+    }
+
+    private static BotRuntime startScoped(MessagingAdapter adapter, BotRuntimeOptions options,
+                                          Clock clock) throws IOException {
         Path dataDir = options.dataDir();
         SqliteMessageBoardStore board = null;
         SqliteUserNoteStore notes = null;
@@ -113,6 +126,8 @@ public final class BotRuntime implements AutoCloseable {
             sourceWeights = new SqliteSourceWeightStore(dataDir.resolve("bot.db"));
             notes = new SqliteUserNoteStore(dataDir.resolve("bot.db"), clock);
             digestStates = new SqliteInboxDigestStateStore(dataDir.resolve("bot.db"));
+            LOG.debug("event=bot_datastores_ready dataDir={} dbFile={}",
+                    dataDir, dataDir.resolve("bot.db"));
             SourceWeightService weightService = new SourceWeightService(
                     sourceWeights, board, options.weighting(), clock);
             weightService.ensureExistingThreads(1000);
@@ -127,6 +142,10 @@ public final class BotRuntime implements AutoCloseable {
             InboxDigestScheduler scheduler = new InboxDigestScheduler(
                     digestService, Duration.ofMillis(options.digestDebounceMillis()));
             digestScheduler = scheduler;
+            LOG.debug("event=digest_scheduler_configured debounceMs={} "
+                            + "requestedLimit={} effectiveLimit={}",
+                    options.digestDebounceMillis(), options.maxMessagesPerDigest(),
+                    digestLimit);
             BotIngestionService ingestion = new BotIngestionService(
                     board, scheduler::enqueue, weightService);
 
@@ -172,7 +191,12 @@ public final class BotRuntime implements AutoCloseable {
             if (adapter instanceof FriendRequestCapability capability) {
                 capability.setFriendRequestHandler(friendService::receive);
             }
+            LOG.debug("event=adapter_state state=starting adapter={} accountId={}",
+                    adapter.adapterId(), options.accountId());
             adapter.start(message -> ingestion.ingest(message));
+            LOG.debug("event=adapter_state state=started adapter={} accountId={} "
+                            + "inboundHandler=registered",
+                    adapter.adapterId(), options.accountId());
             OpsLog.info("event=bot_runtime_ready accountId={} controlPort={} "
                             + "inboxApiPort={} inboxMcpPort={} tools={}",
                     options.accountId(), mcpServer.boundPort(), inboxRuntime.apiPort(),
@@ -233,6 +257,8 @@ public final class BotRuntime implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
+        LOG.debug("event=bot_runtime_close phase=starting adapter={} accountId={}",
+                adapter.adapterId(), options.accountId());
         OpsLog.info("event=bot_runtime_close phase=starting");
         closeQuietly(adapter);
         closeQuietly(mcpServer);

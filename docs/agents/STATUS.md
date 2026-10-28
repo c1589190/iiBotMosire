@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-28 20:20（Asia/Shanghai）
+> **更新时间**：2026-10-28 20:35（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -23,8 +23,15 @@
   - `tools/gate.sh docs`：PASS（modules=4 files=78 links=194）。
   - `tools/gate.sh full`：PASS，174 tests / 0 failures / 0 errors / 0 skipped。
   - simulation2 `bash -n` + `01-prepare.sh` 现有配置复用 rc=0。
+- **P2 已完成**：日志上下文（boot/trace/call）、root/ops 级别与滚动配置、
+  关键路径 INFO/DEBUG、MCP 工具/入站/出站/Inbox 关联、UNKNOWN 不重试日志和
+  正文/token 零命中回归。
+  - `tools/gate.sh full`：PASS，192 tests / 0 failures / 0 errors / 0 skipped
+    （connect 58、connect-agent 21、bot 69、app 44）。
+  - P3 仍需：JSON `logging` 配置、`--log-level`、`--check-config` 的动态应用。
 - **本轮代码状态**：默认 reactor 4 模块（connect / connect-agent / bot / app）；
-  文游 MCP、taskflow class 和旧 simulation/config legacy 已从默认工作树移除。
+  文游 MCP、taskflow class、旧 simulation/config legacy 已从默认工作树移除；
+  P2 日志已通过 fake/embedded loopback 测试。
 
 ## 1. 当前目标 / 进行中范围
 
@@ -41,8 +48,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 当前进行中：
 
-- P1b 已提交并推送；
-- 下一步进入 P2 日志基础设施，然后 P3 配置系统。
+- P1b、P2 已完成；
+- 下一步 P3：JSON `logging` 配置、`--log-level`、多账号配置 schema 与 `--check-config`。
 
 非目标：
 
@@ -73,6 +80,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 | P1b docs | `tools/gate.sh docs` PASS：modules=4 files=78 links=194 |
 | P1b simulation2 | `bash -n simulation2/scripts/lib.sh simulation2/scripts/01-prepare.sh` PASS；`01-prepare.sh` 实际复用现有 `bot.sim.local.json`，rc=0 |
 | P1b full | `tools/gate.sh full` PASS：174 tests / 0 failures / 0 errors / 0 skipped |
+| P2 full | `tools/gate.sh full` PASS：**192 tests / 0 failures / 0 errors / 0 skipped**（connect 58、connect-agent 21、bot 69、app 44） |
+| P2 docs | `tools/gate.sh docs` PASS（modules=4 files=78 links=194） |
 
 ## 4. 当前有效设计/维护入口
 
@@ -113,11 +122,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 ## 7. 下一步
 
-1. **开始 P2 日志基础设施**：按日志设计实现 INFO/DEBUG、关联 ID、配置化轮转、脱敏测试；
-   需要改代码与测试后提交推送。
-2. **P3 配置系统 v2**：多账号 schema、`--check-config`、单文件首次生成、迁移。
-3. **P4–P6**：多 Adapter/账号路由 → read/ack 与 Inbox 同步 → 统一 `qq_*` MCP 并删除
+1. **P3 配置系统 v2**：JSON `logging` 配置、`--log-level`、多账号 schema、
+   `--check-config` / `--print-effective-config`、单文件首次生成和迁移。
+2. **P4–P6**：多 Adapter/账号路由 → read/ack 与 Inbox 同步 → 统一 `qq_*` MCP 并删除
    `iibot-connect-agent`。
-4. **P7**：依赖 patch 升级、JUnit 6 独立迁移、文档全量重写、干净 Maven 仓库验证。
-5. **真实运行验收**：所有真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
+3. **P7**：依赖 patch 升级、JUnit 6 独立迁移、文档全量重写、干净 Maven 仓库验证。
+4. **真实运行验收**：所有真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。

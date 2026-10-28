@@ -10,7 +10,10 @@ import io.mosire.inbox.embedded.EmbeddedInboxOptions;
 import io.mosire.inbox.embedded.EmbeddedInboxServer;
 import io.mosire.inbox.mcptools.InboxClientMcpTools;
 import io.mosire.inbox.server.ServerConfig;
+import io.mosire.iibot.connect.ops.LogContext;
 import io.mosire.iibot.connect.ops.OpsLog;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -31,6 +34,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * digest 端口，不绑定 Ticket/Post 等旧文游服务。
  */
 public final class BotInboxRuntime implements AutoCloseable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(BotInboxRuntime.class);
 
     public static final String PROGRAM_TOKEN_FILE = "program-mcp.token";
     public static final String WAKE_TOKEN_FILE = "dsh-wake.token";
@@ -77,6 +82,14 @@ public final class BotInboxRuntime implements AutoCloseable {
 
     public static BotInboxRuntime start(BotInboxRuntimeOptions options) throws IOException {
         Objects.requireNonNull(options, "options");
+        try (LogContext.Scope ignored = LogContext.openTrace(
+                LogContext.newTraceId("inbox-start"))) {
+            return startScoped(options);
+        }
+    }
+
+    private static BotInboxRuntime startScoped(BotInboxRuntimeOptions options)
+            throws IOException {
         Path absolute = options.dataDir();
         String inboxId = options.inboxId();
         Path programTokenPath = absolute.resolve(PROGRAM_TOKEN_FILE);
@@ -89,6 +102,8 @@ public final class BotInboxRuntime implements AutoCloseable {
                 options.mcpPort(), options.mcpPath());
         try {
             Files.createDirectories(absolute);
+            LOG.debug("event=inbox_client_action action=create_data_dir inboxId={}",
+                    inboxId);
             server = EmbeddedInboxServer.start(EmbeddedInboxOptions.builder()
                     .dataDir(absolute)
                     .inboxId(inboxId)
@@ -101,7 +116,10 @@ public final class BotInboxRuntime implements AutoCloseable {
                     .claimSweepInterval(options.claimSweepInterval())
                     .deleteDataOnClose(false)
                     .build());
+            LOG.debug("event=inbox_client_action action=ensure_inbox inboxId={}", inboxId);
             server.client().ensureInbox(inboxId);
+            LOG.debug("event=inbox_client_action action=issue_credential inboxId={} "
+                            + "scopeCount={}", inboxId, PROGRAM_SCOPES.size());
             InboxModels.IssuedCredentialView issued = server.client().issueCredential(
                     inboxId,
                     new InboxModels.CredentialIssueRequest(
@@ -111,7 +129,12 @@ public final class BotInboxRuntime implements AutoCloseable {
             }
             TokenStore.writeAtomic(programTokenPath, issued.token());
             verifyOwnerOnlyFile(programTokenPath, "program MCP token");
+            LOG.debug("event=inbox_client_action action=program_token_written inboxId={}",
+                    inboxId);
 
+            LOG.debug("event=inbox_client_action action=issue_binding inboxId={} "
+                            + "channelCount={} ttlHours={}", inboxId,
+                    options.channels().size(), options.bindingTtlHours());
             InboxModels.BindingDescriptor descriptor = server.client().issueBinding(
                     inboxId, options.bindingLabel(), options.channels(), wakeTokenPath,
                     Duration.ofHours(options.bindingTtlHours()));
@@ -123,6 +146,8 @@ public final class BotInboxRuntime implements AutoCloseable {
                     .writeValueAsString(descriptor);
             verifyDescriptorShape(descriptorJson);
             TokenStore.writeAtomic(descriptorPath, descriptorJson);
+            LOG.debug("event=inbox_client_action action=descriptor_written inboxId={} "
+                            + "descriptor={}", inboxId, descriptorPath);
 
             InboxClient programClient = InboxClient.forTokenFile(
                     server.apiUrl(), programTokenPath);
@@ -200,6 +225,7 @@ public final class BotInboxRuntime implements AutoCloseable {
             return;
         }
         server.close();
+        LOG.debug("event=inbox_client_action action=embedded_stopped");
         OpsLog.info("event=inbox_embedded_stopped");
     }
 
