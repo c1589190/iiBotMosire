@@ -222,23 +222,24 @@ Adapter 事件
 
 ```text
 Inbox wake（只含 threadId/摘要/未读数）
-  → Agent 调用 qq_conversation_read(threadId)
+  → Agent 可调用 qq_conversation_read(source)（可选；Inbox 摘要足够时直接 ack）
   → 服务读取 readSeq 之后、deliveredSeq 之前的未读消息
   → 返回消息，并仅在服务端记录 deliveredSeq
   → 不推进 readSeq，不归档 Inbox item
 
 Agent 完成处理后：
-  → 调用 qq_conversation_ack(threadId)
+  → 调用 qq_conversation_ack(source) 或 ack(source, seq=N)
   → 服务把 readSeq 推进到该 consumer/thread 的 deliveredSeq
   → 更新/归档 Inbox item
 ```
 
 补充规则：
 
-- `qq_conversation_read` 可以重复调用，未 ack 前返回同一批未读消息；
-- `ack(threadId)` 不接受 revision、itemId、seq，只表示“我已处理到这个会话当前已投递的位置”；
+- `qq_conversation_read(source)` 可以重复调用，未 ack 前返回同一批未读消息；read 不是 ack 的前置条件；
+- `ack(source)` 在未 read 时直接归档当前 active Inbox item；已 read 时按 read 时固定的 delivered 批次归档；
+- `ack(source, seq=N)` 可按整数消息序号精确归档，不接受 itemId、revision、snapshot 或任何不透明 hash；
 - `read` 与 `ack` 之间到达的新消息属于下一次未读，不会被错误 ack；
-- 如果 Agent 发送回复成功，服务可以按固定规则把当前已投递批次自动 ack；无回复的会话仍需显式 `qq_conversation_ack`；
+- 发送回复成功后的自动 ack 仍未实现；当前仍需显式 ack；
 - 完整消息历史始终可由 `qq_conversation_history` 读取，不受未读状态影响。
 
 ### 6.4 Agent 发送
@@ -288,7 +289,7 @@ Agent 面保留语义明确的 `inbox_rest` 和 `qq_conversation_ack`；不暴�
 - Inbox claim/renew/complete/release 作为主流程；
 - `tf_inbox_binding_descriptor` 给普通模型；descriptor 应由宿主交接流程读取。
 
-`qq_conversation_ack(threadId)` 只有会话句柄，没有内部同步令牌。通用 Inbox daemon 的完整工具面可以继续存在，但 iiBot 的产品 MCP 不能把 16 个 Inbox 工具和内部绑定工具全量倒入。
+`qq_conversation_ack(source, seq?)` 只有业务来源和可选消息序号，没有内部同步令牌。通用 Inbox daemon 的完整工具面可以继续存在，但 iiBot 的产品 MCP 不能把 16 个 Inbox 工具和内部绑定工具全量倒入。
 
 ### 7.4 命名与权限
 
@@ -335,7 +336,7 @@ Agent 面保留语义明确的 `inbox_rest` 和 `qq_conversation_ack`；不暴�
 
 1. 消息板是正文、历史、未读和发送状态的唯一事实源；Inbox 不是。
 2. Agent 不提供 `expectedRevision`、`snapshotToSeq`、`itemId` 作为完成前置条件；服务内部可保留乐观锁。
-3. `qq_conversation_read` 只预览并记录内部 deliveredSeq；`qq_conversation_ack(threadId)` 才推进 readSeq；ack 不接受内部 seq/revision。
+3. `qq_conversation_read` 只预览并记录服务端 deliveredSeq；`qq_conversation_ack(source)` 才推进 readSeq；未 read 时 ack 当前 active item，可选整数 seq，不接受 revision/itemId。
 4. Agent 不提供必填 `idempotencyKey`；服务根据 consumer、工具调用和会话生成稳定幂等键。
 5. 出站目标只由 thread 的 accountId + targetId 决定，模型不能伪造其他目标。
 6. 发送超时/中断一律 `UNKNOWN`，禁止自动重发。
@@ -362,7 +363,7 @@ Agent 面保留语义明确的 `inbox_rest` 和 `qq_conversation_ack`；不暴�
 ### 11.3 消息板与 Inbox
 
 - 新消息创建/更新一个 active Inbox item，带未读数和摘要；
-- `qq_conversation_read` 后内容可见但未读仍保留；`qq_conversation_ack(threadId)` 后游标推进，Inbox item 更新或归档；
+- `qq_conversation_read` 后内容可见但未读仍保留；`qq_conversation_ack(source)` 后游标推进，Inbox item 更新或归档；
 - Agent 不传 revision/snapshot/itemId 也能完成读、ack、回复、继续对话；
 - read 与 ack 之间到达的新消息保留下一次未读，不被错误消费；
 - Inbox 同步失败时消息板仍可读，并在后续对账中修复。
@@ -387,7 +388,7 @@ Agent 面保留语义明确的 `inbox_rest` 和 `qq_conversation_ack`；不暴�
 3. ~~读取即已读还是显式 ack~~：2026-10-28 用户已选择 **读取只预览，处理完显式 ack**。
 4. ~~connect-agent 独立还是合并~~：2026-10-28 用户已选择 **整合并删除独立模块**；`AdapterRegistry` 与账号工具进入 iibot 正式运行时/MCP 层。
 5. 文游文档是物理删除还是移入 `docs/archive/legacy-game/` 后不参与门禁。
-6. 发送回复成功后是否自动 ack：P5 第一版统一要求显式 `qq_conversation_ack(threadId)`；自动 ack 规则仍待后续裁定。
+6. 发送回复成功后是否自动 ack：当前统一要求显式 `qq_conversation_ack(source)`；自动 ack 规则仍待后续裁定。
 
 ## 13. 修订记录
 

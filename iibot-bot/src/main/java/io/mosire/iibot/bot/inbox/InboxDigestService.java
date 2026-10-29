@@ -570,6 +570,22 @@ public final class InboxDigestService {
         }
     }
 
+    /**
+     * 不经过 read 直接消费当前 active Inbox item；以 item 的入站 toSeq 为边界。
+     * 没有 active item 时返回未归档空结果。Agent 根据 Inbox 摘要直接 ack 时使用。
+     */
+    public synchronized AckResult ackCurrent(String threadId) {
+        if (threadId == null || threadId.isBlank()) {
+            throw new IllegalArgumentException("threadId 不能为空");
+        }
+        Optional<InboxDigestState> state = states.find(threadId);
+        if (state.isEmpty() || !state.orElseThrow().hasActiveItem()) {
+            return new AckResult(0L, false, "", 0L);
+        }
+        InboxDigestItem item = viewAvailable(state.orElseThrow().itemId());
+        return ackThrough(threadId, item.toSeq());
+    }
+
     /** 主 Agent 处理完一个 digest 后归档，并保留已处理到的 thread 游标。 */
     public synchronized AckResult markHandled(String threadId, String itemId,
                                                long expectedRevision) {

@@ -39,6 +39,7 @@
 - P8.4：thread displayName 同步、DSH status 回源 board、全唤醒文档收口；full 235 tests。
 - P8.5：consumer 按 active item fromSeq 校正、toSeq 只取 IN、DSH bootstrap backlog；iiBot full 238 tests，DSH npm 140 tests。
 - P8.6：所有入站消息统一使用 summaryDebounceMillis，不再按 @/权重分快慢；iiBot full 239 tests。
+- P8.7：ack 无 read 直接归档 active item，可选 `seq` 精确 ack；iiBot full 240 tests，DSH direct-ack 提示。
 
 验收：旧库不读 seq 0；OUT 不进入未读 ack 边界；read/ack 间新消息保留下一次。
 

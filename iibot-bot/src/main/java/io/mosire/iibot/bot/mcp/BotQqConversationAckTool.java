@@ -27,6 +27,7 @@ public final class BotQqConversationAckTool implements AgentTool {
 
     public static final String NAME = "qq_conversation_ack";
     public static final String NO_DELIVERED_REASON = "NO_DELIVERED_MESSAGES";
+    public static final String NO_ACTIVE_REASON = "NO_ACTIVE_ITEM";
 
     private static final Map<String, Object> SCHEMA = Map.of(
             "type", "object",
@@ -34,7 +35,9 @@ public final class BotQqConversationAckTool implements AgentTool {
                     "source", Map.of("type", "string", "minLength", 1,
                             "description", "统一来源地址"),
                     "threadId", Map.of("type", "string", "minLength", 1,
-                            "description", "旧版内部 threadId；新调用方使用 source")),
+                            "description", "旧版内部 threadId；新调用方使用 source"),
+                    "seq", Map.of("type", "integer", "minimum", 1,
+                            "description", "可选消息序号；显式 ack 到该序号，不需要额外不透明 ID")),
             "required", List.of(),
             "additionalProperties", false);
 
@@ -57,8 +60,9 @@ public final class BotQqConversationAckTool implements AgentTool {
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "显式确认已处理当前会话的服务端投递批次；服务端同步更新/归档 Inbox 并推进"
-                + "已读游标。只接受 threadId，不接受 revision、itemId、snapshot 或 seq。";
+        return "确认已处理当前会话。若之前 read 过，按 read 时固定的 delivered 批次归档；"
+                + "若没有 read，直接归档当前 active Inbox item（Inbox 摘要已足够时无需先 read）。"
+                + "只接受 source/threadId，不接受 revision、itemId、snapshot 或 seq。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -72,36 +76,59 @@ public final class BotQqConversationAckTool implements AgentTool {
             String threadId = BotToolSupport.threadKey(context.arguments()).threadId();
             Optional<ConsumerConversationState> found = consumers.find(
                     ConsumerConversationStore.DEFAULT_CONSUMER_ID, threadId);
-            if (found.isEmpty()
-                    || found.orElseThrow().deliveredSeq() <= found.orElseThrow().readSeq()) {
-                ConsumerConversationState state = found.orElse(null);
-                Map<String, Object> data = new LinkedHashMap<>();
-                data.put("source", BotToolSupport.sourceOf(threadId));
-                data.put("threadId", threadId);
-                data.put("acked", false);
-                data.put("reason", NO_DELIVERED_REASON);
-                data.put("readSeq", state == null ? 0L : state.readSeq());
-                data.put("deliveredSeq", state == null ? 0L : state.deliveredSeq());
-                data.put("inboxArchived", false);
-                data.put("remaining", false);
-                return BotToolSupport.ok(NAME, data);
+            boolean hasDeliveredBatch = found.isPresent()
+                    && found.orElseThrow().deliveredSeq() > found.orElseThrow().readSeq();
+            InboxDigestService.AckResult inboxAck;
+            long ackedSeq;
+            String mode;
+            if (context.arguments().containsKey("seq")) {
+                ackedSeq = BotToolSupport.optionalLong(context.arguments(), "seq", 0L);
+                if (ackedSeq <= 0L) {
+                    throw new BotToolSupport.InvalidArgumentsException("seq 必须为正");
+                }
+                inboxAck = inboxDigests.ackThrough(threadId, ackedSeq);
+                mode = "EXPLICIT_SEQ";
+            } else if (hasDeliveredBatch) {
+                ackedSeq = found.orElseThrow().deliveredSeq();
+                inboxAck = inboxDigests.ackThrough(threadId, ackedSeq);
+                mode = "DELIVERED_BATCH";
+            } else {
+                inboxAck = inboxDigests.ackCurrent(threadId);
+                ackedSeq = inboxAck.digestedThroughSeq();
+                mode = "ACTIVE_ITEM";
+                if (!inboxAck.archived() && inboxAck.remainingToSeq() == 0L
+                        && ackedSeq == 0L) {
+                    ConsumerConversationState state = found.orElse(null);
+                    Map<String, Object> data = new LinkedHashMap<>();
+                    data.put("source", BotToolSupport.sourceOf(threadId));
+                    data.put("threadId", threadId);
+                    data.put("acked", false);
+                    data.put("reason", NO_ACTIVE_REASON);
+                    data.put("readSeq", state == null ? 0L : state.readSeq());
+                    data.put("deliveredSeq", state == null ? 0L : state.deliveredSeq());
+                    data.put("inboxArchived", false);
+                    data.put("remaining", false);
+                    return BotToolSupport.ok(NAME, data);
+                }
             }
-
-            ConsumerConversationState current = found.orElseThrow();
-            long deliveredSeq = current.deliveredSeq();
-            InboxDigestService.AckResult inboxAck =
-                    inboxDigests.ackThrough(threadId, deliveredSeq);
-            ConsumerConversationState advanced = consumers.advanceRead(
-                    ConsumerConversationStore.DEFAULT_CONSUMER_ID, threadId,
-                    deliveredSeq, clock.instant());
+            ConsumerConversationState advanced = found.orElse(null);
+            if (ackedSeq > 0L) {
+                advanced = consumers.recordDelivered(
+                        ConsumerConversationStore.DEFAULT_CONSUMER_ID, threadId,
+                        ackedSeq, clock.instant());
+                advanced = consumers.advanceRead(
+                        ConsumerConversationStore.DEFAULT_CONSUMER_ID, threadId,
+                        ackedSeq, clock.instant());
+            }
 
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("source", BotToolSupport.sourceOf(threadId));
             data.put("threadId", threadId);
             data.put("acked", true);
             data.put("reason", "ACKED");
-            data.put("readSeq", advanced.readSeq());
-            data.put("deliveredSeq", advanced.deliveredSeq());
+            data.put("mode", mode);
+            data.put("readSeq", advanced == null ? 0L : advanced.readSeq());
+            data.put("deliveredSeq", advanced == null ? 0L : advanced.deliveredSeq());
             data.put("inboxArchived", inboxAck.archived());
             data.put("remaining", inboxAck.remainingToSeq() > 0L);
             return BotToolSupport.ok(NAME, data);

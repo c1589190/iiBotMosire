@@ -233,7 +233,47 @@ class BotMcpToolsTest {
                 Map.of("threadId", GROUP.threadId()));
         assertThat(noOp.path("data").path("acked").asBoolean()).isFalse();
         assertThat(noOp.path("data").path("reason").asText())
-                .isEqualTo("NO_DELIVERED_MESSAGES");
+                .isEqualTo("NO_ACTIVE_ITEM");
+    }
+
+    @Test
+    void ackWithoutReadCanArchiveCurrentItemOrExplicitSeq() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, "第一条", "", ""));
+        board.append(ChatMessage.inbound(GROUP, "m-2", "qq-1", "Alice",
+                T0, T0, "第二条", "", ""));
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InboxDigestService digestService = new InboxDigestService(board, notes,
+                new InMemoryInboxDigestStateStore(), new FakeInboxPort());
+        digestService.flushThread(GROUP.threadId());
+        InMemoryConsumerConversationStore consumers = new InMemoryConsumerConversationStore();
+        List<AgentTool> tools = BotMcpTools.allForAccounts(
+                board, notes, digestService,
+                new BotReplyService(board, new FakeReplyPort(), CLOCK), "bot-1",
+                null, null, null, null, null, null, consumers);
+        AgentTool ack = tool(tools, "qq_conversation_ack");
+
+        JsonNode direct = call(ack, Map.of("source", "qq_group/bot-1/group-9"));
+        assertThat(direct.path("data").path("acked").asBoolean()).isTrue();
+        assertThat(direct.path("data").path("mode").asText()).isEqualTo("ACTIVE_ITEM");
+        assertThat(direct.path("data").path("inboxArchived").asBoolean()).isTrue();
+        assertThat(direct.path("data").path("readSeq").asLong()).isEqualTo(2L);
+        assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
+                GROUP.threadId()).orElseThrow().readSeq()).isEqualTo(2L);
+
+        board.append(ChatMessage.inbound(GROUP, "m-3", "qq-1", "Alice",
+                T0, T0, "第三条", "", ""));
+        board.append(ChatMessage.inbound(GROUP, "m-4", "qq-1", "Alice",
+                T0, T0, "第四条", "", ""));
+        digestService.flushThread(GROUP.threadId());
+        JsonNode explicit = call(ack, Map.of(
+                "source", "qq_group/bot-1/group-9", "seq", 3));
+        assertThat(explicit.path("data").path("acked").asBoolean()).isTrue();
+        assertThat(explicit.path("data").path("mode").asText()).isEqualTo("EXPLICIT_SEQ");
+        assertThat(explicit.path("data").path("remaining").asBoolean()).isTrue();
+        assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
+                GROUP.threadId()).orElseThrow().readSeq()).isEqualTo(3L);
     }
 
     @Test

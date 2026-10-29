@@ -75,6 +75,20 @@
 3. 地址使用严格 parser、百分号编码和旧 threadId 兼容迁移；
 4. 未来 `wechat_*` / `discord_*` 按同一 `family_kind` 语法扩展。
 
+### D-030 ack 不依赖 read、支持消息序号
+
+> 「发现优化项，为啥必须要先read才能ack？inbox面板已经包含了agent需要的大部分消息信息，不管怎么样，应当允许agent直接ack处理掉消息」
+
+> 「哦对了，还要允许agent直接用序号来ack，不要让agent必须传一串繁琐的hash」
+
+裁定：
+
+1. `qq_conversation_ack(source)` 不要求先 `read`；未 read 时直接归档当前 active Inbox item。
+2. 已 read 时仍按 read 固定的 delivered 批次 ack，保留批次语义。
+3. ack 不要求 itemId、revision、snapshot 或任何不透明 hash；可选 `seq` 为消息板 localSeq，
+   `ack(source, seq=N)` 精确 ack 到该消息序号。
+4. DSH view-ack 提示词必须说明 read 可选、可直接 ack、可按 seq ack。
+
 ### D-028 依赖与文档基线
 
 > 「其次，iibot、inbox依赖的agentlib是最新版本吗？去调查一下，项目设计基本上没有其他花头了，主要就是依赖是否为最新版本、文档是否完善等」

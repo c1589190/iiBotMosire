@@ -110,8 +110,9 @@ descriptor 只有 `inboxId/apiBaseUrl/adapterTokenRef/channels/label` 五个字�
    `qq_group/bot-1/955432692`），必要时再看 summary/trigger；
    unreadCount/hasMoreUnread、fromSeq/toSeq、item revision 和恢复正文所需信息。
    wake 摘要不是正文；`content.messages` 只是最后 n 条未读预览。
-3. 调 `qq_conversation_read(source)` 读取当前 consumer 尚未 ack 的批次。
+3. 需要正文时调 `qq_conversation_read(source)` 读取当前 consumer 尚未 ack 的批次。
    read 只预览并记录服务端投递位置，不推进已读；未 ack 前重复调用回放同一批。
+   如果 Inbox 摘要已经足够，或只是消费掉消息，可以直接跳到 ack。
    wake 摘要和 `content.messages` 都只是预览；需要单条原文时再 `qq_message_get`
    或 `qq_conversation_history`。
 4. 判断是否需要回复：

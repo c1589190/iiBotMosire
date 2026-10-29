@@ -57,7 +57,7 @@ Authorization: Bearer <IIBOT_CONTROL_TOKEN>
 
 默认 MCP 只暴露统一 `qq_*` 业务工具（含账号、会话、消息、媒体、好友申请、用户备注和来源权重）、唯一通用 Inbox 工具 `inbox_rest`，以及暂留宿主交接的 `qq_inbox_binding_descriptor`。不再全量暴露通用 `inbox_*` 工具，也不保留绕过消息板的公开直接发送工具。
 
-消息来源统一为 canonical `source`：`qq_group/{account}/{group}`、`qq_private/{account}/{peer}`、`qq_system/{account}/{event}`、`app_system/{event}`；`qq_conversation_read/ack/send` 优先接受 `source`，旧 `threadId` 仅兼容。
+消息来源统一为 canonical `source`：`qq_group/{account}/{group}`、`qq_private/{account}/{peer}`、`qq_system/{account}/{event}`、`app_system/{event}`；`qq_conversation_read/ack/send` 优先接受 `source`，旧 `threadId` 仅兼容。`ack(source)` 不要求先 `read`，并支持可选整数 `seq` 精确 ack 到消息序号。
 
 ## 目标设计
 

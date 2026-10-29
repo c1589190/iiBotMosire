@@ -8,7 +8,7 @@
 ## 0. 冲突顺序
 
 1. 用户当次明确指令。
-2. 用户设计裁定：D-025..D-029、统一 QQ Agent 客户端目标架构与来源地址。
+2. 用户设计裁定：D-025..D-030、统一 QQ Agent 客户端目标架构、来源地址与 direct ack。
 3. 项目维护裁定：`docs/agents/MAINTENANCE_RULINGS.md`、`docs/AGENTS.md`。
 4. 当前有效设计与契约：`docs/superpowers/specs/**`。
 5. 本文件。

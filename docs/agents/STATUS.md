@@ -1,6 +1,6 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-29 00:45（Asia/Shanghai）
+> **更新时间**：2026-10-29 18:20（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
@@ -83,6 +83,13 @@
   接受 `source`（兼容旧 threadId）；read 默认只返回 IN，OUT 通过
   `includeOutbound` 单独返回且不进入 ack 边界；SQLite consumer 游标从旧
   `inbox_digest_state.last_seq` 回填。
+- **P8.7 直接 ack / 序号 ack（待提交）**：`qq_conversation_ack(source)` 现在有两种模式：
+  已 read 时按固定 delivered 批次归档；未 read 时直接归档当前 active Inbox item。
+  `NO_ACTIVE_ITEM` 是稳定 no-op。另加可选整数 `seq`（消息板 localSeq），
+  `ack(source, seq=N)` 不需要 itemId、revision 或任何 hash。DSH view-ack 模板同步
+  说明 read 可选、可直接 ack、可按 seq ack。
+  - `tools/gate.sh full`：PASS，**240 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 61、bot 109、app 70）；DSH `npm test` PASS：140 tests（3 live skipped）。
 - **P8.6 全唤醒注入延迟修正已推送 `c6d5194`**：`SourceWeightService.enqueueDelayMillis`
   不再按 `@/权重 actionable` 返回 2 秒 vs 默认 `quietMillis=180s`；所有入站消息统一返回
   调度器默认窗口（`messageBoard.summaryDebounceMillis`）。因此普通群消息不再
@@ -141,8 +148,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 当前进行中：
 
-- P1b–P8.6 已完成并合并；
-- 剩余：真实外部联调与 AgentLib 0.2.4 公开发布。
+- P1b–P8.6 已完成并合并；P8.7 direct ack 在 `fix/ack-without-read`；
+- 剩余：P8.7 提交/合并、真实外部联调与 AgentLib 0.2.4 公开发布。
 
 非目标：
 
@@ -156,11 +163,11 @@ OneBot 11 / NapCat / LLBot（可多个）
 | 项 | 当前事实 |
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
-| 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.6）；feature/fix 分支保留 |
+| 分支 | `fix/ack-without-read`（P8.7 待提交）；`refactor/bot-first-main-agent` 为 P0–P8.6 基线 |
 | 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main） |
 | Maven reactor | 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | clean；无运行中 Java 进程 |
+| 工作树 | P8.7 变更待提交；无运行中 Java 进程 |
 | 模块目标 | 已完成：`iibot-connect-agent` 已删除，模块数为 3 |
 
 ## 3. 最近功能门禁
@@ -201,6 +208,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 | P8.5 DSH | `npm test` PASS：140 tests（3 live skipped）；bootstrap backlog |
 | P8.5 merged | iiBot `f076958` / DSH `73da106`+`4b209f3` / Inbox `a040f25` |
 | P8.6 full | `tools/gate.sh full` PASS：**239 tests / 0 failures / 0 errors / 0 skipped**（connect 61、bot 108、app 70） |
+| P8.7 full | `tools/gate.sh full` PASS：**240 tests / 0 failures / 0 errors / 0 skipped**（connect 61、bot 109、app 70） |
+| P8.7 DSH | `npm test` PASS：140 tests（3 live skipped）；direct ack 提示 |
 | P8 跨仓 | Inbox `a040f25`（41 tests）、DSH `b14f7a1`/`bef43ed`（139 tests）、iiBot `bcc8646` |
 
 ## 4. 当前有效设计/维护入口
@@ -240,9 +249,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 ## 7. 下一步
 
-1. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
+1. **提交并合并 P8.7**：`fix/ack-without-read`。
+2. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。
-2. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
+3. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
    `PUBLICATION_GAP` / `BLOCKED`。
-3. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack；
+4. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack；
    当前均未实施。
