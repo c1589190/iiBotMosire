@@ -1,6 +1,6 @@
 # 视频站 Connect 模块、无头浏览器与配置/日志设计
 
-> **状态**：有效（2026-10-31；用户已确认模块拆分与无头浏览器兼容；V1/V2 已完成，V3 待开始）
+> **状态**：有效（2026-10-31；用户已确认模块拆分与无头浏览器兼容；V1/V2/V3 已完成，V4 待开始）
 > **用户原话**：
 > - 「首先我建议把视频网站的视频抽取、评论区查询和整合，以及视屏网站的交互全都集中到一个统一的connect包里面方便管理，然后做标准MCP工具，统一在APP做注册，而不是分散在各个模块」
 > - 「此外还有易用性，允许选择分辨率吗？」
@@ -60,22 +60,22 @@
 
 ### 2.2 视频能力
 
-- `BilibiliHttpClient.java:143` 视频元数据；
-- `BilibiliHttpClient.java:173` 顶层评论查询；
-- `BilibiliHttpClient.java:263` `playStream()` 当前硬编码 `qn=64`，只按
-  `maxHeight` 选流，没有显式 `quality` 参数、可用清晰度列表和严格回退策略；
-- `BilibiliHttpClient.java:398` 评论回复写入；
+- `BilibiliHttpClient` 视频元数据、`playStreamSelection(...)` 质量选择、`commentPage(...)`
+  顶层/楼中楼分页与评论回复写入；
+- `VideoQuality`/`VideoStreamInfo` 在
+  `iibot-video-connect/src/main/java/io/mosire/iibot/connect/video/core/`；
+- `BiliVideoFramesTool` 支持 `count` 均匀抽帧、`time`/`times` 精确抽帧、
+  `quality`/`strictQuality`；`video_frames` 标准名与 `bili_video_frames` 兼容名并存；
+- `BiliVideoCommentsTool`（`video_comments`）按需读取评论；
 - `BilibiliAdapter.java:476` 评论回复通知轮询；
-- `BiliVideoFramesTool.java:81` 抽帧工具，当前仅 `count` 均匀抽帧；
 - `FfmpegBiliFrameExtractor` 使用本机 `ffmpeg` 抽帧，当前无浏览器后端。
 
 ### 2.3 配置与日志
 
-- `BotConfig.Bilibili` 在 `iibot-app/.../bot/BotConfig.java:109`，只有账号轮询、
-  收信和写入开关；没有视频质量、抽帧、浏览器、评论查询等配置。
-- `config/schema/bot-config.schema.json` 已支持 `adapter=bilibili`，但尚无
-  `video`/浏览器配置定义。
-- 配置是启动时快照；`--check-config` 和 `--print-effective-config` 已存在。
+- `BotConfig.Video`/`BotConfig.Comments` 已有 `defaultQuality`、`maxHeight`、
+  `defaultFrameCount`、`maxFrameCount`、`comments.defaultLimit/maxLimit/allowFullScan`；
+- `config/schema/bot-config.schema.json` 已支持严格 `video` 配置；浏览器配置仍待 V4；
+- 配置是启动时快照；`--check-config` 和 `--print-effective-config` 已覆盖 video 节点。
 - 现有日志使用 `LogContext`/`OpsLog`；视频和浏览器目前没有独立 ops 事件与包级级别。
 - 现有日志规则：正文、Cookie、Authorization、完整协议 JSON 不入日志；文件 0600、
   按天/大小滚动轮转。
@@ -84,7 +84,7 @@
 
 ### 3.1 Maven 模块
 
-V1/V2 已实现 4 模块：
+V1/V2/V3 已实现 4 模块：
 
 ```text
 iibot-connect          外部消息连接（QQ/OneBot + core SPI）
@@ -518,11 +518,13 @@ io.mosire.iibot.video.browser
 - `iibot-bot` 不依赖 `iibot-video-connect`；
 - V2 已完成：`iibot-app` 是唯一 MCP 工具注册点；`BotRuntime` 不再 import
   Bili/Video/media/Inbox 工具，`BotMain` 不再构造 `extraTools` 或直接 import B 站 MCP 工具；
+- V3 已完成：`video_read`/`video_frames`/`video_comments` 标准名与 `bili_*` 兼容别名，
+  `video.*` 严格配置与脱敏 effective config 已落地；
 - 旧 `extraTools` 兼容入口仍存在，只用于测试/历史调用，并包装为 `BotToolCatalog`；
 - 工具名无重复，兼容别名可同时调用；
 - 旧 B 站私信/评论通知、conversation_* 和 QQ 工具行为不回归。
 
-### 10.2 视频与评论
+### 10.2 视频与评论（V3 已完成）
 
 - `quality` 可请求 360p/480p/720p/1080p/best；
 - 不可用清晰度在 strict=true 时失败、strict=false 时回退并返回实际值；
@@ -541,7 +543,7 @@ io.mosire.iibot.video.browser
 - 日志/异常零 Cookie、零 token、零正文；
 - 服务器镜像可构建、可启动、可优雅关闭。
 
-### 10.4 配置与日志
+### 10.4 配置与日志（video 部分 V3 已完成；browser 部分 V4）
 
 - schema 严格校验未知字段；
 - `--check-config` 对每种非法 browser/quality/cap 组合给来源文件和 JSON pointer；
@@ -556,10 +558,10 @@ io.mosire.iibot.video.browser
 
 ```text
 V0 文档冻结
-V1 新模块抽取（行为不变）
-V2 app 单一工具目录（行为不变）
-V3 精确时间 + 分辨率 + 评论查询
-V4 Playwright embedded 浏览器 backend
+V1 新模块抽取（行为不变，已完成）
+V2 app 单一工具目录（行为不变，已完成）
+V3 精确时间 + 分辨率 + 评论查询（已完成）
+V4 Playwright embedded 浏览器 backend（下一步）
 V5 remote-cdp + 服务器部署
 V6 交互写入（已选范围 B）
 V7 真实 B 站/服务器验收

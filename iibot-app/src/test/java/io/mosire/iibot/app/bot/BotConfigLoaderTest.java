@@ -2,6 +2,7 @@ package io.mosire.iibot.app.bot;
 
 import io.mosire.iibot.app.config.ConfigException;
 import io.mosire.iibot.app.config.SecretProvider;
+import io.mosire.iibot.connect.video.core.VideoQuality;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -48,6 +49,49 @@ class BotConfigLoaderTest {
                 .isEqualTo(tempDir.resolve("logs").toAbsolutePath());
         assertThat(loaded.logging().levels())
                 .containsEntry("io.mosire.iibot.connect", "DEBUG");
+    }
+
+    @Test
+    void loadsDefaultVideoSettings() throws Exception {
+        Path config = write("video-defaults.json", validConfig("main", "10001", true));
+
+        BotConfig loaded = BotConfigLoader.load(config, SECRETS);
+
+        assertThat(loaded.video().defaultQuality()).isEqualTo(VideoQuality.AUTO);
+        assertThat(loaded.video().maxHeight()).isEqualTo(720);
+        assertThat(loaded.video().defaultFrameCount()).isEqualTo(6);
+        assertThat(loaded.video().maxFrameCount()).isEqualTo(9);
+        assertThat(loaded.video().comments().defaultLimit()).isEqualTo(10);
+        assertThat(loaded.video().comments().maxLimit()).isEqualTo(20);
+        assertThat(loaded.video().comments().allowFullScan()).isFalse();
+    }
+
+    @Test
+    void loadsConfiguredVideoSettingsAndRejectsInvalidQuality() throws Exception {
+        String video = """
+                "video": {
+                  "defaultQuality": "1080p",
+                  "maxHeight": 480,
+                  "defaultFrameCount": 3,
+                  "maxFrameCount": 5,
+                  "comments": {"defaultLimit": 5, "maxLimit": 10, "allowFullScan": true}
+                },
+                """;
+        Path config = write("video-configured.json",
+                validConfig("main", "10001", true).replace("  \"logging\": {", video + "  \"logging\": {"));
+        BotConfig loaded = BotConfigLoader.load(config, SECRETS);
+        assertThat(loaded.video().defaultQuality()).isEqualTo(VideoQuality.P1080);
+        assertThat(loaded.video().maxHeight()).isEqualTo(480);
+        assertThat(loaded.video().defaultFrameCount()).isEqualTo(3);
+        assertThat(loaded.video().maxFrameCount()).isEqualTo(5);
+        assertThat(loaded.video().comments().allowFullScan()).isTrue();
+
+        Path invalid = write("video-invalid.json",
+                validConfig("main", "10001", true).replace("  \"logging\": {",
+                        "  \"video\": {\"defaultQuality\": \"4k\"},\n  \"logging\": {"));
+        assertThatThrownBy(() -> BotConfigLoader.load(invalid, SECRETS))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("jsonPointer: /video/defaultQuality");
     }
 
     @Test

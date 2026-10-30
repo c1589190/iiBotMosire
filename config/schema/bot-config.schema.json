@@ -42,6 +42,9 @@
     },
     "logging": {
       "$ref": "#/$defs/logging"
+    },
+    "video": {
+      "$ref": "#/$defs/video"
     }
   },
   "$defs": {
@@ -483,6 +486,64 @@
           "minimum": 0,
           "maximum": 100,
           "default": 3
+        }
+      }
+    },
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultQuality": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "360p",
+            "480p",
+            "720p",
+            "1080p",
+            "best"
+          ],
+          "default": "auto"
+        },
+        "maxHeight": {
+          "type": "integer",
+          "minimum": 144,
+          "maximum": 1080,
+          "default": 720
+        },
+        "defaultFrameCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9,
+          "default": 6
+        },
+        "maxFrameCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9,
+          "default": 9
+        },
+        "comments": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "defaultLimit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 10
+            },
+            "maxLimit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 20
+            },
+            "allowFullScan": {
+              "type": "boolean",
+              "default": false
+            }
+          }
         }
       }
     }

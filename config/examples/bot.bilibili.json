@@ -53,5 +53,16 @@
     "file": true,
     "rootLevel": "INFO",
     "opsLevel": "INFO"
+  },
+  "video": {
+    "defaultQuality": "auto",
+    "maxHeight": 720,
+    "defaultFrameCount": 6,
+    "maxFrameCount": 9,
+    "comments": {
+      "defaultLimit": 10,
+      "maxLimit": 20,
+      "allowFullScan": false
+    }
   }
 }

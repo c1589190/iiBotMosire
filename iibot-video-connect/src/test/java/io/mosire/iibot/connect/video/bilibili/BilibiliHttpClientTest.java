@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import io.mosire.iibot.connect.video.core.VideoQuality;
+
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -61,6 +63,70 @@ class BilibiliHttpClientTest {
             assertThat(comments).hasSize(1);
             assertThat(comments.getFirst().message()).isEqualTo("好看");
             assertThat(comments.getFirst().rootRpid()).isEqualTo("1001");
+        }
+    }
+
+    @Test
+    void pagesTopLevelCommentsAndSubReplies() throws Exception {
+        route("/x/v2/reply", """
+                {"code":0,"message":"0","data":{
+                  "replies":[
+                    {"rpid_str":"1001","root_str":"1001","parent_str":"1001",
+                     "member":{"mid":42,"uname":"用户"},"content":{"message":"好看"},
+                     "like":7,"ctime":1700000000,"state":0}
+                  ],
+                  "page":{"num":1,"size":10,"count":2,"acount":21}
+                }}
+                """);
+        route("/x/v2/reply/reply", """
+                {"code":0,"message":"0","data":{
+                  "replies":[
+                    {"rpid_str":"1002","root_str":"1001","parent_str":"1001",
+                     "member":{"mid":43,"uname":"回复者"},"content":{"message":"同感"},
+                     "like":2,"ctime":1700000001,"state":0}
+                  ],
+                  "page":{"num":1,"size":10,"count":1,"acount":1}
+                }}
+                """);
+        try (BilibiliHttpClient client = new BilibiliHttpClient(
+                BilibiliCredential.anonymous(), "test-agent", base, base)) {
+            BilibiliModels.CommentPage top = client.commentPage(
+                    "117461382864435", "", 1, 10, "1");
+            assertThat(top.comments()).hasSize(1);
+            assertThat(top.hasMore()).isTrue();
+            assertThat(top.nextCursor()).isEqualTo("2");
+            assertThat(top.total()).isEqualTo(21L);
+
+            BilibiliModels.CommentPage nested = client.commentPage(
+                    "117461382864435", "1001", 1, 10, "1");
+            assertThat(nested.comments()).hasSize(1);
+            assertThat(nested.comments().getFirst().rootRpid()).isEqualTo("1001");
+            assertThat(nested.comments().getFirst().parentRpid()).isEqualTo("1001");
+        }
+    }
+
+    @Test
+    void selectsQualityAndRejectsStrictFallback() throws Exception {
+        route("/x/player/playurl", """
+                {"code":0,"data":{"dash":{"video":[
+                  {"baseUrl":"https://cdn.example/360.mp4","width":640,"height":360,
+                   "codecs":"avc1","bandwidth":300},
+                  {"baseUrl":"https://cdn.example/720.mp4","width":1280,"height":720,
+                   "codecs":"avc1","bandwidth":900}
+                ]}}}
+                """);
+        try (BilibiliHttpClient client = new BilibiliHttpClient(
+                BilibiliCredential.anonymous(), "test-agent", base, base)) {
+            BilibiliModels.StreamSelection fallback = client.playStreamSelection(
+                    "BV1EPnG6DEJC", 42838132685L, VideoQuality.P1080, false, 720);
+            assertThat(fallback.stream().height()).isEqualTo(720);
+            assertThat(fallback.info().fallback()).isTrue();
+            assertThat(fallback.info().availableHeights()).containsExactly(360, 720);
+
+            assertThatThrownBy(() -> client.playStreamSelection(
+                    "BV1EPnG6DEJC", 42838132685L, VideoQuality.P1080, true, 720))
+                    .isInstanceOfSatisfying(BilibiliHttpClient.BilibiliApiException.class,
+                            error -> assertThat(error.code()).isEqualTo("QUALITY_UNAVAILABLE"));
         }
     }
 

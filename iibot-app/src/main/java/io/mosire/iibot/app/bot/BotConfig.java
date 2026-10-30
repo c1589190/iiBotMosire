@@ -1,5 +1,6 @@
 package io.mosire.iibot.app.bot;
 
+import io.mosire.iibot.connect.video.core.VideoQuality;
 import io.mosire.inbox.server.ServerConfig;
 
 import java.net.URI;
@@ -25,7 +26,14 @@ public record BotConfig(
         Control control,
         Inbox inbox,
         MessageBoard messageBoard,
-        Logging logging) {
+        Logging logging,
+        Video video) {
+
+    /** 兼容 V2 及之前没有 video 配置的调用方。 */
+    public BotConfig(Path dataDir, Map<String, Account> accounts, Control control,
+                     Inbox inbox, MessageBoard messageBoard, Logging logging) {
+        this(dataDir, accounts, control, inbox, messageBoard, logging, Video.defaults());
+    }
 
     public BotConfig {
         dataDir = Objects.requireNonNull(dataDir, "dataDir").toAbsolutePath().normalize();
@@ -40,6 +48,7 @@ public record BotConfig(
         inbox = Objects.requireNonNull(inbox, "inbox");
         messageBoard = messageBoard == null ? MessageBoard.defaults() : messageBoard;
         logging = logging == null ? Logging.defaults(dataDir.getParent()) : logging;
+        video = video == null ? Video.defaults() : video;
         if (accounts.values().stream().noneMatch(Account::enabled)) {
             throw new IllegalArgumentException("accounts 至少需要一个 enabled=true 的账号");
         }
@@ -131,6 +140,56 @@ public record BotConfig(
 
         public static Bilibili defaults(String credentialFileEnv) {
             return new Bilibili(credentialFileEnv, 60, true, true, false, 3);
+        }
+    }
+
+    /** 视频工具的默认值与硬上限；配置只影响工具参数默认值，不改变只读语义。 */
+    public record Video(
+            VideoQuality defaultQuality,
+            int maxHeight,
+            int defaultFrameCount,
+            int maxFrameCount,
+            Comments comments) {
+
+        public Video {
+            defaultQuality = defaultQuality == null ? VideoQuality.AUTO : defaultQuality;
+            if (maxHeight < 144 || maxHeight > 1080) {
+                throw new IllegalArgumentException("video.maxHeight 必须在 144..1080");
+            }
+            if (defaultFrameCount < 1 || defaultFrameCount > 9) {
+                throw new IllegalArgumentException("video.defaultFrameCount 必须在 1..9");
+            }
+            if (maxFrameCount < 1 || maxFrameCount > 9) {
+                throw new IllegalArgumentException("video.maxFrameCount 必须在 1..9");
+            }
+            if (defaultFrameCount > maxFrameCount) {
+                throw new IllegalArgumentException(
+                        "video.defaultFrameCount 不能大于 maxFrameCount");
+            }
+            comments = comments == null ? Comments.defaults() : comments;
+        }
+
+        public static Video defaults() {
+            return new Video(VideoQuality.AUTO, 720, 6, 9, Comments.defaults());
+        }
+    }
+
+    public record Comments(int defaultLimit, int maxLimit, boolean allowFullScan) {
+        public Comments {
+            if (defaultLimit < 1 || defaultLimit > 20) {
+                throw new IllegalArgumentException("video.comments.defaultLimit 必须在 1..20");
+            }
+            if (maxLimit < 1 || maxLimit > 20) {
+                throw new IllegalArgumentException("video.comments.maxLimit 必须在 1..20");
+            }
+            if (defaultLimit > maxLimit) {
+                throw new IllegalArgumentException(
+                        "video.comments.defaultLimit 不能大于 maxLimit");
+            }
+        }
+
+        public static Comments defaults() {
+            return new Comments(10, 20, false);
         }
     }
 

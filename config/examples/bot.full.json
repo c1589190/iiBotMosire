@@ -27,7 +27,9 @@
     "dataDir": "../data/inbox",
     "inboxId": "iibot-bot",
     "bindingLabel": "dsh-bot",
-    "channels": ["qq"],
+    "channels": [
+      "qq"
+    ],
     "bindingTtlHours": 24,
     "apiHost": "127.0.0.1",
     "apiPort": 0,
@@ -58,7 +60,10 @@
       },
       "keywordWeights": {},
       "aliases": [],
-      "commandPrefixes": ["/", "!"],
+      "commandPrefixes": [
+        "/",
+        "!"
+      ],
       "quietMillis": 180000,
       "cooldownMillis": 60000
     }
@@ -76,5 +81,16 @@
     },
     "maxFileSize": "20MB",
     "maxHistory": 30
+  },
+  "video": {
+    "defaultQuality": "auto",
+    "maxHeight": 720,
+    "defaultFrameCount": 6,
+    "maxFrameCount": 9,
+    "comments": {
+      "defaultLimit": 10,
+      "maxLimit": 20,
+      "allowFullScan": false
+    }
   }
 }

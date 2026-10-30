@@ -1,8 +1,8 @@
 # 视频站 Connect 与无头浏览器实施计划
 
-> **状态**：V1/V2 已完成（2026-10-31）；V3 待开始
+> **状态**：V1/V2/V3 已完成（2026-10-31）；V4 待开始
 > **设计**：[`../specs/2026-10-31-video-site-connect-and-browser-backend.md`](../specs/2026-10-31-video-site-connect-and-browser-backend.md)
-> **当前基线**：`7d24f9b`；**306 tests**（connect 73 / video 14 / bot 127 / app 92）；真实 B 站登录/私信/评论联调 `NOT_RUN`；Playwright 未接入。
+> **当前基线**：V3 代码/文档待提交；**317 tests**（connect 73 / video 16 / bot 127 / app 101）；真实 B 站 quality/time/comments 联调 `NOT_RUN`；Playwright 未接入。
 > **用户要求**：视频站能力集中到 connect；MCP 统一在 app 注册；分辨率/精确时间；
 > 无头浏览器必须兼容；配置项、易维护性和日志同步做好。
 
@@ -141,6 +141,20 @@
 - fake B 站 HTTP 单测覆盖 quality fallback/strict、精确时间、越界、游标；
 - 真实公开视频 smoke：指定时间帧和分辨率；
 - full/docs PASS。
+
+**V3 实际结果（2026-10-31）**：
+
+- 新增 `VideoQuality`、`VideoStreamInfo`；`BilibiliHttpClient` 提供
+  `playStreamSelection(...)` 与 `commentPage(...)`，覆盖 quality fallback/strict、
+  可用清晰度、楼中楼分页。
+- `BiliVideoFramesTool` 支持 `time`/`times`（SS/MM:SS/HH:MM:SS，相对分P，最多 9，
+  与 `count` 互斥，越界 `INVALID_TIMESTAMPS`）和 `quality`/`strictQuality`。
+- 新增 `video_comments`；`video_read`/`video_frames` 标准名与 `bili_*` 兼容名。
+- 新增 `BotConfig.Video`/`Comments`、loader、schema、examples 与
+  `--print-effective-config` video 节点。
+- `tools/gate.sh full` PASS：**317 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 73、video 16、bot 127、app 101）；真实公开视频 quality/时间点抽帧和
+  评论查询 smoke 因外部验收授权未跑，标 `NOT_RUN`。
 
 ## V4 Playwright embedded 浏览器 backend
 

@@ -92,6 +92,10 @@ class MainConfigCliTest {
                 .isEqualTo("10001");
         assertThat(tree.path("logging").path("rootLevel").asText()).isEqualTo("DEBUG");
         assertThat(tree.path("logging").path("opsLevel").asText()).isEqualTo("DEBUG");
+        assertThat(tree.path("video").path("defaultQuality").asText()).isEqualTo("auto");
+        assertThat(tree.path("video").path("maxHeight").asInt()).isEqualTo(720);
+        assertThat(tree.path("video").path("comments").path("maxLimit").asInt()).isEqualTo(20);
+
         assertThat(captured.err()).isEmpty();
     }
 

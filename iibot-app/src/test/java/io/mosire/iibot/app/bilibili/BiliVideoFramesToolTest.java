@@ -20,6 +20,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -78,6 +79,104 @@ class BiliVideoFramesToolTest {
         assertThat(data.path("streamHeight").asInt()).isEqualTo(720);
     }
 
+    @Test
+    void extractsExplicitTimesAndReportsQuality() throws Exception {
+        route("/x/web-interface/view", """
+                {"code":0,"message":"0","data":{
+                  "bvid":"BV1EPnG6DEJC","aid":117461382864435,
+                  "cid":42838132685,"title":"测试视频","desc":"",
+                  "duration":100,"pages":[{"cid":42838132685,"page":1}],
+                  "owner":{"mid":1,"name":"UP"}
+                }}
+                """);
+        route("/x/player/playurl", """
+                {"code":0,"data":{"dash":{"video":[
+                  {"baseUrl":"__VIDEO_URL__","backupUrl":[],
+                   "width":1280,"height":720,"codecs":"avc1","bandwidth":1000},
+                  {"baseUrl":"__VIDEO_URL__","backupUrl":[],
+                   "width":640,"height":360,"codecs":"avc1","bandwidth":400}
+                ]}}}
+                """.replace("__VIDEO_URL__", base + "/video.mp4"));
+        routeBytes("/video.mp4", new byte[]{0, 1, 2, 3, 4});
+        BotMediaStore store = new BotMediaStore(tempDir);
+        RecordingExtractor extractor = new RecordingExtractor();
+        BiliVideoFramesTool tool = new BiliVideoFramesTool(store, extractor, base, base);
+
+        ToolResult result = execute(tool, Map.of(
+                "target", "BV1EPnG6DEJC",
+                "times", List.of("0:01", "0:02.5", "0:03")));
+
+        assertThat(result.success()).isTrue();
+        assertThat(extractor.timestamps).containsExactly(1.0, 2.5, 3.0);
+        JsonNode data = JSON.readTree(result.message()).path("data");
+        assertThat(data.path("streamHeight").asInt()).isEqualTo(720);
+        assertThat(data.path("requestedQuality").asText()).isEqualTo("auto");
+        assertThat(data.path("actualQuality").asText()).isEqualTo("720p");
+        assertThat(data.path("availableQualities")).hasSize(2);
+        assertThat(data.path("qualityFallback").asBoolean()).isFalse();
+    }
+
+    @Test
+    void rejectsCountTogetherWithExplicitTime() {
+        BotMediaStore store = new BotMediaStore(tempDir);
+        BiliVideoFramesTool tool = new BiliVideoFramesTool(
+                store, new FakeExtractor(), base, base);
+
+        ToolResult result = execute(tool, Map.of(
+                "target", "BV1EPnG6DEJC", "count", 2, "time", "0:01"));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.code()).isEqualTo("INVALID_TIMESTAMPS");
+    }
+
+    @Test
+    void rejectsTimestampBeyondPageDuration() throws Exception {
+        route("/x/web-interface/view", """
+                {"code":0,"message":"0","data":{
+                  "bvid":"BV1EPnG6DEJC","aid":117461382864435,
+                  "cid":42838132685,"title":"测试视频","desc":"",
+                  "duration":100,"pages":[{"cid":42838132685,"page":1}],
+                  "owner":{"mid":1,"name":"UP"}
+                }}
+                """);
+        BotMediaStore store = new BotMediaStore(tempDir);
+        BiliVideoFramesTool tool = new BiliVideoFramesTool(
+                store, new FakeExtractor(), base, base);
+
+        ToolResult result = execute(tool, Map.of(
+                "target", "BV1EPnG6DEJC", "time", "2:00"));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.code()).isEqualTo("INVALID_TIMESTAMPS");
+    }
+
+    @Test
+    void strictQualityFailsWhenRequestedHeightIsUnavailable() throws Exception {
+        route("/x/web-interface/view", """
+                {"code":0,"message":"0","data":{
+                  "bvid":"BV1EPnG6DEJC","aid":117461382864435,
+                  "cid":42838132685,"title":"测试视频","desc":"",
+                  "duration":100,"pages":[{"cid":42838132685,"page":1}],
+                  "owner":{"mid":1,"name":"UP"}
+                }}
+                """);
+        route("/x/player/playurl", """
+                {"code":0,"data":{"dash":{"video":[{
+                  "baseUrl":"__VIDEO_URL__","backupUrl":[],
+                  "width":1280,"height":720,"codecs":"avc1","bandwidth":1000
+                }]}}}
+                """.replace("__VIDEO_URL__", base + "/video.mp4"));
+        BotMediaStore store = new BotMediaStore(tempDir);
+        BiliVideoFramesTool tool = new BiliVideoFramesTool(
+                store, new FakeExtractor(), base, base);
+
+        ToolResult result = execute(tool, Map.of(
+                "target", "BV1EPnG6DEJC", "quality", "1080p", "strictQuality", true));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.code()).isEqualTo("QUALITY_UNAVAILABLE");
+    }
+
     private static ToolResult execute(BiliVideoFramesTool tool, Map<String, Object> args) {
         AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
                 .allow(tool.name())
@@ -109,6 +208,19 @@ class BiliVideoFramesToolTest {
                 exchange.close();
             }
         });
+    }
+
+    private static final class RecordingExtractor implements BiliFrameExtractor {
+        private final List<Double> timestamps = new ArrayList<>();
+
+        @Override
+        public Frame extract(Path videoFile, double timestampSeconds,
+                             Path outputFile) throws Exception {
+            timestamps.add(timestampSeconds);
+            Files.write(outputFile, new byte[]{(byte) 0xFF, (byte) 0xD8,
+                    (byte) 0xFF, (byte) 0xD9});
+            return new Frame(outputFile, 1280, 720);
+        }
     }
 
     private static final class FakeExtractor implements BiliFrameExtractor {

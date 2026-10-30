@@ -3,6 +3,7 @@
 ## 职责
 
 - 承载视频站接入能力：B 站视频读取、评论读取/写入、扫码登录、抽帧与 B 站会话 Adapter。
+- 提供 `VideoQuality`/`VideoStreamInfo` 与评论分页模型；不注册 MCP 工具。
 - 对上层提供稳定的视频站领域 API；不依赖 AgentLib、MCP、Inbox 或 `iibot-bot` 业务模型。
 - 依赖 `iibot-connect` 的核心消息契约（`MessagingAdapter`、`InboundMessage`、`OutboundMessage` 等）。
 

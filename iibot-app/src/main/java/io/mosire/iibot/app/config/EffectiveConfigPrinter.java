@@ -125,6 +125,17 @@ public final class EffectiveConfigPrinter {
         weightingNode.put("quietMillis", weighting.quietMillis());
         weightingNode.put("cooldownMillis", weighting.cooldownMillis());
 
+        BotConfig.Video video = config.video();
+        ObjectNode videoNode = root.putObject("video");
+        videoNode.put("defaultQuality", video.defaultQuality().wireName());
+        videoNode.put("maxHeight", video.maxHeight());
+        videoNode.put("defaultFrameCount", video.defaultFrameCount());
+        videoNode.put("maxFrameCount", video.maxFrameCount());
+        ObjectNode commentNode = videoNode.putObject("comments");
+        commentNode.put("defaultLimit", video.comments().defaultLimit());
+        commentNode.put("maxLimit", video.comments().maxLimit());
+        commentNode.put("allowFullScan", video.comments().allowFullScan());
+
         BotConfig.Logging logging = config.logging();
         ObjectNode loggingNode = root.putObject("logging");
         loggingNode.put("directory", logging.directory().toString());

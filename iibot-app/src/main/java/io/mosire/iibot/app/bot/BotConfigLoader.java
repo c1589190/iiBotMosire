@@ -1,6 +1,7 @@
 package io.mosire.iibot.app.bot;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.mosire.iibot.connect.video.core.VideoQuality;
 import io.mosire.iibot.app.config.ConfigException;
 import io.mosire.iibot.app.config.JsonConfigBundle;
 import io.mosire.iibot.app.config.SecretProvider;
@@ -28,7 +29,8 @@ import java.util.Set;
 public final class BotConfigLoader {
 
     private static final Set<String> ROOT_FIELDS = Set.of(
-            "$schema", "dataDir", "accounts", "control", "inbox", "messageBoard", "logging");
+            "$schema", "dataDir", "accounts", "control", "inbox", "messageBoard",
+            "logging", "video");
     private static final Set<String> ACCOUNT_FIELDS = Set.of(
             "enabled", "adapter", "accountId", "oneBot", "bilibili");
     private static final Set<String> ONEBOT_FIELDS = Set.of(
@@ -54,6 +56,10 @@ public final class BotConfigLoader {
     private static final Set<String> LOGGING_FIELDS = Set.of(
             "directory", "console", "file", "rootLevel", "opsLevel", "levels",
             "maxFileSize", "maxHistory");
+    private static final Set<String> VIDEO_FIELDS = Set.of(
+            "defaultQuality", "maxHeight", "defaultFrameCount", "maxFrameCount", "comments");
+    private static final Set<String> VIDEO_COMMENTS_FIELDS = Set.of(
+            "defaultLimit", "maxLimit", "allowFullScan");
 
     private BotConfigLoader() {
     }
@@ -140,10 +146,12 @@ public final class BotConfigLoader {
                     requiredObject(root, "inbox", "/"), baseDir, dataDir);
             BotConfig.MessageBoard messageBoard = parseMessageBoard(root);
             BotConfig.Logging logging = parseLogging(root, baseDir);
+            BotConfig.Video video = parseVideo(root);
 
             BotConfig config;
             try {
-                config = new BotConfig(dataDir, accounts, control, inbox, messageBoard, logging);
+                config = new BotConfig(dataDir, accounts, control, inbox, messageBoard,
+                        logging, video);
             } catch (IllegalArgumentException invalid) {
                 throw error("/", "valid bot config", "object", invalid.getMessage());
             }
@@ -329,6 +337,53 @@ public final class BotConfigLoader {
                         heartbeatMillis, claimSweepMillis);
             } catch (IllegalArgumentException invalid) {
                 throw error(pointer, "valid inbox config", "object", invalid.getMessage());
+            }
+        }
+
+        private BotConfig.Video parseVideo(JsonNode root) {
+            JsonNode node = optionalObject(root, "video", "/");
+            if (node == null) {
+                return BotConfig.Video.defaults();
+            }
+            String pointer = "/video";
+            rejectUnknown(node, VIDEO_FIELDS, pointer, "video");
+            String qualityText = optionalText(node, "defaultQuality", pointer)
+                    .orElse("auto");
+            VideoQuality quality;
+            try {
+                quality = VideoQuality.parse(qualityText);
+            } catch (IllegalArgumentException invalid) {
+                throw error(pointer + "/defaultQuality",
+                        "auto/360p/480p/720p/1080p/best", qualityText,
+                        invalid.getMessage());
+            }
+            int maxHeight = optionalInt(node, "maxHeight", pointer, 720);
+            int defaultFrameCount = optionalInt(node, "defaultFrameCount", pointer, 6);
+            int maxFrameCount = optionalInt(node, "maxFrameCount", pointer, 9);
+            BotConfig.Comments comments = parseVideoComments(node, pointer);
+            try {
+                return new BotConfig.Video(quality, maxHeight, defaultFrameCount,
+                        maxFrameCount, comments);
+            } catch (IllegalArgumentException invalid) {
+                throw error(pointer, "valid video config", "object", invalid.getMessage());
+            }
+        }
+
+        private BotConfig.Comments parseVideoComments(JsonNode video, String parentPointer) {
+            JsonNode node = optionalObject(video, "comments", parentPointer);
+            if (node == null) {
+                return BotConfig.Comments.defaults();
+            }
+            String pointer = parentPointer + "/comments";
+            rejectUnknown(node, VIDEO_COMMENTS_FIELDS, pointer, "video.comments");
+            int defaultLimit = optionalInt(node, "defaultLimit", pointer, 10);
+            int maxLimit = optionalInt(node, "maxLimit", pointer, 20);
+            boolean allowFullScan = optionalBoolean(node, "allowFullScan", pointer, false);
+            try {
+                return new BotConfig.Comments(defaultLimit, maxLimit, allowFullScan);
+            } catch (IllegalArgumentException invalid) {
+                throw error(pointer, "valid video.comments config", "object",
+                        invalid.getMessage());
             }
         }
 

@@ -2,8 +2,9 @@
 
 > **状态**：已实施 P1–P7（2026-10-28）；D-034 已把统一 source/会话面扩展至
 > B 站私信与评论（2026-10-31，code-level）；真实外部联调待用户授权。
-> D-035 V1 已把视频站领域/登录/抽帧迁到独立 `iibot-video-connect`；下一步 V2 把
-> MCP 工具注册统一到 app 的 `BotToolCatalog`，见
+> D-035 V1/V2 已把视频站领域/登录/抽帧迁到独立 `iibot-video-connect`，并把
+> MCP 工具注册统一到 app 的 `BotToolCatalog`；V3 已补 quality/time/comments 与
+> `video.*` 配置；下一步 V4 Playwright embedded，见
 > [`2026-10-31-video-site-connect-and-browser-backend.md`](2026-10-31-video-site-connect-and-browser-backend.md)。
 > **本文取代**：无；细化并扩展 D-021 的 bot-first 方向。
 > **用户原话**：

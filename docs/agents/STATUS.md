@@ -1,10 +1,24 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-31 03:26（Asia/Shanghai）
+> **更新时间**：2026-10-31 03:35（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
 ## 0. 最新更新：P1a/P1b 清理与统一 QQ 客户端重构
+
+- **2026-10-31 D-035 V3 分辨率/精确时间/评论查询已完成（code-level）**，代码与文档提交待本轮收口：
+  - 新增 `VideoQuality`/`VideoStreamInfo`；`BilibiliHttpClient` 支持
+    `playStreamSelection(...)`、可用清晰度/requested/actual/fallback 与 strict
+    `QUALITY_UNAVAILABLE`；`commentPage(...)` 支持顶层/楼中楼分页。
+  - `BiliVideoFramesTool` 支持 `time`/`times`（SS/MM:SS/HH:MM:SS，相对分P，最多 9，
+    与 `count` 互斥，越界 `INVALID_TIMESTAMPS`）和 `quality`/`strictQuality`。
+  - 新增 `video_comments`；`video_read`/`video_frames` 标准名 + `bili_*` 兼容名；
+    登录工具仍为 `bili_account_login_*`。
+  - 新增顶层 `video` 配置（quality/maxHeight/frame counts/comments）与严格 schema；
+    `--print-effective-config` 输出脱敏 video 节点。
+  - `tools/gate.sh full` PASS：**317 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 73、video 16、bot 127、app 101）；docs gate 结果见 §3。
+  - 真实 B 站清晰度/评论/时间点抽帧与浏览器联调仍 `NOT_RUN`；下一步 V4 Playwright embedded。
 
 - **2026-10-31 D-035 V2 单一 MCP 工具目录已完成（code-level）**，提交 `7d24f9b`：
   - 新增 app 层 `BotToolCatalog`、`BotToolContext` 与 `QqToolPack` / `MediaToolPack` /
@@ -16,7 +30,7 @@
     `bili_video_read` 与账号登录工具，工具名/参数/返回形状未变。
   - `tools/gate.sh full` PASS：**306 tests / 0 failures / 0 errors / 0 skipped**
     （connect 73、video 14、bot 127、app 92）；docs gate 结果见 §3。
-  - 真实 B 站/浏览器外部联调仍 `NOT_RUN`；下一步 V3 精确时间/分辨率/评论查询。
+  - 真实 B 站/浏览器外部联调仍 `NOT_RUN`；V3 由本轮提交接续。
 
 - **2026-10-31 D-035 V1 视频站模块抽取已完成（code-level）**，提交 `84fd1a8`：
   - 新增第 4 个 Maven 模块 `iibot-video-connect`；B 站领域、Adapter、扫码登录、
@@ -284,8 +298,9 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 
 当前进行中：
 
-- D-035 V1 `iibot-video-connect` 抽取、V2 app 单一 `BotToolCatalog`/tool packs
-  已完成（code-level，提交 `84fd1a8` / `7d24f9b`）；下一步 V3；
+- D-035 V1 `iibot-video-connect` 抽取、V2 app 单一 `BotToolCatalog`/tool packs、
+  V3 分辨率/精确时间/评论查询已完成（code-level，提交 `84fd1a8` / `7d24f9b`）；
+  下一步 V4 Playwright embedded；
 - P1b–P8.7 已完成并合并；
 - **Bot 试运行摩擦第一批（2026-10-29）已完成（code-level）**：按
   [`../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md`](../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md)
@@ -308,16 +323,18 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.7）；feature/fix 分支保留 |
-| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e`；D-035 设计 `5e901b3`；D-035 环境补充 `059de6f`；D-035 V1 `84fd1a8`；D-035 V2 `7d24f9b` |
+| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e`；D-035 设计 `5e901b3`；D-035 环境补充 `059de6f`；D-035 V1 `84fd1a8`；D-035 V2 `7d24f9b`；D-035 V3 代码/文档本轮提交 |
 | Maven reactor | **4 模块**：`iibot-connect` / `iibot-video-connect` / `iibot-bot` / `iibot-app`；V1 已创建并迁移 |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | V1 代码 `84fd1a8`、V2 代码 `7d24f9b`；V2 docs 随本轮文档提交；D-034 代码在 `a3ddf32`/`6967a28`/`7214a2e` |
+| 工作树 | V1/V2 代码已提交；V3 代码/配置/测试待本轮提交；D-034 代码在 `a3ddf32`/`6967a28`/`7214a2e` |
 | 模块目标 | **当前 4 模块**；`iibot-connect` 已退出 B 站/视频职责，`iibot-video-connect` 为视频站边界 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
+| D-035 V3 full | `tools/gate.sh full` PASS：**317 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 16、bot 127、app 101） |
+| D-035 V3 docs | `tools/gate.sh docs` PASS（modules=4 files=50 links=162） |
 | D-035 V2 full | `tools/gate.sh full` PASS：**306 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 14、bot 127、app 92） |
 | D-035 V2 docs | `tools/gate.sh docs` PASS（modules=4 files=50 links=162） |
 | D-035 V1 full | `tools/gate.sh full` PASS：**304 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 14、bot 127、app 90） |
@@ -456,19 +473,19 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 14. **source-only direct ack 竞态**：未 read 时 ack 归档当前 active item；
     wake 后、ack 前到达的新消息可能被一并归档。这是既有 direct-ack 边界，D-032
     没有引入 through 字段；需要真实运行观察，必要时再裁定。
-15. **D-035 V3–V7 尚未进入代码**：V1 已创建 `iibot-video-connect`，V2 已把
-    app 工具注册收敛到 `BotToolCatalog`；但 `quality/time/times`、`video_comments`、
-    Playwright、`video.*` 配置与浏览器日志仍未实现；snap Chromium 156 已安装且
-    headless `about:blank` PASS，但 B 站页面帧、remote-cdp、服务器部署均 `NOT_RUN`。
-    交互范围已选 B，V6 才实现点赞/投币/收藏/关注，不得提前。
+15. **D-035 V4–V7 尚未进入代码**：V1/V2/V3 已完成模块、工具目录、质量/精确时间/
+    评论查询与 `video.*` 配置；Playwright、浏览器日志、remote-cdp、真实 B 站清晰度/
+    评论验收仍未实现。snap Chromium 156 已安装且 headless `about:blank` PASS，但
+    B 站页面帧、remote-cdp、服务器部署均 `NOT_RUN`。交互范围已选 B，V6 才实现
+    点赞/投币/收藏/关注，不得提前。
 
 ## 7. 下一步
 
-**D-035 优先顺序**：V1 模块抽取、V2 单一工具目录已完成；下一步 V3 视频质量/
-精确时间/评论查询；V4/V5 才引入浏览器；V6 按已选范围 B 实现。
+**D-035 优先顺序**：V1 模块抽取、V2 单一工具目录、V3 质量/精确时间/评论查询
+已完成；下一步 V4 Playwright embedded；V5 才做 remote-cdp/服务器；V6 按已选范围 B 实现。
 
-1. **D-035 V3**：在现有 `iibot-video-connect`/app 工具面上补 `quality`、
-   `time/times`、`video_comments`；保持消息/Inbox 语义不变。
+1. **D-035 V4**：接入 Playwright Java + 系统 Chromium 的 embedded backend，默认
+   `browser.enabled=false`；不改变 ffmpeg 默认抽帧路径；真实浏览器验收仍 `NOT_RUN`。
 2. **B 站 D-034 验收**：为 B 站 Adapter 准备独立测试账号 Cookie，验证登录、
    私信轮询、评论回复通知、统一 source 入库/Inbox wake、conversation_send
    三态和 UNKNOWN 不重发；真实写入前先取得用户授权。

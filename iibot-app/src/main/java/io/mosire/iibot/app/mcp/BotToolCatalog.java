@@ -4,6 +4,7 @@ import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.iibot.app.mcp.toolpack.InboxToolPack;
 import io.mosire.iibot.app.mcp.toolpack.MediaToolPack;
 import io.mosire.iibot.app.mcp.toolpack.QqToolPack;
+import io.mosire.iibot.app.bot.BotConfig;
 import io.mosire.iibot.app.mcp.toolpack.VideoSiteToolPack;
 import io.mosire.iibot.connect.ops.OpsLog;
 import io.mosire.iibot.connect.video.core.VideoAccountRef;
@@ -17,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * App 层唯一的 MCP 工具注册目录。
  *
  * <p>运行时只负责构造 {@link BotToolContext}；QQ、媒体、Inbox、视频站工具的选择和
- * 注册全部在这里完成。工具顺序保持 V1 行为：QQ → 媒体上传 → 视频分帧 → 条件媒体/
+ * 注册全部在这里完成。工具顺序：QQ → 媒体上传 → 视频分帧 → 视频评论 → 条件媒体/
  * 群文件/撤回 → 视频账号工具 → 兼容 extraTools → Inbox。</p>
  */
 public final class BotToolCatalog implements AutoCloseable {
@@ -25,24 +26,33 @@ public final class BotToolCatalog implements AutoCloseable {
     private final List<VideoAccountRef> videoAccounts;
     private final List<AgentTool> extraTools;
     private final boolean videoReadEnabled;
+    private final BotConfig.Video video;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     private BotToolCatalog(List<VideoAccountRef> videoAccounts,
-                           List<AgentTool> extraTools, boolean videoReadEnabled) {
+                           List<AgentTool> extraTools, boolean videoReadEnabled,
+                           BotConfig.Video video) {
         this.videoAccounts = List.copyOf(Objects.requireNonNull(videoAccounts,
                 "videoAccounts"));
         this.extraTools = List.copyOf(Objects.requireNonNull(extraTools, "extraTools"));
         this.videoReadEnabled = videoReadEnabled;
+        this.video = Objects.requireNonNull(video, "video");
     }
 
-    /** 无 B 站账号的默认目录；只注册匿名分帧工具，保持运行时测试入口行为。 */
+    /** 无 B 站账号的默认目录；注册匿名分帧与评论查询，保持运行时测试入口行为。 */
     public static BotToolCatalog standard() {
-        return new BotToolCatalog(List.of(), List.of(), false);
+        return new BotToolCatalog(List.of(), List.of(), false,
+                BotConfig.Video.defaults());
     }
 
     /** 生产组合根目录：注册通用读取；有账号时再加登录工具。 */
     public static BotToolCatalog withVideoAccounts(List<VideoAccountRef> videoAccounts) {
-        return new BotToolCatalog(videoAccounts, List.of(), true);
+        return withVideoAccounts(videoAccounts, BotConfig.Video.defaults());
+    }
+
+    public static BotToolCatalog withVideoAccounts(List<VideoAccountRef> videoAccounts,
+                                                   BotConfig.Video video) {
+        return new BotToolCatalog(videoAccounts, List.of(), true, video);
     }
 
     /**
@@ -53,7 +63,8 @@ public final class BotToolCatalog implements AutoCloseable {
      */
     public static BotToolCatalog withExtraTools(List<AgentTool> extraTools) {
         return new BotToolCatalog(List.of(),
-                extraTools == null ? List.of() : extraTools, false);
+                extraTools == null ? List.of() : extraTools, false,
+                BotConfig.Video.defaults());
     }
 
     /** 组装本次运行时的完整工具清单。 */
@@ -64,8 +75,9 @@ public final class BotToolCatalog implements AutoCloseable {
         MediaToolPack media = new MediaToolPack(context);
         tools.addAll(media.uploadTools());
         VideoSiteToolPack video = new VideoSiteToolPack(videoAccounts,
-                context.mediaStore(), videoReadEnabled);
+                context.mediaStore(), videoReadEnabled, this.video);
         tools.addAll(video.frameTools());
+        tools.addAll(video.commentTools());
         tools.addAll(media.capabilityTools());
         tools.addAll(video.accountTools());
         tools.addAll(extraTools);

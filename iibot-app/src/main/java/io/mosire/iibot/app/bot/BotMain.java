@@ -169,7 +169,7 @@ public final class BotMain {
                     config.inbox().inboxId(), board.summaryDebounceMillis(),
                     board.maxPreviewMessages(), board.inlineMaxChars());
             runtime = BotRuntime.start(accountRegistry, options,
-                    BotToolCatalog.withVideoAccounts(biliVideoAccounts),
+                    BotToolCatalog.withVideoAccounts(biliVideoAccounts, config.video()),
                     java.time.Clock.systemUTC());
             BotRuntime shutdownTarget = runtime;
             Runtime.getRuntime().addShutdownHook(

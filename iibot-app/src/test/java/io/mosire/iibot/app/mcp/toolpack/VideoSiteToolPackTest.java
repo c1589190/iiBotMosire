@@ -3,6 +3,7 @@ package io.mosire.iibot.app.mcp.toolpack;
 import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.iibot.app.bilibili.BiliAccountLoginPollTool;
 import io.mosire.iibot.app.bilibili.BiliAccountLoginStartTool;
+import io.mosire.iibot.app.bilibili.BiliVideoCommentsTool;
 import io.mosire.iibot.app.bilibili.BiliVideoFramesTool;
 import io.mosire.iibot.app.bilibili.BiliVideoReadTool;
 import io.mosire.iibot.app.media.BotMediaStore;
@@ -25,7 +26,9 @@ class VideoSiteToolPackTest {
         VideoSiteToolPack pack = new VideoSiteToolPack(List.of(),
                 new BotMediaStore(tempDir), false);
 
-        assertThat(names(pack.frameTools())).containsExactly(BiliVideoFramesTool.NAME);
+        assertThat(names(pack.frameTools())).containsExactly(
+                BiliVideoFramesTool.NAME, "video_frames");
+        assertThat(names(pack.commentTools())).containsExactly(BiliVideoCommentsTool.NAME);
         assertThat(pack.accountTools()).isEmpty();
     }
 
@@ -34,14 +37,14 @@ class VideoSiteToolPackTest {
         VideoSiteToolPack anonymous = new VideoSiteToolPack(List.of(),
                 new BotMediaStore(tempDir), true);
         assertThat(names(anonymous.accountTools()))
-                .containsExactly(BiliVideoReadTool.NAME);
+                .containsExactly(BiliVideoReadTool.NAME, "video_read");
 
         VideoAccountRef account = new VideoAccountRef("bili-1",
                 tempDir.resolve("credential.json"));
         VideoSiteToolPack configured = new VideoSiteToolPack(List.of(account),
                 new BotMediaStore(tempDir.resolve("configured")), true);
         assertThat(names(configured.accountTools())).containsExactly(
-                BiliVideoReadTool.NAME,
+                BiliVideoReadTool.NAME, "video_read",
                 BiliAccountLoginStartTool.NAME,
                 BiliAccountLoginPollTool.NAME);
     }

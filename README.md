@@ -2,7 +2,7 @@
 
 面向各类 Agent 软件的**统一 QQ / B 站会话客户端**：通过 OneBot 11 接入 QQ、通过 B 站 Web API 接入私信与评论，把消息写入统一消息板，提供统一 MCP 工具，并用 Inbox 唤醒外部 Agent。B 站视频阅读/抽帧是独立的通用只读工具；抽帧需要本机 `ffmpeg`（可用 `IIBOT_FFMPEG` 指定）。
 
-> **当前阶段**：D-035 V2 已完成 app 单一 `BotToolCatalog`/tool packs（code-level），V1 已完成 `iibot-video-connect` 第 4 个模块抽取；B 站领域/登录/抽帧已从 connect/app 迁出；D-034 B 站通用视频阅读与私信/评论 Inbox Adapter 第一批 code-level，QQ 侧 D-033 语义化 MCP 已 code-level 完成。默认 4 个模块、`qq_*` 与通用 `conversation_*` 工具、多账号路由、服务端 read/ack、配置/日志 v2；下一步 D-035 V3 精确时间/分辨率/评论查询。真实 QQ/B站/DSH/OpenCode 外部联调与 AgentLib 0.2.4 公开发布仍待办。当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
+> **当前阶段**：D-035 V3 已完成视频质量/精确时间/评论查询（code-level），V2 已完成 app 单一 `BotToolCatalog`/tool packs，V1 已完成 `iibot-video-connect` 第 4 个模块抽取；B 站领域/登录/抽帧已从 connect/app 迁出。默认 4 个模块、`video_*` 标准工具与 `bili_*` 别名、`qq_*`/`conversation_*` 工具、多账号路由、服务端 read/ack、配置/日志 v2；下一步 D-035 V4 Playwright embedded 浏览器。真实 QQ/B站/DSH/OpenCode 外部联调与 AgentLib 0.2.4 公开发布仍待办。当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
 
 ## 当前模块
 
@@ -28,9 +28,12 @@ iibot-connect
 - OneBot 11 事件 WebSocket + HTTP Action；
 - QQ 私聊/群聊入库、thread、历史、用户备注、媒体读取、好友申请；
 - B 站账号凭据校验、WBI、私信轮询、评论回复通知轮询、私信/评论发送（写入默认关闭）；
-- 通用 `bili_video_read`：任意来源的 B 站链接/BV/av/b23，返回元数据、简介、热评和可选字幕；
-- 通用 `bili_video_frames`：下载 B 站视频流并用 ffmpeg 均匀抽帧，把多张 JPEG 作为
+- 通用 `video_read` / `bili_video_read`：任意来源的 B 站链接/BV/av/b23，返回元数据、简介、热评和可选字幕；
+- 通用 `video_frames` / `bili_video_frames`：支持 `count` 均匀抽帧或 `time/times` 精确时间，
+  可选 `quality`/`strictQuality`；下载视频流后用 ffmpeg 抽帧，把多张 JPEG 作为
   MCP ImageContent 返回，供多模态 Agent 真正看画面；
+- 通用 `video_comments`：按需读取顶层评论或楼中楼，支持 hot/time、cursor/limit；
+- `video.defaultQuality/maxHeight/defaultFrameCount/maxFrameCount/comments.*` 配置；
 - Inbox 来源未读预览与**全入站消息唤醒**（权重只排序/诊断，不 gate）；
 - 回环 Bot MCP，默认暴露统一 `qq_*` 业务工具、`inbox_rest` 与宿主交接 descriptor；
 - 出站三态：`SENT` / `FAILED_BEFORE_SEND` / `UNKNOWN`，`UNKNOWN` 不自动重发；

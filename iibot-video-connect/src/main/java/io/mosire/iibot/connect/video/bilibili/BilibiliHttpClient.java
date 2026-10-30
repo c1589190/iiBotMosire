@@ -2,6 +2,8 @@ package io.mosire.iibot.connect.video.bilibili;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.mosire.iibot.connect.video.core.VideoQuality;
+import io.mosire.iibot.connect.video.core.VideoStreamInfo;
 
 import java.io.IOException;
 import java.net.URI;
@@ -22,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -62,6 +65,7 @@ public final class BilibiliHttpClient implements AutoCloseable {
     private final URI navUri;
     private final URI viewUri;
     private final URI repliesUri;
+    private final URI replyReplyUri;
     private final URI playerWbiUri;
     private final URI playUrlUri;
     private final URI msgfeedReplyUri;
@@ -94,6 +98,7 @@ public final class BilibiliHttpClient implements AutoCloseable {
         this.navUri = URI.create(api + "/x/web-interface/nav");
         this.viewUri = URI.create(api + "/x/web-interface/view");
         this.repliesUri = URI.create(api + "/x/v2/reply");
+        this.replyReplyUri = URI.create(api + "/x/v2/reply/reply");
         this.playerWbiUri = URI.create(api + "/x/player/wbi/v2");
         this.playUrlUri = URI.create(api + "/x/player/playurl");
         this.msgfeedReplyUri = URI.create(api + "/x/msgfeed/reply");
@@ -171,15 +176,39 @@ public final class BilibiliHttpClient implements AutoCloseable {
     }
 
     public List<BilibiliModels.Comment> comments(String aid, int page, int size) {
+        return commentPage(aid, "", page, size, "1").comments();
+    }
+
+    /** 顶层评论或楼中楼分页；rootRpid 为空时查询顶层评论。 */
+    public BilibiliModels.CommentPage commentPage(String aid, String rootRpid,
+                                                   int page, int size, String sort) {
         if (aid == null || aid.isBlank()) throw new IllegalArgumentException("aid 不能为空");
-        if (page < 1 || page > 20) throw new IllegalArgumentException("comment page 超范围");
+        if (page < 1 || page > 10_000) throw new IllegalArgumentException("comment page 超范围");
         if (size < 1 || size > 20) throw new IllegalArgumentException("comment size 超范围");
-        Map<String, String> query = Map.of(
-                "type", "1", "oid", aid.trim(), "pn", Integer.toString(page),
-                "ps", Integer.toString(size), "sort", "1", "nohot", "0");
-        JsonNode root = getJson(withQuery(repliesUri, query), false,
+        String root = rootRpid == null ? "" : rootRpid.trim();
+        if (!root.isEmpty() && !root.chars().allMatch(Character::isDigit)) {
+            throw new IllegalArgumentException("root 必须是评论 rpid");
+        }
+        String normalizedSort = sort == null || sort.isBlank() ? "1" : sort.trim();
+        if (!Set.of("0", "1", "2").contains(normalizedSort)) {
+            throw new IllegalArgumentException("comment sort 只允许 0/1/2");
+        }
+        URI endpoint = root.isEmpty() ? repliesUri : replyReplyUri;
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("type", "1");
+        query.put("oid", aid.trim());
+        query.put("pn", Integer.toString(page));
+        query.put("ps", Integer.toString(size));
+        if (root.isEmpty()) {
+            query.put("sort", normalizedSort);
+            query.put("nohot", "0");
+        } else {
+            query.put("root", root);
+        }
+        JsonNode rootNode = getJson(withQuery(endpoint, query), false,
                 "BILI_COMMENTS_FAILED");
-        JsonNode replies = root.path("data").path("replies");
+        JsonNode data = rootNode.path("data");
+        JsonNode replies = data.path("replies");
         List<BilibiliModels.Comment> values = new ArrayList<>();
         if (replies.isArray()) {
             for (JsonNode reply : replies) {
@@ -188,9 +217,12 @@ public final class BilibiliHttpClient implements AutoCloseable {
                 String parentId = firstText(reply.get("parent_str"), reply.get("parent"));
                 String message = text(reply.path("content").get("message"));
                 if (rpid.isBlank() || message.isBlank()) continue;
+                String resolvedRoot = !root.isEmpty()
+                        ? root
+                        : ("0".equals(rootId) ? rpid : rootId);
                 values.add(new BilibiliModels.Comment(
                         rpid,
-                        "0".equals(rootId) ? rpid : rootId,
+                        resolvedRoot,
                         "0".equals(parentId) ? rpid : parentId,
                         longValue(reply.path("member").get("mid")),
                         text(reply.path("member").get("uname")),
@@ -200,7 +232,18 @@ public final class BilibiliHttpClient implements AutoCloseable {
                         intValue(reply.get("state"))));
             }
         }
-        return List.copyOf(values);
+        JsonNode pageNode = data.path("page");
+        int currentPage = intValue(pageNode.get("num"));
+        if (currentPage < 1) currentPage = page;
+        int totalPages = intValue(pageNode.get("count"));
+        long total = longValue(pageNode.get("acount"));
+        if (total <= 0L) total = longValue(data.path("total"));
+        boolean hasMore = totalPages > 0
+                ? currentPage < totalPages
+                : values.size() >= size;
+        String nextCursor = hasMore ? Integer.toString(currentPage + 1) : "";
+        return new BilibiliModels.CommentPage(values, currentPage, size, total,
+                totalPages, hasMore, nextCursor);
     }
 
     public void downloadStream(BilibiliModels.PlayStream stream, java.nio.file.Path target,
@@ -261,14 +304,29 @@ public final class BilibiliHttpClient implements AutoCloseable {
 
     /** 选择不超过 maxHeight 的 DASH 视频流；只有 durl 时回退到整段 MP4。 */
     public BilibiliModels.PlayStream playStream(String bvid, long cid, int maxHeight) {
+        return playStreamSelection(bvid, cid, VideoQuality.AUTO, false, maxHeight).stream();
+    }
+
+    /**
+     * 选择播放流并返回 requested/actual/available/fallback 信息。
+     *
+     * <p>DASH 流按像素高度选择；只有 durl 时回退整段 MP4。strictQuality 只对
+     * 显式 360p/480p/720p/1080p 生效：没有精确高度时抛出 QUALITY_UNAVAILABLE。</p>
+     */
+    public BilibiliModels.StreamSelection playStreamSelection(
+            String bvid, long cid, VideoQuality quality, boolean strictQuality,
+            int maxHeight) {
         if (bvid == null || bvid.isBlank() || cid <= 0L) {
             throw new IllegalArgumentException("bvid/cid 不能为空");
         }
-        int heightLimit = Math.max(144, Math.min(maxHeight, 1080));
+        VideoQuality requested = quality == null ? VideoQuality.AUTO : quality;
+        int heightLimit = Math.max(144, Math.min(maxHeight <= 0 ? 1080 : maxHeight, 2160));
+        int qn = requested == VideoQuality.AUTO
+                ? VideoQuality.qnForHeight(heightLimit) : requested.qn();
         Map<String, String> query = new LinkedHashMap<>();
         query.put("bvid", bvid.trim());
         query.put("cid", Long.toString(cid));
-        query.put("qn", "64");
+        query.put("qn", Integer.toString(qn));
         query.put("fnval", "16");
         query.put("fourk", "1");
         query.put("platform", "html5");
@@ -277,36 +335,88 @@ public final class BilibiliHttpClient implements AutoCloseable {
         JsonNode data = root.path("data");
         JsonNode videos = data.path("dash").path("video");
         if (videos.isArray() && !videos.isEmpty()) {
-            JsonNode selected = null;
+            List<Integer> available = new ArrayList<>();
             for (JsonNode video : videos) {
                 int height = intValue(video.get("height"));
-                if (height <= 0 || height > heightLimit) continue;
-                if (selected == null
-                        || longValue(video.get("bandwidth"))
-                        > longValue(selected.get("bandwidth"))) {
-                    selected = video;
-                }
+                if (height > 0 && !available.contains(height)) available.add(height);
             }
-            if (selected == null) selected = videos.get(0);
+            available.sort(Integer::compareTo);
+            JsonNode selected = selectStream(videos, requested, strictQuality, heightLimit);
+            int selectedHeight = intValue(selected.get("height"));
+            boolean fallback = requested == VideoQuality.AUTO
+                    ? selectedHeight > heightLimit
+                    : requested.explicitHeight() && selectedHeight != requested.targetHeight();
             String base = text(selected.get("baseUrl"));
             String backup = "";
             JsonNode backups = selected.path("backupUrl");
             if (backups.isArray() && !backups.isEmpty()) backup = text(backups.get(0));
-            return new BilibiliModels.PlayStream(base, backup,
-                    intValue(selected.get("width")), intValue(selected.get("height")),
+            BilibiliModels.PlayStream stream = new BilibiliModels.PlayStream(base, backup,
+                    intValue(selected.get("width")), selectedHeight,
                     text(selected.get("codecs")), longValue(selected.get("bandwidth")),
                     0L);
+            VideoStreamInfo info = new VideoStreamInfo(
+                    requested.wireName(), heightLimit,
+                    VideoQuality.labelForHeight(selectedHeight), stream.width(),
+                    stream.height(), available, fallback);
+            return new BilibiliModels.StreamSelection(stream, info);
         }
         JsonNode durl = data.path("durl");
         if (durl.isArray() && !durl.isEmpty()) {
+            if (strictQuality && requested.explicitHeight()) {
+                throw new BilibiliApiException("QUALITY_UNAVAILABLE",
+                        "B站没有返回指定清晰度的 DASH 流");
+            }
             String url = text(durl.get(0).get("url"));
             String backup = "";
             JsonNode backups = durl.get(0).path("backup_url");
             if (backups.isArray() && !backups.isEmpty()) backup = text(backups.get(0));
-            return new BilibiliModels.PlayStream(url, backup, 0, 0, "mp4", 0L,
-                    longValue(durl.get(0).get("size")));
+            BilibiliModels.PlayStream stream = new BilibiliModels.PlayStream(
+                    url, backup, 0, 0, "mp4", 0L, longValue(durl.get(0).get("size")));
+            VideoStreamInfo info = new VideoStreamInfo(
+                    requested.wireName(), heightLimit, "unknown", 0, 0,
+                    List.of(), requested.explicitHeight());
+            return new BilibiliModels.StreamSelection(stream, info);
         }
         throw new BilibiliApiException("BILI_PLAYURL_EMPTY", "B站没有返回可下载视频流");
+    }
+
+    private static JsonNode selectStream(JsonNode videos, VideoQuality quality,
+                                         boolean strictQuality, int heightLimit) {
+        JsonNode highest = null;
+        JsonNode lowest = null;
+        JsonNode exact = null;
+        JsonNode lower = null;
+        int target = quality == VideoQuality.AUTO
+                ? heightLimit : quality.targetHeight();
+        for (JsonNode video : videos) {
+            int height = intValue(video.get("height"));
+            if (height <= 0) continue;
+            if (lowest == null || height < intValue(lowest.get("height"))) lowest = video;
+            if (highest == null || height > intValue(highest.get("height"))) highest = video;
+            if (quality.explicitHeight() && height == target
+                    && (exact == null || longValue(video.get("bandwidth"))
+                    > longValue(exact.get("bandwidth")))) {
+                exact = video;
+            }
+            if (height <= target && (lower == null
+                    || height > intValue(lower.get("height"))
+                    || (height == intValue(lower.get("height"))
+                    && longValue(video.get("bandwidth")) > longValue(lower.get("bandwidth"))))) {
+                lower = video;
+            }
+        }
+        if (highest == null) {
+            throw new BilibiliApiException("BILI_PLAYURL_EMPTY", "B站没有返回有效视频流");
+        }
+        if (quality == VideoQuality.BEST) return highest;
+        if (quality.explicitHeight() && strictQuality) {
+            if (exact == null) {
+                throw new BilibiliApiException("QUALITY_UNAVAILABLE",
+                        "B站没有返回请求的清晰度");
+            }
+            return exact;
+        }
+        return lower == null ? lowest : lower;
     }
 
     public BilibiliModels.SubtitleTrack subtitles(String bvid, long cid) {

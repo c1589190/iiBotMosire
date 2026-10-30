@@ -65,6 +65,37 @@ public final class BilibiliModels {
         }
     }
 
+    public record CommentPage(
+            List<Comment> comments,
+            int page,
+            int size,
+            long total,
+            int totalPages,
+            boolean hasMore,
+            String nextCursor) {
+        public CommentPage {
+            comments = comments == null ? List.of() : List.copyOf(comments);
+            if (page < 1 || size < 1) {
+                throw new IllegalArgumentException("评论分页参数非法");
+            }
+            total = Math.max(0L, total);
+            totalPages = Math.max(0, totalPages);
+            nextCursor = nextCursor == null ? "" : nextCursor.trim();
+        }
+
+        public static CommentPage empty(int page, int size) {
+            return new CommentPage(List.of(), page, size, 0L, 0, false, "");
+        }
+    }
+
+    public record StreamSelection(PlayStream stream,
+                                  io.mosire.iibot.connect.video.core.VideoStreamInfo info) {
+        public StreamSelection {
+            stream = Objects.requireNonNull(stream, "stream");
+            info = Objects.requireNonNull(info, "info");
+        }
+    }
+
     public record PlayStream(String url, String backupUrl, int width, int height,
                              String codec, long bandwidth, long expectedBytes) {
         public PlayStream {
