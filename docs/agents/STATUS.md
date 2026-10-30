@@ -10,6 +10,8 @@
   主提交 `a3ddf32`，扫码登录提交 `6967a28`：
   - 通用只读 `bili_video_read`：任意来源 BV/av、bilibili.com/video、b23.tv 短链；
     返回视频元数据、简介、可选热评和登录态字幕；不进入消息板/Inbox；
+  - 通用 `bili_video_frames`：下载视频流后用 ffmpeg 均匀抽帧，把 JPEG 作为
+    MCP ImageContent 返回；真实公开视频 3 帧 smoke PASS；
   - `ChatType.EXTERNAL` + 统一 source：新增 `bili_dm/...`、`bili_comment/...`、
     `bili_video/...`，QQ 旧 threadId/数据保持兼容；
   - `BilibiliAdapter`：0600 Cookie 文件、nav 登录校验、WBI、私信轮询、评论回复
@@ -22,8 +24,8 @@
   - 真实匿名 `bili_video_read` smoke PASS：公开视频元数据/热评读取成功；
     真实 B 站登录、私信轮询、评论通知、私信/评论发送均 `NOT_RUN`。
   - `tools/gate.sh docs` PASS（modules=3 files=47 links=142）；
-    `tools/gate.sh full` PASS，**303 tests / 0 failures / 0 errors / 0 skipped**
-    （connect 86、bot 127、app 90）。
+    `tools/gate.sh full` PASS，**304 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 86、bot 127、app 91）。
   - 设计正本：
     [`../superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md`](../superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md)。
 
@@ -264,9 +266,9 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 | 项 | 实际结果 |
 |---|---|
-| D-034 full | `tools/gate.sh full` PASS：**303 tests / 0 failures / 0 errors / 0 skipped**（connect 86、bot 127、app 90） |
+| D-034 full | `tools/gate.sh full` PASS：**304 tests / 0 failures / 0 errors / 0 skipped**（connect 86、bot 127、app 91） |
 | D-034 docs | `tools/gate.sh docs` PASS（modules=3 files=47 links=142） |
-| D-034 B站匿名 smoke | `bili_video_read` 公开视频元数据/热评读取 PASS；登录态字幕、私信、评论通知与真实外发 `NOT_RUN` |
+| D-034 B站匿名 smoke | `bili_video_read` 元数据/热评 PASS；`bili_video_frames` 真实公开视频 3 帧 + ImageContent PASS；登录态字幕、私信、评论通知与真实外发 `NOT_RUN` |
 | D-033 phase 1 full | `tools/gate.sh full` PASS：**282 tests / 0 failures / 0 errors / 0 skipped**（connect 73、bot 124、app 85）；docs PASS（modules=3 files=46 links=132） |
 | D-033 DSH generic | InboxMosire-DSH `npm test` PASS：150 tests / 147 pass / 3 live-skipped / 0 fail；iiBotDSH wake-profile 2/2、persona 24/24；真实 reload/rebind `NOT_RUN` |
 | P1a full gate | `tools/gate.sh full` PASS：**174 tests / 0 failures / 0 errors / 0 skipped**（connect 46、connect-agent 21、bot 67、app 40） |
@@ -339,6 +341,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 - B 站 Cookie/WBI 登录校验、扫码登录工具、私信轮询、评论回复通知轮询、
   私信/评论回复发送；
 - `bili_video_read` 通用视频阅读（元数据/简介/热评/登录态字幕）；
+- `bili_video_frames` 通用抽帧看图：下载受控视频流、ffmpeg 均匀抽帧、
+  JPEG 经 BotMediaStore 作为 MCP ImageContent 返回；
 - QQ 私聊/群聊消息板、thread、历史、用户备注、媒体、好友申请；入站卡片提取安全
   标题/描述/链接，群文件保存文件名/大小/内部 file id；MCP 不返回 file id 或 URL；
 - `qq_forward_media_get`：顶层合并转发图片以 MCP ImageContent 返回；
@@ -384,10 +388,12 @@ OneBot 11 / NapCat / LLBot（可多个）
    仍为 `NOT_RUN`。真实写入需要独立测试账号和用户当次授权。
 10. **B 站视频字幕未实测**：无登录态只做公开元数据/热评；登录态字幕链路和
     b23 短链联网展开仍为 `NOT_RUN`。
-11. **ASR 未接**：语音只到 `audioRef`，`asrConfigured=false`；转写能力 `NOT_RUN`。
-12. **Raw LLBot 兜底未审计进消息板**：D-031 允许 Agent 常规使用，但其外发不会自动
+11. **B 站抽帧依赖 ffmpeg/网络**：真实公开视频 3 帧 smoke PASS；长视频下载上限、
+    CDN 限速、DASH 登录态高画质和 ffmpeg 跨平台路径仍待真实测试。
+12. **ASR 未接**：语音只到 `audioRef`，`asrConfigured=false`；转写能力 `NOT_RUN`。
+13. **Raw LLBot 兜底未审计进消息板**：D-031 允许 Agent 常规使用，但其外发不会自动
     进入 iibot 消息板；必须由 Agent 如实记录 messageId/结果。
-13. **source-only direct ack 竞态**：未 read 时 ack 归档当前 active item；
+14. **source-only direct ack 竞态**：未 read 时 ack 归档当前 active item；
     wake 后、ack 前到达的新消息可能被一并归档。这是既有 direct-ack 边界，D-032
     没有引入 through 字段；需要真实运行观察，必要时再裁定。
 

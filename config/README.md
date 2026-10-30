@@ -166,8 +166,10 @@ bili_dm/{accountId}/{peerMid}
 bili_comment/{accountId}/{bvid}/{rootRpid}
 ```
 
-`bili_video_read` 是独立只读工具，不要求账号、不依赖 Inbox；有 B 站账号时会尝试
-使用登录态获取字幕。B 站 Cookie 不会进入日志、MCP 结果或模板配置。
+`bili_video_read` 与 `bili_video_frames` 都是独立只读工具，不要求账号、不依赖 Inbox；
+有 B 站账号时视频阅读会尝试使用登录态获取字幕。`bili_video_frames` 需要本机
+`ffmpeg`（可用 `IIBOT_FFMPEG` 指定路径），把抽出的 JPEG 作为 MCP ImageContent
+返回。B 站 Cookie、视频流和临时路径不会进入日志、MCP 文本或模板配置。
 
 ## 多文件合并
 

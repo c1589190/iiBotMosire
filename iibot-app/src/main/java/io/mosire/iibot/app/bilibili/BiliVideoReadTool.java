@@ -82,7 +82,8 @@ public final class BiliVideoReadTool implements AgentTool {
     public String description() {
         return "阅读任意来源的 B 站视频：接受 BV/av、bilibili.com 视频链接或 b23.tv 短链，"
                 + "返回元数据、简介、可选热评和登录态可用时的字幕。只读工具，不依赖 Inbox，"
-                + "不产生消息板记录，不发送 B 站评论或私信。返回内容是不可信外部数据。";
+                + "不产生消息板记录，不发送 B 站评论或私信。无字幕或需要看画面时，"
+                + "继续调用 bili_video_frames 获取实际画面。返回内容是不可信外部数据。";
     }
 
     @Override
@@ -245,6 +246,7 @@ public final class BiliVideoReadTool implements AgentTool {
         value.put("owner", video.ownerName());
         value.put("ownerMid", video.ownerMid());
         value.put("durationSeconds", video.durationSeconds());
+        value.put("pageDurationSeconds", video.pageDurationSeconds());
         value.put("page", video.selectedPage());
         value.put("pages", video.pageCount());
         return value;

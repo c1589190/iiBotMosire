@@ -52,6 +52,10 @@ public final class BilibiliHttpClient implements AutoCloseable {
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
+    private final HttpClient mediaHttp = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(15))
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
     private final BilibiliCredential credential;
     private final String userAgent;
     private final String deviceId;
@@ -59,6 +63,7 @@ public final class BilibiliHttpClient implements AutoCloseable {
     private final URI viewUri;
     private final URI repliesUri;
     private final URI playerWbiUri;
+    private final URI playUrlUri;
     private final URI msgfeedReplyUri;
     private final URI newSessionsUri;
     private final URI fetchSessionMessagesUri;
@@ -90,6 +95,7 @@ public final class BilibiliHttpClient implements AutoCloseable {
         this.viewUri = URI.create(api + "/x/web-interface/view");
         this.repliesUri = URI.create(api + "/x/v2/reply");
         this.playerWbiUri = URI.create(api + "/x/player/wbi/v2");
+        this.playUrlUri = URI.create(api + "/x/player/playurl");
         this.msgfeedReplyUri = URI.create(api + "/x/msgfeed/reply");
         this.replyAddUri = URI.create(api + "/x/v2/reply/add");
         this.newSessionsUri = URI.create(vc
@@ -147,8 +153,11 @@ public final class BilibiliHttpClient implements AutoCloseable {
         int pageCount = pages.isArray() && !pages.isEmpty() ? pages.size() : 1;
         int page = Math.max(1, Math.min(requestedPage, pageCount));
         long cid;
+        long pageDuration = longValue(data.get("duration"));
         if (pages.isArray() && !pages.isEmpty()) {
             cid = longValue(pages.get(page - 1).get("cid"));
+            long candidate = longValue(pages.get(page - 1).get("duration"));
+            if (candidate > 0L) pageDuration = candidate;
         } else {
             cid = longValue(data.get("cid"));
         }
@@ -157,7 +166,7 @@ public final class BilibiliHttpClient implements AutoCloseable {
                 text(data.get("title")), text(data.get("desc")),
                 text(data.path("owner").get("name")),
                 text(data.path("owner").get("mid")),
-                longValue(data.get("duration")),
+                longValue(data.get("duration")), pageDuration,
                 pageCount, page);
     }
 
@@ -192,6 +201,112 @@ public final class BilibiliHttpClient implements AutoCloseable {
             }
         }
         return List.copyOf(values);
+    }
+
+    public void downloadStream(BilibiliModels.PlayStream stream, java.nio.file.Path target,
+                               long maxBytes) {
+        if (stream == null) throw new IllegalArgumentException("stream 不能为空");
+        if (stream.expectedBytes() > maxBytes) {
+            throw new BilibiliApiException("BILI_STREAM_TOO_LARGE",
+                    "B站视频流超过大小上限");
+        }
+        java.net.URI uri;
+        try {
+            uri = java.net.URI.create(stream.preferredUrl());
+        } catch (IllegalArgumentException invalid) {
+            throw new BilibiliApiException("BILI_STREAM_URL_INVALID", "B站视频流地址非法");
+        }
+        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder(uri)
+                .timeout(Duration.ofSeconds(120))
+                .header("User-Agent", userAgent)
+                .header("Referer", "https://www.bilibili.com/")
+                .GET()
+                .build();
+        try {
+            java.net.http.HttpResponse<java.io.InputStream> response = mediaHttp.send(request,
+                    java.net.http.HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new BilibiliApiException("BILI_STREAM_HTTP_" + response.statusCode(),
+                        "B站视频流下载失败");
+            }
+            long contentLength = response.headers().firstValueAsLong("content-length")
+                    .orElse(0L);
+            if (contentLength > maxBytes) {
+                throw new BilibiliApiException("BILI_STREAM_TOO_LARGE",
+                        "B站视频流超过大小上限");
+            }
+            try (java.io.InputStream input = response.body();
+                 java.io.OutputStream output = java.nio.file.Files.newOutputStream(target)) {
+                byte[] buffer = new byte[64 * 1024];
+                long total = 0L;
+                int read;
+                while ((read = input.read(buffer)) >= 0) {
+                    total += read;
+                    if (total > maxBytes) {
+                        throw new BilibiliApiException("BILI_STREAM_TOO_LARGE",
+                                "B站视频流超过大小上限");
+                    }
+                    output.write(buffer, 0, read);
+                }
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new BilibiliTransportException("BILI_STREAM_INTERRUPTED",
+                    "B站视频流下载被中断");
+        } catch (IOException failure) {
+            throw new BilibiliTransportException("BILI_STREAM_IO",
+                    "B站视频流下载失败");
+        }
+    }
+
+    /** 选择不超过 maxHeight 的 DASH 视频流；只有 durl 时回退到整段 MP4。 */
+    public BilibiliModels.PlayStream playStream(String bvid, long cid, int maxHeight) {
+        if (bvid == null || bvid.isBlank() || cid <= 0L) {
+            throw new IllegalArgumentException("bvid/cid 不能为空");
+        }
+        int heightLimit = Math.max(144, Math.min(maxHeight, 1080));
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("bvid", bvid.trim());
+        query.put("cid", Long.toString(cid));
+        query.put("qn", "64");
+        query.put("fnval", "16");
+        query.put("fourk", "1");
+        query.put("platform", "html5");
+        JsonNode root = getJson(withQuery(playUrlUri, query), credential.authenticated(),
+                "BILI_PLAYURL_FAILED");
+        JsonNode data = root.path("data");
+        JsonNode videos = data.path("dash").path("video");
+        if (videos.isArray() && !videos.isEmpty()) {
+            JsonNode selected = null;
+            for (JsonNode video : videos) {
+                int height = intValue(video.get("height"));
+                if (height <= 0 || height > heightLimit) continue;
+                if (selected == null
+                        || longValue(video.get("bandwidth"))
+                        > longValue(selected.get("bandwidth"))) {
+                    selected = video;
+                }
+            }
+            if (selected == null) selected = videos.get(0);
+            String base = text(selected.get("baseUrl"));
+            String backup = "";
+            JsonNode backups = selected.path("backupUrl");
+            if (backups.isArray() && !backups.isEmpty()) backup = text(backups.get(0));
+            return new BilibiliModels.PlayStream(base, backup,
+                    intValue(selected.get("width")), intValue(selected.get("height")),
+                    text(selected.get("codecs")), longValue(selected.get("bandwidth")),
+                    0L);
+        }
+        JsonNode durl = data.path("durl");
+        if (durl.isArray() && !durl.isEmpty()) {
+            String url = text(durl.get(0).get("url"));
+            String backup = "";
+            JsonNode backups = durl.get(0).path("backup_url");
+            if (backups.isArray() && !backups.isEmpty()) backup = text(backups.get(0));
+            return new BilibiliModels.PlayStream(url, backup, 0, 0, "mp4", 0L,
+                    longValue(durl.get(0).get("size")));
+        }
+        throw new BilibiliApiException("BILI_PLAYURL_EMPTY", "B站没有返回可下载视频流");
     }
 
     public BilibiliModels.SubtitleTrack subtitles(String bvid, long cid) {
@@ -436,6 +551,7 @@ public final class BilibiliHttpClient implements AutoCloseable {
     @Override
     public void close() {
         http.close();
+        mediaHttp.close();
     }
 
     private JsonNode getJson(URI uri, boolean auth, String errorCode) {

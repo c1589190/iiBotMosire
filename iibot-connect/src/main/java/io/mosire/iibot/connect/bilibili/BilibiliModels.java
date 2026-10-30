@@ -25,6 +25,7 @@ public final class BilibiliModels {
             String ownerName,
             String ownerMid,
             long durationSeconds,
+            long pageDurationSeconds,
             int pageCount,
             int selectedPage) {
         public VideoInfo {
@@ -36,7 +37,9 @@ public final class BilibiliModels {
             description = description == null ? "" : description.trim();
             ownerName = ownerName == null ? "" : ownerName.trim();
             ownerMid = ownerMid == null ? "" : ownerMid.trim();
-            if (durationSeconds < 0L) throw new IllegalArgumentException("时长不能为负");
+            if (durationSeconds < 0L || pageDurationSeconds < 0L) {
+                throw new IllegalArgumentException("时长不能为负");
+            }
             if (pageCount < 1 || selectedPage < 1 || selectedPage > pageCount) {
                 throw new IllegalArgumentException("分P参数非法");
             }
@@ -59,6 +62,23 @@ public final class BilibiliModels {
             parentRpid = parentRpid == null ? "" : parentRpid.trim();
             authorName = authorName == null ? "" : authorName.trim();
             message = message == null ? "" : message;
+        }
+    }
+
+    public record PlayStream(String url, String backupUrl, int width, int height,
+                             String codec, long bandwidth, long expectedBytes) {
+        public PlayStream {
+            url = url == null ? "" : url.trim();
+            backupUrl = backupUrl == null ? "" : backupUrl.trim();
+            codec = codec == null ? "" : codec.trim();
+            if (expectedBytes < 0L) expectedBytes = 0L;
+            if (url.isEmpty() && backupUrl.isEmpty()) {
+                throw new IllegalArgumentException("播放流缺少 URL");
+            }
+        }
+
+        public String preferredUrl() {
+            return url.isEmpty() ? backupUrl : url;
         }
     }
 

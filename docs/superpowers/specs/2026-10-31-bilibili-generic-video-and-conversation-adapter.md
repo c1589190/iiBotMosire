@@ -29,7 +29,7 @@
 
 ### 目标
 
-- 新增通用只读 `bili_video_read`（以及后续 `bili_video_frames`）；
+- 新增通用只读 `bili_video_read` 与 `bili_video_frames`；
 - 接受 BV、av、`bilibili.com/video/...`、`b23.tv/...`，不依赖来源消息；
 - 返回元数据、简介、热评、弹幕热区、字幕/转写等模型可消费内容；
 - 新增 `BilibiliAdapter implements MessagingAdapter`；
@@ -297,7 +297,31 @@ bili_video_read(
 
 无字幕时返回部分成功和 `TRANSCRIPT_UNAVAILABLE`，不伪造转写。
 
-### 8.3 视频阅读与消息会话的边界
+### 8.3 分帧看图
+
+```text
+bili_video_frames(
+  target,
+  count?=6,          # 1..9
+  page?=1,
+  maxHeight?=720     # 144..1080
+)
+```
+
+工作流：
+
+1. `BilibiliHttpClient` 取元数据与 `playurl`；
+2. 优先 DASH 视频流，匿名只有 `durl` 时回退整段 MP4；
+3. 下载到临时文件，大小上限 120MB；不使用模型可控的 shell/SQL；
+4. ffmpeg 按页面时长均匀抽帧，`5%..95%`，最多 9 张；
+5. 每张 JPEG 经 `BotMediaStore` 存为受控资产；
+6. `ToolResult.ok(text, assetDocIds)` 让 MCP 返回多张 `ImageContent`。
+
+工具是只读的，不进入消息板/Inbox，不发送 B 站内容。ffmpeg 路径优先读
+`IIBOT_FFMPEG`，否则用 PATH 中的 `ffmpeg`；缺失时返回稳定错误，不伪造画面。
+视频流、Cookie、临时路径不进入日志或工具文本。
+
+### 8.4 视频阅读与消息会话的边界
 
 `bili_video_read` 是只读内容工具，不产生消息板记录、不触发 Inbox、不发送
 B 站评论。若 Agent 想对某个视频评论，必须使用 `bili_video/...` 或
@@ -319,7 +343,7 @@ B 站内容工具：
 
 ```text
 bili_video_read
-bili_video_frames（后续）
+bili_video_frames
 ```
 
 账号工具：
@@ -367,8 +391,9 @@ bili_account_login_poll
 | B3 | 私信轮询入站 + 评论回复通知入站 |
 | B4 | 私信发送 + 评论发送 + 三态/限流/熔断 |
 | B5 | bili_video_read 元数据/评论/弹幕/字幕 |
-| B6 | 可选 bili_video_frames、ASR/OCR 后端 |
-| B7 | 真实账号登录/读取/外发验收 |
+| B6 | bili_video_frames 下载受控视频流 + ffmpeg 抽帧 + ImageContent |
+| B7 | 真实账号登录/读取/外发验收；ASR/OCR 后端后续 |
+
 
 ## 13. 验收判据
 

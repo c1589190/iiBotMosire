@@ -10,6 +10,7 @@
 | Java | OpenJDK 21.0.12.1（`java -version` 于 2026-10-24 实跑） |
 | Maven | 仓库内 `./mvnw`，Maven Wrapper 3.9.16；`./mvnw -v` 已实测 |
 | Python | 文档检查脚本需要 Python 3；`python3` 可直接调用 |
+| ffmpeg | 2026-10-31 实测 `/usr/bin/ffmpeg` 6.1.1；`bili_video_frames` 默认从 PATH 读取，可用 `IIBOT_FFMPEG` 覆盖 |
 | Git | 独立 Git 仓库；当前在 `refactor/bot-first-main-agent` 分支 |
 | OS | Linux，当前时区 Asia/Shanghai |
 | 内存 | 本机约 11 GiB；当前测试/打包不需要额外堆参数 |

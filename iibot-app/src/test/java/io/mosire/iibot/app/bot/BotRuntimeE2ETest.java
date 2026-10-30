@@ -86,9 +86,10 @@ class BotRuntimeE2ETest {
                     "qq_inbox_history", "qq_user_note_get", "qq_user_note_list",
                     "qq_user_note_upsert", "qq_source_weight_list",
                     "qq_source_weight_get", "qq_source_weight_set",
-                    "inbox_rest", "qq_inbox_binding_descriptor");
+                    "inbox_rest", "qq_inbox_binding_descriptor", "bili_video_frames");
             assertThat(toolNames).allMatch(name -> name.startsWith("qq_")
-                    || name.startsWith("conversation_") || "inbox_rest".equals(name));
+                    || name.startsWith("conversation_") || name.startsWith("bili_")
+                    || "inbox_rest".equals(name));
             assertThat(toolNames).noneMatch(name -> name.startsWith("bot_")
                     || name.startsWith("tf_")
                     || (name.startsWith("inbox_") && !"inbox_rest".equals(name)));

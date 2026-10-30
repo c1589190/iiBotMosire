@@ -1,6 +1,7 @@
 package io.mosire.iibot.app.bot;
 
 import io.mosire.agentlib.tool.AgentTool;
+import io.mosire.iibot.app.bilibili.BiliVideoFramesTool;
 import io.mosire.iibot.app.delivery.OutboxSender;
 import io.mosire.iibot.app.inbox.BotInboxRuntime;
 import io.mosire.iibot.app.inbox.InboxBindingDescriptorTool;
@@ -266,6 +267,7 @@ public final class BotRuntime implements AutoCloseable {
                     forwardByAccount, recentByAccount, friendRequestByAccount, inboxAudit,
                     historyByAccount, weightService, consumerStates, accountRegistry));
             tools.add(new BotMediaUploadTool(mediaStore));
+            tools.add(new BiliVideoFramesTool(mediaStore));
             if (mediaByAccount.values().stream().anyMatch(Objects::nonNull)) {
                 tools.add(new BotMediaGetTool(board, mediaByAccount, mediaStore));
             }
