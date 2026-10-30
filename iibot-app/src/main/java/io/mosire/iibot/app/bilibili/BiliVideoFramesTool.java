@@ -13,6 +13,11 @@ import io.mosire.iibot.connect.video.bilibili.BilibiliTarget;
 import io.mosire.iibot.connect.video.bilibili.BilibiliTargetResolver;
 import io.mosire.iibot.connect.video.core.VideoQuality;
 import io.mosire.iibot.connect.video.core.VideoStreamInfo;
+import io.mosire.iibot.connect.video.browser.BrowserBackend;
+import io.mosire.iibot.connect.video.browser.BrowserFrameRequest;
+import io.mosire.iibot.connect.video.browser.BrowserFrameResult;
+import io.mosire.iibot.connect.video.browser.BrowserProfile;
+import io.mosire.iibot.connect.video.browser.BrowserSession;
 import io.mosire.iibot.connect.video.frame.BiliFrameExtractor;
 import io.mosire.iibot.connect.video.frame.FfmpegBiliFrameExtractor;
 import io.mosire.iibot.connect.core.MediaAsset;
@@ -27,7 +32,7 @@ import java.util.Objects;
 import java.util.Set;
 
 /** 从任意 B 站视频均匀抽帧，并把 JPEG 作为 MCP ImageContent 返回给模型。 */
-public final class BiliVideoFramesTool implements AgentTool {
+public final class BiliVideoFramesTool implements AgentTool, AutoCloseable {
 
     public static final String NAME = "bili_video_frames";
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -70,6 +75,8 @@ public final class BiliVideoFramesTool implements AgentTool {
     private final int defaultMaxHeight;
     private final int defaultFrameCount;
     private final int maxFrameCount;
+    private final BrowserBackend browserBackend;
+    private final BrowserProfile browserProfile;
 
     public BiliVideoFramesTool(BotMediaStore mediaStore) {
         this(mediaStore, NAME);
@@ -84,9 +91,18 @@ public final class BiliVideoFramesTool implements AgentTool {
     public BiliVideoFramesTool(BotMediaStore mediaStore, String toolName,
                                VideoQuality defaultQuality, int defaultMaxHeight,
                                int defaultFrameCount, int maxFrameCount) {
+        this(mediaStore, toolName, defaultQuality, defaultMaxHeight, defaultFrameCount,
+                maxFrameCount, null, null);
+    }
+
+    public BiliVideoFramesTool(BotMediaStore mediaStore, String toolName,
+                               VideoQuality defaultQuality, int defaultMaxHeight,
+                               int defaultFrameCount, int maxFrameCount,
+                               BrowserBackend browserBackend, BrowserProfile browserProfile) {
         this(mediaStore, new FfmpegBiliFrameExtractor(),
                 BilibiliHttpClient.API_BASE, BilibiliHttpClient.VC_API_BASE, toolName,
-                defaultQuality, defaultMaxHeight, defaultFrameCount, maxFrameCount);
+                defaultQuality, defaultMaxHeight, defaultFrameCount, maxFrameCount,
+                browserBackend, browserProfile);
     }
 
     /** 测试/隔离部署入口。 */
@@ -106,6 +122,16 @@ public final class BiliVideoFramesTool implements AgentTool {
                                String apiBase, String vcApiBase, String toolName,
                                VideoQuality defaultQuality, int defaultMaxHeight,
                                int defaultFrameCount, int maxFrameCount) {
+        this(mediaStore, extractor, apiBase, vcApiBase, toolName, defaultQuality,
+                defaultMaxHeight, defaultFrameCount, maxFrameCount, null, null);
+    }
+
+    /** 浏览器仅作为 ffmpeg 失败后的可选 fallback；默认 null 保持原行为。 */
+    public BiliVideoFramesTool(BotMediaStore mediaStore, BiliFrameExtractor extractor,
+                               String apiBase, String vcApiBase, String toolName,
+                               VideoQuality defaultQuality, int defaultMaxHeight,
+                               int defaultFrameCount, int maxFrameCount,
+                               BrowserBackend browserBackend, BrowserProfile browserProfile) {
         this.toolName = Objects.requireNonNull(toolName, "toolName");
         this.mediaStore = Objects.requireNonNull(mediaStore, "mediaStore");
         this.extractor = Objects.requireNonNull(extractor, "extractor");
@@ -115,6 +141,13 @@ public final class BiliVideoFramesTool implements AgentTool {
         this.defaultMaxHeight = defaultMaxHeight;
         this.defaultFrameCount = defaultFrameCount;
         this.maxFrameCount = maxFrameCount;
+        if (browserBackend == null && browserProfile == null) {
+            this.browserBackend = null;
+            this.browserProfile = null;
+        } else {
+            this.browserBackend = Objects.requireNonNull(browserBackend, "browserBackend");
+            this.browserProfile = Objects.requireNonNull(browserProfile, "browserProfile");
+        }
     }
 
     @Override public String name() { return toolName; }
@@ -134,6 +167,7 @@ public final class BiliVideoFramesTool implements AgentTool {
 
     @Override public ToolResult execute(ToolContext context) {
         Path tempDir = null;
+        BrowserSession browserSession = null;
         try {
             Map<String, Object> args = context.arguments();
             String targetRaw = requiredText(args, "target", 2048);
@@ -180,25 +214,26 @@ public final class BiliVideoFramesTool implements AgentTool {
                     try {
                         BiliFrameExtractor.Frame frame = extractor.extract(
                                 videoFile, times.get(index), output);
-                        byte[] bytes = Files.readAllBytes(frame.file());
-                        if (bytes.length == 0 || bytes.length > MAX_FRAME_BYTES) {
-                            throw new IllegalStateException("抽帧大小非法");
+                        storeFrame(video.bvid(), index, times.get(index), frame.file(), assetIds, frames);
+                    } catch (Exception ffmpegFailure) {
+                        try {
+                            if (browserBackend == null || video.bvid().isBlank()) {
+                                throw ffmpegFailure;
+                            }
+                            if (browserSession == null) {
+                                browserSession = browserBackend.open(browserProfile);
+                            }
+                            BrowserFrameResult frame = browserSession.capture(
+                                    new BrowserFrameRequest(video.bvid(), page,
+                                            times.get(index), output));
+                            storeFrame(video.bvid(), index, times.get(index), frame.file(), assetIds, frames);
+                        } catch (Exception browserFailure) {
+                            Map<String, Object> item = new LinkedHashMap<>();
+                            item.put("index", index);
+                            item.put("timestampSeconds", round(times.get(index)));
+                            item.put("error", "FRAME_UNAVAILABLE");
+                            errors.add(item);
                         }
-                        String assetId = mediaStore.store(new MediaAsset(
-                                "bili-" + video.bvid() + "-" + index + ".jpg",
-                                "image/jpeg", bytes));
-                        assetIds.add(assetId);
-                        Map<String, Object> item = new LinkedHashMap<>();
-                        item.put("index", index);
-                        item.put("timestampSeconds", round(times.get(index)));
-                        item.put("size", bytes.length);
-                        frames.add(item);
-                    } catch (Exception failure) {
-                        Map<String, Object> item = new LinkedHashMap<>();
-                        item.put("index", index);
-                        item.put("timestampSeconds", round(times.get(index)));
-                        item.put("error", "FRAME_UNAVAILABLE");
-                        errors.add(item);
                     }
                 }
                 if (assetIds.isEmpty()) {
@@ -240,8 +275,39 @@ public final class BiliVideoFramesTool implements AgentTool {
         } catch (Exception failure) {
             return ToolResult.error("BILI_FRAMES_FAILED", "B站视频抽帧失败");
         } finally {
+            if (browserSession != null) {
+                try {
+                    browserSession.close();
+                } catch (Exception ignored) {
+                    // 关闭失败不覆盖已经返回的抽帧结果。
+                }
+            }
             deleteTree(tempDir);
         }
+    }
+
+    @Override
+    public void close() {
+        if (browserBackend != null) {
+            browserBackend.close();
+        }
+    }
+
+    private void storeFrame(String bvid, int index, double timestampSeconds, Path file,
+                            List<String> assetIds, List<Map<String, Object>> frames)
+            throws Exception {
+        byte[] bytes = Files.readAllBytes(file);
+        if (bytes.length == 0 || bytes.length > MAX_FRAME_BYTES) {
+            throw new IllegalStateException("抽帧大小非法");
+        }
+        String assetId = mediaStore.store(new MediaAsset(
+                "bili-" + bvid + "-" + index + ".jpg", "image/jpeg", bytes));
+        assetIds.add(assetId);
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("index", index);
+        item.put("timestampSeconds", round(timestampSeconds));
+        item.put("size", bytes.length);
+        frames.add(item);
     }
 
     private static long durationSeconds(BilibiliModels.VideoInfo video) {

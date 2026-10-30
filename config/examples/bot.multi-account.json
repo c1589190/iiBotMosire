@@ -105,6 +105,18 @@
       "defaultLimit": 10,
       "maxLimit": 20,
       "allowFullScan": false
+    },
+    "browser": {
+      "enabled": false,
+      "mode": "embedded",
+      "executablePath": "",
+      "cdpEndpoint": "",
+      "headless": true,
+      "maxConcurrentSessions": 2,
+      "timeoutSeconds": 60,
+      "profileRoot": "",
+      "viewportWidth": 1280,
+      "viewportHeight": 720
     }
   }
 }

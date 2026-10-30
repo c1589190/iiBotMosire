@@ -9,6 +9,12 @@ import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolResult;
 import io.mosire.iibot.app.media.BotMediaStore;
 import io.mosire.iibot.connect.video.bilibili.BilibiliModels;
+import io.mosire.iibot.connect.video.browser.BrowserBackend;
+import io.mosire.iibot.connect.video.browser.BrowserFrameRequest;
+import io.mosire.iibot.connect.video.browser.BrowserFrameResult;
+import io.mosire.iibot.connect.video.browser.BrowserProfile;
+import io.mosire.iibot.connect.video.browser.BrowserSession;
+import io.mosire.iibot.connect.video.core.VideoQuality;
 import io.mosire.iibot.connect.video.frame.BiliFrameExtractor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +29,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -114,6 +121,65 @@ class BiliVideoFramesToolTest {
         assertThat(data.path("actualQuality").asText()).isEqualTo("720p");
         assertThat(data.path("availableQualities")).hasSize(2);
         assertThat(data.path("qualityFallback").asBoolean()).isFalse();
+    }
+
+    @Test
+    void browserFallbackCapturesWhenFfmpegFails() throws Exception {
+        route("/x/web-interface/view", """
+                {"code":0,"message":"0","data":{
+                  "bvid":"BV1EPnG6DEJC","aid":117461382864435,
+                  "cid":42838132685,"title":"测试视频","desc":"",
+                  "duration":100,"pages":[{"cid":42838132685,"page":1}],
+                  "owner":{"mid":1,"name":"UP"}
+                }}
+                """);
+        route("/x/player/playurl", """
+                {"code":0,"data":{"dash":{"video":[{
+                  "baseUrl":"__VIDEO_URL__","backupUrl":[],
+                  "width":1280,"height":720,"codecs":"avc1","bandwidth":1000
+                }]}}}
+                """.replace("__VIDEO_URL__", base + "/video.mp4"));
+        routeBytes("/video.mp4", new byte[]{0, 1, 2, 3, 4});
+        BotMediaStore store = new BotMediaStore(tempDir);
+        AtomicInteger captures = new AtomicInteger();
+        BrowserBackend backend = new BrowserBackend() {
+            @Override
+            public BrowserSession open(BrowserProfile profile) {
+                return new BrowserSession() {
+                    @Override
+                    public BrowserFrameResult capture(BrowserFrameRequest request) {
+                        captures.incrementAndGet();
+                        try {
+                            Files.write(request.outputFile(), new byte[]{(byte) 0xFF,
+                                    (byte) 0xD8, (byte) 0xFF, (byte) 0xD9});
+                        } catch (IOException failure) {
+                            throw new IllegalStateException(failure);
+                        }
+                        return new BrowserFrameResult(request.outputFile(), 640, 360,
+                                "fake-browser");
+                    }
+
+                    @Override public void close() { }
+                };
+            }
+
+            @Override public void close() { }
+        };
+        BrowserProfile profile = BrowserProfile.bilibili(true, 1280, 720, 30,
+                tempDir.resolve("browser-profile"));
+        BiliVideoFramesTool tool = new BiliVideoFramesTool(store, new FailingExtractor(),
+                base, base, BiliVideoFramesTool.NAME, VideoQuality.AUTO, 720, 6, 9,
+                backend, profile);
+
+        ToolResult result = execute(tool, Map.of(
+                "target", "BV1EPnG6DEJC", "count", 2));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.assetDocIds()).hasSize(2);
+        assertThat(captures).hasValue(2);
+        JsonNode data = JSON.readTree(result.message()).path("data");
+        assertThat(data.path("frames")).hasSize(2);
+        tool.close();
     }
 
     @Test
@@ -220,6 +286,14 @@ class BiliVideoFramesToolTest {
             Files.write(outputFile, new byte[]{(byte) 0xFF, (byte) 0xD8,
                     (byte) 0xFF, (byte) 0xD9});
             return new Frame(outputFile, 1280, 720);
+        }
+    }
+
+    private static final class FailingExtractor implements BiliFrameExtractor {
+        @Override
+        public Frame extract(Path videoFile, double timestampSeconds,
+                             Path outputFile) throws Exception {
+            throw new IOException("ffmpeg unavailable");
         }
     }
 

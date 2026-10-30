@@ -149,7 +149,15 @@ public record BotConfig(
             int maxHeight,
             int defaultFrameCount,
             int maxFrameCount,
-            Comments comments) {
+            Comments comments,
+            Browser browser) {
+
+        /** 兼容 V3 及之前没有 browser 配置的调用方。 */
+        public Video(VideoQuality defaultQuality, int maxHeight, int defaultFrameCount,
+                     int maxFrameCount, Comments comments) {
+            this(defaultQuality, maxHeight, defaultFrameCount, maxFrameCount, comments,
+                    Browser.defaults());
+        }
 
         public Video {
             defaultQuality = defaultQuality == null ? VideoQuality.AUTO : defaultQuality;
@@ -167,10 +175,69 @@ public record BotConfig(
                         "video.defaultFrameCount 不能大于 maxFrameCount");
             }
             comments = comments == null ? Comments.defaults() : comments;
+            browser = browser == null ? Browser.defaults() : browser;
         }
 
         public static Video defaults() {
-            return new Video(VideoQuality.AUTO, 720, 6, 9, Comments.defaults());
+            return new Video(VideoQuality.AUTO, 720, 6, 9, Comments.defaults(),
+                    Browser.defaults());
+        }
+    }
+
+    /** 浏览器默认关闭；embedded 使用系统 Chromium，remote-cdp 留给 V5。 */
+    public record Browser(
+            boolean enabled,
+            String mode,
+            String executablePath,
+            String cdpEndpoint,
+            boolean headless,
+            int maxConcurrentSessions,
+            int timeoutSeconds,
+            String profileRoot,
+            int viewportWidth,
+            int viewportHeight) {
+
+        public Browser {
+            mode = mode == null || mode.isBlank() ? "embedded" : mode.trim();
+            if (!"embedded".equals(mode) && !"remote-cdp".equals(mode)) {
+                throw new IllegalArgumentException(
+                        "video.browser.mode 只允许 embedded/remote-cdp");
+            }
+            executablePath = executablePath == null ? "" : executablePath.trim();
+            if (!executablePath.isEmpty()) {
+                Path executable = Path.of(executablePath);
+                if (!executable.isAbsolute()) {
+                    throw new IllegalArgumentException(
+                            "video.browser.executablePath 必须是绝对路径");
+                }
+            }
+            cdpEndpoint = cdpEndpoint == null ? "" : cdpEndpoint.trim();
+            if ("remote-cdp".equals(mode) && cdpEndpoint.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "video.browser.mode=remote-cdp 时必须配置 cdpEndpoint");
+            }
+            if (maxConcurrentSessions < 1 || maxConcurrentSessions > 8) {
+                throw new IllegalArgumentException(
+                        "video.browser.maxConcurrentSessions 必须在 1..8");
+            }
+            if (timeoutSeconds < 5 || timeoutSeconds > 300) {
+                throw new IllegalArgumentException(
+                        "video.browser.timeoutSeconds 必须在 5..300");
+            }
+            if (viewportWidth < 320 || viewportWidth > 3840) {
+                throw new IllegalArgumentException(
+                        "video.browser.viewportWidth 必须在 320..3840");
+            }
+            if (viewportHeight < 240 || viewportHeight > 2160) {
+                throw new IllegalArgumentException(
+                        "video.browser.viewportHeight 必须在 240..2160");
+            }
+            profileRoot = profileRoot == null ? "" : profileRoot.trim();
+        }
+
+        public static Browser defaults() {
+            return new Browser(false, "embedded", "", "", true, 2, 60, "",
+                    1280, 720);
         }
     }
 

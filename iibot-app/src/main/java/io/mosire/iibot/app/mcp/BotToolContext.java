@@ -20,6 +20,7 @@ import io.mosire.iibot.connect.core.MediaCapability;
 import io.mosire.iibot.connect.core.RecallCapability;
 import io.mosire.iibot.connect.core.RecentQqProvider;
 
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
 
@@ -44,6 +45,7 @@ public record BotToolContext(
         SourceWeightService sourceWeights,
         ConsumerConversationStore consumerStates,
         AccountRegistry accountRegistry,
+        Path dataDir,
         BotMediaStore mediaStore,
         Map<String, MediaCapability> mediaByAccount,
         Map<String, AudioCapability> audioByAccount,
@@ -65,6 +67,7 @@ public record BotToolContext(
         Objects.requireNonNull(sourceWeights, "sourceWeights");
         Objects.requireNonNull(consumerStates, "consumerStates");
         Objects.requireNonNull(accountRegistry, "accountRegistry");
+        Objects.requireNonNull(dataDir, "dataDir");
         Objects.requireNonNull(mediaStore, "mediaStore");
         Objects.requireNonNull(mediaByAccount, "mediaByAccount");
         Objects.requireNonNull(audioByAccount, "audioByAccount");

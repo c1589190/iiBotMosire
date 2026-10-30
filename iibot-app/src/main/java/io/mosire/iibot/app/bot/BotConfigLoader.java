@@ -57,9 +57,14 @@ public final class BotConfigLoader {
             "directory", "console", "file", "rootLevel", "opsLevel", "levels",
             "maxFileSize", "maxHistory");
     private static final Set<String> VIDEO_FIELDS = Set.of(
-            "defaultQuality", "maxHeight", "defaultFrameCount", "maxFrameCount", "comments");
+            "defaultQuality", "maxHeight", "defaultFrameCount", "maxFrameCount",
+            "comments", "browser");
     private static final Set<String> VIDEO_COMMENTS_FIELDS = Set.of(
             "defaultLimit", "maxLimit", "allowFullScan");
+    private static final Set<String> VIDEO_BROWSER_FIELDS = Set.of(
+            "enabled", "mode", "executablePath", "cdpEndpoint", "headless",
+            "maxConcurrentSessions", "timeoutSeconds", "profileRoot",
+            "viewportWidth", "viewportHeight");
 
     private BotConfigLoader() {
     }
@@ -361,11 +366,40 @@ public final class BotConfigLoader {
             int defaultFrameCount = optionalInt(node, "defaultFrameCount", pointer, 6);
             int maxFrameCount = optionalInt(node, "maxFrameCount", pointer, 9);
             BotConfig.Comments comments = parseVideoComments(node, pointer);
+            BotConfig.Browser browser = parseVideoBrowser(node, pointer);
             try {
                 return new BotConfig.Video(quality, maxHeight, defaultFrameCount,
-                        maxFrameCount, comments);
+                        maxFrameCount, comments, browser);
             } catch (IllegalArgumentException invalid) {
                 throw error(pointer, "valid video config", "object", invalid.getMessage());
+            }
+        }
+
+        private BotConfig.Browser parseVideoBrowser(JsonNode video, String parentPointer) {
+            JsonNode node = optionalObject(video, "browser", parentPointer);
+            if (node == null) {
+                return BotConfig.Browser.defaults();
+            }
+            String pointer = parentPointer + "/browser";
+            rejectUnknown(node, VIDEO_BROWSER_FIELDS, pointer, "video.browser");
+            boolean enabled = optionalBoolean(node, "enabled", pointer, false);
+            String mode = optionalText(node, "mode", pointer).orElse("embedded");
+            String executablePath = optionalText(node, "executablePath", pointer)
+                    .orElse("");
+            String cdpEndpoint = optionalText(node, "cdpEndpoint", pointer).orElse("");
+            boolean headless = optionalBoolean(node, "headless", pointer, true);
+            int maxConcurrent = optionalInt(node, "maxConcurrentSessions", pointer, 2);
+            int timeoutSeconds = optionalInt(node, "timeoutSeconds", pointer, 60);
+            String profileRoot = optionalText(node, "profileRoot", pointer).orElse("");
+            int viewportWidth = optionalInt(node, "viewportWidth", pointer, 1280);
+            int viewportHeight = optionalInt(node, "viewportHeight", pointer, 720);
+            try {
+                return new BotConfig.Browser(enabled, mode, executablePath, cdpEndpoint,
+                        headless, maxConcurrent, timeoutSeconds, profileRoot,
+                        viewportWidth, viewportHeight);
+            } catch (IllegalArgumentException invalid) {
+                throw error(pointer, "valid video.browser config", "object",
+                        invalid.getMessage());
             }
         }
 

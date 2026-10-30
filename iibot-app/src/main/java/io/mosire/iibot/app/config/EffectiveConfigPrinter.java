@@ -135,6 +135,18 @@ public final class EffectiveConfigPrinter {
         commentNode.put("defaultLimit", video.comments().defaultLimit());
         commentNode.put("maxLimit", video.comments().maxLimit());
         commentNode.put("allowFullScan", video.comments().allowFullScan());
+        BotConfig.Browser browser = video.browser();
+        ObjectNode browserNode = videoNode.putObject("browser");
+        browserNode.put("enabled", browser.enabled());
+        browserNode.put("mode", browser.mode());
+        browserNode.put("executablePath", browser.executablePath());
+        browserNode.put("cdpEndpoint", browser.cdpEndpoint());
+        browserNode.put("headless", browser.headless());
+        browserNode.put("maxConcurrentSessions", browser.maxConcurrentSessions());
+        browserNode.put("timeoutSeconds", browser.timeoutSeconds());
+        browserNode.put("profileRoot", browser.profileRoot());
+        browserNode.put("viewportWidth", browser.viewportWidth());
+        browserNode.put("viewportHeight", browser.viewportHeight());
 
         BotConfig.Logging logging = config.logging();
         ObjectNode loggingNode = root.putObject("logging");

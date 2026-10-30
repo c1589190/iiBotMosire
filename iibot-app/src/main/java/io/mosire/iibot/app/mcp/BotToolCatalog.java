@@ -28,6 +28,7 @@ public final class BotToolCatalog implements AutoCloseable {
     private final boolean videoReadEnabled;
     private final BotConfig.Video video;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private List<AgentTool> createdTools = List.of();
 
     private BotToolCatalog(List<VideoAccountRef> videoAccounts,
                            List<AgentTool> extraTools, boolean videoReadEnabled,
@@ -75,14 +76,15 @@ public final class BotToolCatalog implements AutoCloseable {
         MediaToolPack media = new MediaToolPack(context);
         tools.addAll(media.uploadTools());
         VideoSiteToolPack video = new VideoSiteToolPack(videoAccounts,
-                context.mediaStore(), videoReadEnabled, this.video);
+                context.mediaStore(), videoReadEnabled, this.video, context.dataDir());
         tools.addAll(video.frameTools());
         tools.addAll(video.commentTools());
         tools.addAll(media.capabilityTools());
         tools.addAll(video.accountTools());
         tools.addAll(extraTools);
         tools.addAll(InboxToolPack.tools(context));
-        return List.copyOf(tools);
+        createdTools = List.copyOf(tools);
+        return createdTools;
     }
 
     @Override
@@ -90,8 +92,9 @@ public final class BotToolCatalog implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        for (int index = extraTools.size() - 1; index >= 0; index--) {
-            AgentTool tool = extraTools.get(index);
+        List<AgentTool> toClose = createdTools.isEmpty() ? extraTools : createdTools;
+        for (int index = toClose.size() - 1; index >= 0; index--) {
+            AgentTool tool = toClose.get(index);
             if (tool instanceof AutoCloseable closeable) {
                 try {
                     closeable.close();

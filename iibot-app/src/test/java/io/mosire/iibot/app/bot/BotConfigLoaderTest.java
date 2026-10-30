@@ -64,6 +64,50 @@ class BotConfigLoaderTest {
         assertThat(loaded.video().comments().defaultLimit()).isEqualTo(10);
         assertThat(loaded.video().comments().maxLimit()).isEqualTo(20);
         assertThat(loaded.video().comments().allowFullScan()).isFalse();
+        assertThat(loaded.video().browser().enabled()).isFalse();
+        assertThat(loaded.video().browser().mode()).isEqualTo("embedded");
+        assertThat(loaded.video().browser().headless()).isTrue();
+        assertThat(loaded.video().browser().maxConcurrentSessions()).isEqualTo(2);
+        assertThat(loaded.video().browser().timeoutSeconds()).isEqualTo(60);
+        assertThat(loaded.video().browser().viewportWidth()).isEqualTo(1280);
+        assertThat(loaded.video().browser().viewportHeight()).isEqualTo(720);
+    }
+
+    @Test
+    void loadsConfiguredBrowserSettingsAndRejectsInvalidMode() throws Exception {
+        String video = """
+                "video": {
+                  "browser": {
+                    "enabled": true,
+                    "mode": "embedded",
+                    "executablePath": "/snap/bin/chromium",
+                    "headless": true,
+                    "maxConcurrentSessions": 1,
+                    "timeoutSeconds": 30,
+                    "profileRoot": "./profiles",
+                    "viewportWidth": 800,
+                    "viewportHeight": 600
+                  }
+                },
+                """;
+        Path config = write("browser-configured.json",
+                validConfig("main", "10001", true).replace("  \"logging\": {",
+                        video + "  \"logging\": {"));
+        BotConfig loaded = BotConfigLoader.load(config, SECRETS);
+        assertThat(loaded.video().browser().enabled()).isTrue();
+        assertThat(loaded.video().browser().executablePath()).isEqualTo("/snap/bin/chromium");
+        assertThat(loaded.video().browser().maxConcurrentSessions()).isEqualTo(1);
+        assertThat(loaded.video().browser().timeoutSeconds()).isEqualTo(30);
+        assertThat(loaded.video().browser().profileRoot()).isEqualTo("./profiles");
+        assertThat(loaded.video().browser().viewportWidth()).isEqualTo(800);
+        assertThat(loaded.video().browser().viewportHeight()).isEqualTo(600);
+
+        Path invalid = write("browser-invalid.json",
+                validConfig("main", "10001", true).replace("  \"logging\": {",
+                        "  \"video\": {\"browser\": {\"mode\": \"desktop\"}},\n  \"logging\": {"));
+        assertThatThrownBy(() -> BotConfigLoader.load(invalid, SECRETS))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("jsonPointer: /video/browser");
     }
 
     @Test

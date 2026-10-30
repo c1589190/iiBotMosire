@@ -265,7 +265,7 @@ public final class BotRuntime implements AutoCloseable {
                     board, notes, digestService, replies, options.accountId(),
                     forwardByAccount, recentByAccount, friendRequestByAccount,
                     inboxAudit, historyByAccount, weightService, consumerStates,
-                    accountRegistry, mediaStore, mediaByAccount, audioByAccount,
+                    accountRegistry, dataDir, mediaStore, mediaByAccount, audioByAccount,
                     groupFilesByAccount, recallByAccount, groupFileUploadByAccount,
                     inboxRuntime));
             OpsLog.info("event=bot_tools_prepared tools={} digestLimit={}",
