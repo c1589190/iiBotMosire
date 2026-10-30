@@ -155,6 +155,10 @@ Cookie 文件必须为 0600，格式：
 }
 ```
 
+首次登录可让 Agent 调用 `bili_account_login_start` 生成 B 站扫码登录会话，再用
+`bili_account_login_poll(loginId)` 轮询；成功后 Cookie 会原子写入
+`credentialFileEnv` 指向的 0600 文件。也可以手工填入上面的 Cookie JSON。
+
 B 站 Adapter 会把私信和评论回复转成统一 source：
 
 ```text

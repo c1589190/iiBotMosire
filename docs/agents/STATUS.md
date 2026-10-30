@@ -14,14 +14,16 @@
     `bili_video/...`，QQ 旧 threadId/数据保持兼容；
   - `BilibiliAdapter`：0600 Cookie 文件、nav 登录校验、WBI、私信轮询、评论回复
     通知轮询、私信/评论回复发送；入站进入统一消息板/Inbox；
+  - `bili_account_login_start` / `bili_account_login_poll`：扫码登录，成功后原子写入
+    0600 Cookie 文件，工具结果不返回 Cookie；
   - 新增 `conversation_read/ack/send` 通用别名，`qq_conversation_*` 继续兼容；
   - 配置 schema 支持 `adapter=bilibili`，示例见
     [`config/examples/bot.bilibili.json`](../../config/examples/bot.bilibili.json)。
   - 真实匿名 `bili_video_read` smoke PASS：公开视频元数据/热评读取成功；
     真实 B 站登录、私信轮询、评论通知、私信/评论发送均 `NOT_RUN`。
   - `tools/gate.sh docs` PASS（modules=3 files=47 links=142）；
-    `tools/gate.sh full` PASS，**300 tests / 0 failures / 0 errors / 0 skipped**
-    （connect 84、bot 127、app 89）。
+    `tools/gate.sh full` PASS，**303 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 86、bot 127、app 90）。
   - 设计正本：
     [`../superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md`](../superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md)。
 
@@ -262,7 +264,7 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 | 项 | 实际结果 |
 |---|---|
-| D-034 full | `tools/gate.sh full` PASS：**300 tests / 0 failures / 0 errors / 0 skipped**（connect 84、bot 127、app 89） |
+| D-034 full | `tools/gate.sh full` PASS：**303 tests / 0 failures / 0 errors / 0 skipped**（connect 86、bot 127、app 90） |
 | D-034 docs | `tools/gate.sh docs` PASS（modules=3 files=47 links=142） |
 | D-034 B站匿名 smoke | `bili_video_read` 公开视频元数据/热评读取 PASS；登录态字幕、私信、评论通知与真实外发 `NOT_RUN` |
 | D-033 phase 1 full | `tools/gate.sh full` PASS：**282 tests / 0 failures / 0 errors / 0 skipped**（connect 73、bot 124、app 85）；docs PASS（modules=3 files=46 links=132） |
@@ -334,7 +336,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 ## 5. 当前已实现能力
 
 - OneBot 11 事件 WS + HTTP Action，重连、心跳、去重、限速、分段、发送三态；
-- B 站 Cookie/WBI 登录校验、私信轮询、评论回复通知轮询、私信/评论回复发送；
+- B 站 Cookie/WBI 登录校验、扫码登录工具、私信轮询、评论回复通知轮询、
+  私信/评论回复发送；
 - `bili_video_read` 通用视频阅读（元数据/简介/热评/登录态字幕）；
 - QQ 私聊/群聊消息板、thread、历史、用户备注、媒体、好友申请；入站卡片提取安全
   标题/描述/链接，群文件保存文件名/大小/内部 file id；MCP 不返回 file id 或 URL；

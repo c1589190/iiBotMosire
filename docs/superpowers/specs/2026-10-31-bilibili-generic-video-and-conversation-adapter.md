@@ -326,7 +326,12 @@ bili_video_frames（后续）
 
 ```text
 account_list / account_status
+bili_account_login_start
+bili_account_login_poll
 ```
+
+扫码登录工具只返回 `qrUrl/loginId/state`，不返回 Cookie；成功后凭据原子写入配置的
+0600 文件。
 
 如果保留 QQ 名称，内部必须同样接受 B 站 source；禁止 `qq_conversation_send`
 直接调用 B 站 API 绕过消息板。
@@ -358,7 +363,7 @@ account_list / account_status
 | 批次 | 内容 |
 |---|---|
 | B1 | 通用 external source、Inbound/Outbound 扩展、conversation alias |
-| B2 | BilibiliHttpClient、WBI、凭据校验、配置 discriminated union |
+| B2 | BilibiliHttpClient、WBI、凭据校验、扫码登录工具、配置 discriminated union |
 | B3 | 私信轮询入站 + 评论回复通知入站 |
 | B4 | 私信发送 + 评论发送 + 三态/限流/熔断 |
 | B5 | bili_video_read 元数据/评论/弹幕/字幕 |
@@ -377,6 +382,7 @@ account_list / account_status
 ### B 站 Adapter
 
 - 凭据缺失/过期启动 fail-closed 或明确 `AUTH_REQUIRED`；
+- 扫码登录 start/poll 可用，成功写 0600 文件，工具结果零 Cookie；
 - 私信轮询只处理新消息，自己消息不回灌；
 - 评论通知过滤 business_id，root/source/target 映射正确；
 - 入站消息写入消息板并产生 Inbox source；

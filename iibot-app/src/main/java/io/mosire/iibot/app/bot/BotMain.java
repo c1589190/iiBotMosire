@@ -1,6 +1,9 @@
 package io.mosire.iibot.app.bot;
 
 import io.mosire.agentlib.tool.AgentTool;
+import io.mosire.iibot.app.bilibili.BiliAccountLoginPollTool;
+import io.mosire.iibot.app.bilibili.BiliAccountLoginStartTool;
+import io.mosire.iibot.app.bilibili.BiliLoginService;
 import io.mosire.iibot.app.bilibili.BiliVideoReadTool;
 import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.inbox.BotInboxRuntimeOptions;
@@ -168,7 +171,13 @@ public final class BotMain {
                     config.control().port(), config.control().path(),
                     config.inbox().inboxId(), board.summaryDebounceMillis(),
                     board.maxPreviewMessages(), board.inlineMaxChars());
-            List<AgentTool> extraTools = List.of(new BiliVideoReadTool(biliVideoAccounts));
+            List<AgentTool> extraTools = new ArrayList<>();
+            extraTools.add(new BiliVideoReadTool(biliVideoAccounts));
+            if (!biliVideoAccounts.isEmpty()) {
+                BiliLoginService loginService = new BiliLoginService(biliVideoAccounts);
+                extraTools.add(new BiliAccountLoginStartTool(loginService));
+                extraTools.add(new BiliAccountLoginPollTool(loginService));
+            }
             runtime = BotRuntime.start(accountRegistry, options, extraTools,
                     java.time.Clock.systemUTC());
             BotRuntime shutdownTarget = runtime;

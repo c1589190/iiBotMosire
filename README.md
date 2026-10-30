@@ -57,7 +57,7 @@ http://127.0.0.1:8765/mcp/bot
 Authorization: Bearer <IIBOT_CONTROL_TOKEN>
 ```
 
-默认 MCP 暴露 QQ `qq_*` 业务工具、平台无关 `conversation_read/ack/send` 别名、B 站内容工具 `bili_video_read`、唯一通用 Inbox 工具 `inbox_rest`，以及暂留宿主交接的 `qq_inbox_binding_descriptor`。不保留绕过消息板的公开直接发送工具。
+默认 MCP 暴露 QQ `qq_*` 业务工具、平台无关 `conversation_read/ack/send` 别名、B 站内容工具 `bili_video_read`、B 站扫码登录工具 `bili_account_login_start/poll`、唯一通用 Inbox 工具 `inbox_rest`，以及暂留宿主交接的 `qq_inbox_binding_descriptor`。不保留绕过消息板的公开直接发送工具。
 
 消息来源统一为 canonical `source`：`qq_group/{account}/{group}`、`qq_private/{account}/{peer}`、`qq_system/{account}/{event}`、`app_system/{event}`、`bili_dm/{account}/{peer}`、`bili_comment/{account}/{bvid}/{rootRpid}`、`bili_video/{account}/{bvid}`。`conversation_read/ack/send` 与兼容的 `qq_conversation_*` 都只接受 `source`。短文本 `kind=digest_complete` 摘要可直接 ack；ack 结果只返回 `more`。
 

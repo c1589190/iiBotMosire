@@ -31,8 +31,8 @@ tools/gate.sh full
   **150 tests / 147 pass / 3 live-skipped / 0 fail**；`iiBotMosire-DSH`
   wake-profile 2/2、persona 24/24 PASS。真实 DSH reload/rebind 与 generic
   view-ack live wake 仍为 `NOT_RUN`。
-- 2026-10-31 D-034 基线：`tools/gate.sh full` PASS，**300 tests / 0 failures / 0 errors /
-  0 skipped**（connect 84、bot 127、app 89）；`tools/gate.sh docs` PASS
+- 2026-10-31 D-034 基线：`tools/gate.sh full` PASS，**303 tests / 0 failures / 0 errors /
+  0 skipped**（connect 86、bot 127、app 90）；`tools/gate.sh docs` PASS
   （modules=3 files=47 links=142）。B 站匿名 `bili_video_read` 公开元数据/热评
   smoke PASS；登录态字幕、真实私信/评论轮询与发送 `NOT_RUN`。
 - 依赖：Jackson 2.22.4、SLF4J 2.0.20、JUnit 6.1.3、Java-WebSocket 1.6.0；
