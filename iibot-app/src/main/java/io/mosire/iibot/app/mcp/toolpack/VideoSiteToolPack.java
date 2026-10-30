@@ -6,8 +6,12 @@ import io.mosire.iibot.app.bilibili.BiliAccountLoginStartTool;
 import io.mosire.iibot.app.bilibili.BiliVideoCommentsTool;
 import io.mosire.iibot.app.bilibili.BiliVideoFramesTool;
 import io.mosire.iibot.app.bilibili.BiliVideoReadTool;
+import io.mosire.iibot.app.bilibili.VideoCommentReplyTool;
+import io.mosire.iibot.app.bilibili.VideoInteractionTool;
 import io.mosire.iibot.app.bot.BotConfig;
 import io.mosire.iibot.app.media.BotMediaStore;
+import io.mosire.iibot.bot.reply.BotReplyService;
+import io.mosire.iibot.connect.core.AccountRegistry;
 import io.mosire.iibot.connect.video.bilibili.BiliLoginService;
 import io.mosire.iibot.connect.video.bilibili.BilibiliBrowserTarget;
 import io.mosire.iibot.connect.video.bilibili.BilibiliHttpClient;
@@ -31,6 +35,8 @@ public final class VideoSiteToolPack {
     private final boolean readEnabled;
     private final BotConfig.Video video;
     private final Path dataDir;
+    private final BotReplyService replies;
+    private final AccountRegistry accountRegistry;
     private final BiliLoginService loginService;
 
     public VideoSiteToolPack(List<VideoAccountRef> accounts, BotMediaStore mediaStore,
@@ -46,12 +52,20 @@ public final class VideoSiteToolPack {
 
     public VideoSiteToolPack(List<VideoAccountRef> accounts, BotMediaStore mediaStore,
                              boolean readEnabled, BotConfig.Video video, Path dataDir) {
+        this(accounts, mediaStore, readEnabled, video, dataDir, null, null);
+    }
+
+    public VideoSiteToolPack(List<VideoAccountRef> accounts, BotMediaStore mediaStore,
+                             boolean readEnabled, BotConfig.Video video, Path dataDir,
+                             BotReplyService replies, AccountRegistry accountRegistry) {
         this.accounts = List.copyOf(Objects.requireNonNull(accounts, "accounts"));
         this.mediaStore = Objects.requireNonNull(mediaStore, "mediaStore");
         this.readEnabled = readEnabled;
         this.video = Objects.requireNonNull(video, "video");
         this.dataDir = Objects.requireNonNull(dataDir, "dataDir")
                 .toAbsolutePath().normalize();
+        this.replies = replies;
+        this.accountRegistry = accountRegistry;
         this.loginService = accounts.isEmpty() ? null : new BiliLoginService(accounts);
     }
 
@@ -108,6 +122,19 @@ public final class VideoSiteToolPack {
         return List.of(new BiliVideoCommentsTool(
                 BilibiliHttpClient.API_BASE, BilibiliHttpClient.VC_API_BASE,
                 comments.defaultLimit(), comments.maxLimit(), comments.allowFullScan()));
+    }
+
+    /** 生产目录注册评论写入与四个单次互动工具；默认关闭时由 Adapter 拒绝。 */
+    public List<AgentTool> writeTools() {
+        if (!readEnabled || accounts.isEmpty() || replies == null || accountRegistry == null) {
+            return List.of();
+        }
+        return List.of(
+                new VideoCommentReplyTool(accounts, replies),
+                new VideoInteractionTool(VideoInteractionTool.Action.LIKE, accountRegistry),
+                new VideoInteractionTool(VideoInteractionTool.Action.COIN, accountRegistry),
+                new VideoInteractionTool(VideoInteractionTool.Action.FAVORITE, accountRegistry),
+                new VideoInteractionTool(VideoInteractionTool.Action.FOLLOW, accountRegistry));
     }
 
     /** 生产目录注册通用读取；有账号时才追加扫码登录工具。 */

@@ -74,6 +74,11 @@ public final class BilibiliHttpClient implements AutoCloseable {
     private final URI updateAckUri;
     private final URI sendMessageUri;
     private final URI replyAddUri;
+    private final URI likeUri;
+    private final URI coinUri;
+    private final URI favoriteDealUri;
+    private final URI favoriteFoldersUri;
+    private final URI relationModifyUri;
     private volatile String imgKey = "";
     private volatile String subKey = "";
     private volatile Instant wbiExpiresAt = Instant.EPOCH;
@@ -103,6 +108,11 @@ public final class BilibiliHttpClient implements AutoCloseable {
         this.playUrlUri = URI.create(api + "/x/player/playurl");
         this.msgfeedReplyUri = URI.create(api + "/x/msgfeed/reply");
         this.replyAddUri = URI.create(api + "/x/v2/reply/add");
+        this.likeUri = URI.create(api + "/x/web-interface/archive/like");
+        this.coinUri = URI.create(api + "/x/web-interface/coin/add");
+        this.favoriteDealUri = URI.create(api + "/x/v3/fav/resource/deal");
+        this.favoriteFoldersUri = URI.create(api + "/x/v3/fav/folder/created/list-all");
+        this.relationModifyUri = URI.create(api + "/x/relation/modify");
         this.newSessionsUri = URI.create(vc
                 + "/session_svr/v1/session_svr/new_sessions");
         this.fetchSessionMessagesUri = URI.create(vc
@@ -531,6 +541,76 @@ public final class BilibiliHttpClient implements AutoCloseable {
         JsonNode data = root.path("data");
         String rpid = firstText(data.get("rpid_str"), data.get("rpid"));
         return new BilibiliModels.SendResult(true, rpid, "", "OK");
+    }
+
+    /** 点赞视频；调用方必须先经过写入开关与账号配额。 */
+    public BilibiliModels.SendResult likeVideo(String aid) {
+        Map<String, String> form = new LinkedHashMap<>();
+        form.put("aid", requireAid(aid));
+        form.put("like", "1");
+        form.put("csrf", credential.biliJct());
+        postForm(likeUri, form, true, "BILI_LIKE_FAILED");
+        return new BilibiliModels.SendResult(true, "like-" + aid.trim(), "", "OK");
+    }
+
+    /** 投币；count 只允许 1 或 2。 */
+    public BilibiliModels.SendResult addCoin(String aid, int count) {
+        if (count < 1 || count > 2) {
+            throw new IllegalArgumentException("投币数量只允许 1 或 2");
+        }
+        Map<String, String> form = new LinkedHashMap<>();
+        form.put("aid", requireAid(aid));
+        form.put("multiply", Integer.toString(count));
+        form.put("select_like", "0");
+        form.put("csrf", credential.biliJct());
+        postForm(coinUri, form, true, "BILI_COIN_FAILED");
+        return new BilibiliModels.SendResult(true, "coin-" + aid.trim(), "", "OK");
+    }
+
+    /** 收藏视频到账号默认收藏夹；没有默认收藏夹时明确失败。 */
+    public BilibiliModels.SendResult favoriteVideo(String aid) {
+        BilibiliModels.AccountInfo self = validateAccount();
+        long folderId = defaultFavoriteFolderId(self.mid());
+        Map<String, String> form = new LinkedHashMap<>();
+        form.put("rid", requireAid(aid));
+        form.put("type", "2");
+        form.put("add_media_ids", Long.toString(folderId));
+        form.put("csrf", credential.biliJct());
+        postForm(favoriteDealUri, form, true, "BILI_FAVORITE_FAILED");
+        return new BilibiliModels.SendResult(true, "favorite-" + aid.trim(), "", "OK");
+    }
+
+    /** 关注用户；调用方必须先经过写入开关与账号配额。 */
+    public BilibiliModels.SendResult followUser(long mid) {
+        if (mid <= 0L) throw new IllegalArgumentException("关注 mid 必须为正");
+        Map<String, String> form = new LinkedHashMap<>();
+        form.put("fid", Long.toString(mid));
+        form.put("act", "1");
+        form.put("re_src", "11");
+        form.put("csrf", credential.biliJct());
+        postForm(relationModifyUri, form, true, "BILI_FOLLOW_FAILED");
+        return new BilibiliModels.SendResult(true, "follow-" + mid, "", "OK");
+    }
+
+    private long defaultFavoriteFolderId(long upMid) {
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("up_mid", Long.toString(upMid));
+        JsonNode root = getJson(withQuery(favoriteFoldersUri, query), true,
+                "BILI_FAVORITE_FOLDER_FAILED");
+        JsonNode list = root.path("data").path("list");
+        if (list.isArray() && !list.isEmpty()) {
+            long id = longValue(list.get(0).get("id"));
+            if (id > 0L) return id;
+        }
+        throw new BilibiliApiException("BILI_FAVORITE_FOLDER_MISSING",
+                "B站账号没有可用收藏夹");
+    }
+
+    private static String requireAid(String aid) {
+        if (aid == null || aid.isBlank() || !aid.trim().matches("\\d{1,20}")) {
+            throw new IllegalArgumentException("aid 非法");
+        }
+        return aid.trim();
     }
 
     public BilibiliModels.SessionPage newSessions(long beginTsMicros) {

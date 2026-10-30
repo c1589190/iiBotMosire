@@ -5,6 +5,7 @@ import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.chat.DeliveryState;
 import io.mosire.iibot.bot.store.InMemoryMessageBoardStore;
 import io.mosire.iibot.connect.core.MessageSegment;
+import io.mosire.iibot.connect.core.MessageSourceAddress;
 import io.mosire.iibot.connect.core.OutboundSegment;
 import org.junit.jupiter.api.Test;
 
@@ -40,6 +41,25 @@ class BotReplyServiceTest {
             assertThat(segment.type()).isEqualTo(MessageSegment.Type.TEXT);
             assertThat(segment.text()).isEqualTo("这是包含 MCP 的原文");
         });
+    }
+
+
+    @Test
+    void externalSendCreatesThreadAndPersistsReplySegments() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        CapturingPort port = new CapturingPort();
+        BotReplyService service = new BotReplyService(board, port, CLOCK);
+        MessageSourceAddress source = MessageSourceAddress.biliComment(
+                "bili-1", "BV1EPnG6DEJC", "1001");
+
+        BotReplyResult result = service.sendExternal(source, "回复评论", "1002", "ext-1");
+
+        assertThat(result.deliveryState()).isEqualTo(DeliveryState.SENT);
+        assertThat(result.message().source().sourceAddress()).isEqualTo(source);
+        assertThat(port.sentText).isEqualTo("回复评论");
+        assertThat(board.segments(result.message().messageKey()))
+                .extracting(MessageSegment::type)
+                .containsExactly(MessageSegment.Type.REPLY, MessageSegment.Type.TEXT);
     }
 
     @Test

@@ -6,14 +6,22 @@ import io.mosire.iibot.app.bilibili.BiliAccountLoginStartTool;
 import io.mosire.iibot.app.bilibili.BiliVideoCommentsTool;
 import io.mosire.iibot.app.bilibili.BiliVideoFramesTool;
 import io.mosire.iibot.app.bilibili.BiliVideoReadTool;
+import io.mosire.iibot.app.bilibili.VideoCommentReplyTool;
+import io.mosire.iibot.app.bilibili.VideoInteractionTool;
 import io.mosire.iibot.app.bot.BotConfig;
 import io.mosire.iibot.app.media.BotMediaStore;
 import io.mosire.iibot.connect.video.core.VideoAccountRef;
+import io.mosire.iibot.connect.core.AccountRegistry;
+import io.mosire.iibot.bot.chat.DeliveryState;
+import io.mosire.iibot.bot.reply.BotReplySendResult;
+import io.mosire.iibot.bot.reply.BotReplyService;
+import io.mosire.iibot.bot.store.InMemoryMessageBoardStore;
 import io.mosire.iibot.connect.video.core.VideoQuality;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,6 +59,27 @@ class VideoSiteToolPackTest {
                 BiliAccountLoginPollTool.NAME);
     }
 
+
+
+    @Test
+    void productionPackRegistersExplicitWriteTools() {
+        VideoAccountRef account = new VideoAccountRef("bili-1",
+                tempDir.resolve("credential.json"));
+        BotReplyService replies = new BotReplyService(new InMemoryMessageBoardStore(),
+                (source, text, replyTo, key) -> new BotReplySendResult(
+                        DeliveryState.SENT, List.of("comment-1"), ""),
+                Clock.systemUTC());
+        VideoSiteToolPack pack = new VideoSiteToolPack(List.of(account),
+                new BotMediaStore(tempDir.resolve("write")), true,
+                BotConfig.Video.defaults(), tempDir, replies, new AccountRegistry());
+
+        assertThat(names(pack.writeTools())).containsExactly(
+                VideoCommentReplyTool.NAME,
+                VideoInteractionTool.Action.LIKE.toolName(),
+                VideoInteractionTool.Action.COIN.toolName(),
+                VideoInteractionTool.Action.FAVORITE.toolName(),
+                VideoInteractionTool.Action.FOLLOW.toolName());
+    }
 
     @Test
     void remoteCdpConfigBuildsFrameToolsWithoutConnecting() {

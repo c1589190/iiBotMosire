@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -183,6 +184,53 @@ class BilibiliAdapterTest {
                     source, List.of(new OutboundSegment.Text("回复")), "dm-test-2");
 
             SendReceipt receipt = adapter.send(message).toCompletableFuture().get();
+            assertThat(receipt.state()).isEqualTo(SendReceipt.State.FAILED_BEFORE_SEND);
+            assertThat(receipt.errorCode()).isEqualTo("BILI_WRITE_DISABLED");
+        }
+    }
+
+
+    @Test
+    void explicitInteractionHonorsWriteGateAndIdempotency() throws Exception {
+        AtomicInteger likes = new AtomicInteger();
+        route("/x/web-interface/nav", navJson());
+        route("/x/web-interface/view", """
+                {"code":0,"message":"0","data":{
+                  "bvid":"BV1EPnG6DEJC","aid":117461382864435,
+                  "cid":42838132685,"title":"测试视频","desc":"",
+                  "duration":10,"pages":[{"cid":42838132685,"page":1}],
+                  "owner":{"mid":1,"name":"UP"}
+                }}
+                """);
+        server.createContext("/x/web-interface/archive/like", exchange -> {
+            try {
+                likes.incrementAndGet();
+                byte[] bytes = "{\"code\":0,\"data\":{}}"
+                        .getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                exchange.getResponseBody().write(bytes);
+            } finally {
+                exchange.close();
+            }
+        });
+        try (BilibiliHttpClient client = new BilibiliHttpClient(
+                BilibiliCredential.anonymous(), "test-agent", base, base);
+             BilibiliAdapter adapter = new BilibiliAdapter(config(true), client)) {
+            SendReceipt first = adapter.likeVideo("BV1EPnG6DEJC", "like-test-1");
+            assertThat(first.state()).isEqualTo(SendReceipt.State.SENT);
+            assertThat(likes).hasValue(1);
+            SendReceipt duplicate = adapter.likeVideo("BV1EPnG6DEJC", "like-test-1");
+            assertThat(duplicate.adapterMessageIds()).isEqualTo(first.adapterMessageIds());
+            assertThat(likes).hasValue(1);
+        }
+    }
+
+    @Test
+    void interactionWriteDisabledFailsBeforeNetwork() throws Exception {
+        try (BilibiliHttpClient client = new BilibiliHttpClient(
+                BilibiliCredential.anonymous(), "test-agent", base, base);
+             BilibiliAdapter adapter = new BilibiliAdapter(config(false), client)) {
+            SendReceipt receipt = adapter.likeVideo("BV1EPnG6DEJC", "like-test-2");
             assertThat(receipt.state()).isEqualTo(SendReceipt.State.FAILED_BEFORE_SEND);
             assertThat(receipt.errorCode()).isEqualTo("BILI_WRITE_DISABLED");
         }

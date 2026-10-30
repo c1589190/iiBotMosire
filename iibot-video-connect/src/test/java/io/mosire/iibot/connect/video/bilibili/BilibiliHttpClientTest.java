@@ -244,6 +244,37 @@ class BilibiliHttpClientTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+
+    @Test
+    void sendsExplicitInteractionWritesWithCsrf() throws Exception {
+        AtomicReference<String> lastForm = new AtomicReference<>();
+        route("/x/web-interface/nav", """
+                {"code":0,"data":{"isLogin":true,"mid":123456,"uname":"Bot",
+                  "wbi_img":{"img_url":"https://i0.hdslb.com/bfs/wbi/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+                  "sub_url":"https://i0.hdslb.com/bfs/wbi/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png"}}}
+                """);
+        route("/x/v3/fav/folder/created/list-all", """
+                {"code":0,"data":{"list":[{"id":98765,"title":"默认收藏夹"}]}}
+                """);
+        Handler capture = exchange -> lastForm.set(new String(
+                exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+        route("/x/web-interface/archive/like", "{\"code\":0,\"data\":{}}", capture);
+        route("/x/web-interface/coin/add", "{\"code\":0,\"data\":{}}", capture);
+        route("/x/v3/fav/resource/deal", "{\"code\":0,\"data\":{}}", capture);
+        route("/x/relation/modify", "{\"code\":0,\"data\":{}}", capture);
+        try (BilibiliHttpClient client = new BilibiliHttpClient(
+                BilibiliCredential.anonymous(), "test-agent", base, base)) {
+            assertThat(client.likeVideo("117461382864435").accepted()).isTrue();
+            assertThat(lastForm.get()).contains("aid=117461382864435").contains("like=1");
+            assertThat(client.addCoin("117461382864435", 2).accepted()).isTrue();
+            assertThat(lastForm.get()).contains("multiply=2");
+            assertThat(client.favoriteVideo("117461382864435").accepted()).isTrue();
+            assertThat(lastForm.get()).contains("add_media_ids=98765");
+            assertThat(client.followUser(42L).accepted()).isTrue();
+            assertThat(lastForm.get()).contains("fid=42").contains("act=1");
+        }
+    }
+
     private void route(String path, String body) throws IOException {
         route(path, body, exchange -> { });
     }

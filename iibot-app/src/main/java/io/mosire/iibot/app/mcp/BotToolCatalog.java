@@ -76,11 +76,13 @@ public final class BotToolCatalog implements AutoCloseable {
         MediaToolPack media = new MediaToolPack(context);
         tools.addAll(media.uploadTools());
         VideoSiteToolPack video = new VideoSiteToolPack(videoAccounts,
-                context.mediaStore(), videoReadEnabled, this.video, context.dataDir());
+                context.mediaStore(), videoReadEnabled, this.video, context.dataDir(),
+                context.replies(), context.accountRegistry());
         tools.addAll(video.frameTools());
         tools.addAll(video.commentTools());
         tools.addAll(media.capabilityTools());
         tools.addAll(video.accountTools());
+        tools.addAll(video.writeTools());
         tools.addAll(extraTools);
         tools.addAll(InboxToolPack.tools(context));
         createdTools = List.copyOf(tools);

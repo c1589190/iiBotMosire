@@ -8,6 +8,7 @@ import io.mosire.iibot.bot.chat.ChatDirection;
 import io.mosire.iibot.bot.chat.DeliveryState;
 import io.mosire.iibot.bot.store.MessageAppendResult;
 import io.mosire.iibot.connect.core.MessageSegment;
+import io.mosire.iibot.connect.core.MessageSourceAddress;
 import io.mosire.iibot.connect.core.OutboundSegment;
 import io.mosire.iibot.bot.store.MessageBoardStore;
 import io.mosire.iibot.connect.ops.LogContext;
@@ -38,6 +39,69 @@ public final class BotReplyService {
         this.board = Objects.requireNonNull(board, "board");
         this.port = Objects.requireNonNull(port, "port");
         this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    /**
+     * 向一个非 QQ 统一来源发送消息；来源不存在时由消息板创建/复用 external thread。
+     * 仍写入 PENDING 出站消息并回写三态，UNKNOWN 禁止自动重发。
+     */
+    public BotReplyResult sendExternal(MessageSourceAddress source, String text,
+                                       String replyToMessageId, String idempotencyKey) {
+        Objects.requireNonNull(source, "source");
+        if (!source.isExternalConversation()) {
+            throw new BotReplyException("INVALID_ARGUMENTS", "sendExternal 只接受外部来源");
+        }
+        try (LogContext.Scope ignored = LogContext.openTrace(
+                LogContext.newTraceId("external-send"))) {
+            String normalizedText = requireText(text, "text");
+            if (normalizedText.length() > MAX_TEXT_CHARS) {
+                throw new BotReplyException("TEXT_TOO_LONG",
+                        "回复正文超过 " + MAX_TEXT_CHARS + " 字符");
+            }
+            String key = requireText(idempotencyKey, "idempotencyKey");
+            String replyTo = replyToMessageId == null ? "" : replyToMessageId.trim();
+            ChatSourceKey threadSource = ChatSourceKey.external(source);
+            ChatMessage candidate = ChatMessage.outbound(threadSource, key, clock.instant(),
+                    normalizedText, replyTo.isEmpty() ? "" : "[引用×1]",
+                    replyTo.isEmpty() ? null : replyTo);
+            var existing = board.find(candidate.messageKey());
+            if (existing.isPresent()) {
+                ChatMessage message = existing.orElseThrow();
+                return new BotReplyResult(message, true, message.deliveryState(),
+                        List.of(), "");
+            }
+            List<MessageSegment> segments = new ArrayList<>();
+            int index = 0;
+            if (!replyTo.isEmpty()) {
+                segments.add(MessageSegment.reply(index++, replyTo));
+            }
+            segments.add(MessageSegment.text(index, normalizedText));
+            MessageAppendResult appended = board.append(candidate, segments);
+            if (!appended.created()) {
+                ChatMessage message = appended.message();
+                return new BotReplyResult(message, true, message.deliveryState(),
+                        List.of(), "");
+            }
+            BotReplySendResult sendResult;
+            try {
+                sendResult = port.send(threadSource, normalizedText, replyTo, key);
+            } catch (RuntimeException failure) {
+                board.updateDelivery(appended.message().messageKey(),
+                        DeliveryState.UNKNOWN, null, null);
+                throw new BotReplyException("EXTERNAL_SEND_UNKNOWN",
+                        "外部发送过程异常，已记录 UNKNOWN，禁止自动重发", failure);
+            }
+            ChatMessage updated = board.updateDelivery(
+                    appended.message().messageKey(), sendResult.state(),
+                    sendResult.messageIds().isEmpty() ? null
+                            : sendResult.messageIds().getFirst(),
+                    clock.instant());
+            OpsLog.info("event=external_send accountId={} source={} key={} state={} code={}",
+                    source.accountId(), source.canonical(), key, sendResult.state(),
+                    sendResult.errorCode() == null ? "" : sendResult.errorCode());
+            return new BotReplyResult(updated, false, sendResult.state(),
+                    sendResult.messageIds(), sendResult.errorCode());
+        }
     }
 
     public BotReplyResult reply(String threadId, String text, String replyToMessageId,

@@ -58,6 +58,7 @@ public final class BilibiliAdapter implements MessagingAdapter, AccountInfoProvi
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Map<String, SendReceipt> receipts = new ConcurrentHashMap<>();
+    private final Map<String, SendReceipt> interactionReceipts = new ConcurrentHashMap<>();
     private final Map<Long, String> bvidByAid = new ConcurrentHashMap<>();
     private final Object writeLock = new Object();
 
@@ -172,6 +173,114 @@ public final class BilibiliAdapter implements MessagingAdapter, AccountInfoProvi
 
     public BilibiliAdapterConfig config() {
         return config;
+    }
+
+    /** 显式点赞；默认关闭写入时 fail-closed，同一 idempotencyKey 不重复请求。 */
+    public SendReceipt likeVideo(String bvid, String idempotencyKey) {
+        return interaction("like", bvid, idempotencyKey,
+                video -> client.likeVideo(Long.toString(video.aid())));
+    }
+
+    /** 显式投币；count 只允许 1 或 2。 */
+    public SendReceipt addCoin(String bvid, int count, String idempotencyKey) {
+        if (count < 1 || count > 2) {
+            return SendReceipt.failed("BILI_COIN_COUNT", "投币数量只允许 1 或 2");
+        }
+        return interaction("coin", bvid, idempotencyKey,
+                video -> client.addCoin(Long.toString(video.aid()), count));
+    }
+
+    /** 显式收藏到默认收藏夹。 */
+    public SendReceipt favoriteVideo(String bvid, String idempotencyKey) {
+        return interaction("favorite", bvid, idempotencyKey,
+                video -> client.favoriteVideo(Long.toString(video.aid())));
+    }
+
+    /** 显式关注视频 UP 主。 */
+    public SendReceipt followUploader(String bvid, String idempotencyKey) {
+        return interaction("follow", bvid, idempotencyKey, video -> {
+            if (video.ownerMid().isBlank()) {
+                throw new BilibiliHttpClient.BilibiliApiException(
+                        "BILI_OWNER_MISSING", "B站视频缺少 UP 主 UID");
+            }
+            long mid;
+            try {
+                mid = Long.parseLong(video.ownerMid());
+            } catch (NumberFormatException invalid) {
+                throw new BilibiliHttpClient.BilibiliApiException(
+                        "BILI_OWNER_INVALID", "B站视频 UP 主 UID 非法");
+            }
+            return client.followUser(mid);
+        });
+    }
+
+    private SendReceipt interaction(String action, String bvid, String idempotencyKey,
+                                    InteractionCall call) {
+        if (bvid == null || bvid.isBlank()) {
+            return SendReceipt.failed("BILI_INVALID_TARGET", "B站视频 BV 号不能为空");
+        }
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return SendReceipt.failed("BILI_IDEMPOTENCY_REQUIRED",
+                    "互动写入必须提供 idempotencyKey");
+        }
+        if (!config.writeEnabled()) {
+            return SendReceipt.failed("BILI_WRITE_DISABLED", "B站写入未启用");
+        }
+        String cacheKey = action + ":" + idempotencyKey.trim();
+        SendReceipt cached = interactionReceipts.get(cacheKey);
+        if (cached != null) return cached;
+        BilibiliModels.VideoInfo video;
+        try {
+            video = client.video(bvid.trim(), null, 1);
+        } catch (BilibiliHttpClient.BilibiliApiException rejected) {
+            return cache(cacheKey, SendReceipt.failed(rejected.code(),
+                    "B站视频信息读取失败"));
+        } catch (RuntimeException failure) {
+            return cache(cacheKey, SendReceipt.failed("BILI_VIDEO_LOOKUP_FAILED",
+                    "B站视频信息读取失败"));
+        }
+        SendReceipt quota = acquireWriteSlot();
+        if (quota != null) return cache(cacheKey, quota);
+        try {
+            BilibiliModels.SendResult result = call.run(video);
+            if (!result.accepted()) {
+                return cache(cacheKey, SendReceipt.failed("BILI_INTERACTION_REJECTED",
+                        "B站互动接口未接受请求"));
+            }
+            String actionId = result.msgKey().isBlank()
+                    ? action + "-" + video.bvid() : result.msgKey();
+            OpsLog.info("event=bili_interaction_sent accountId={} action={} bvid={}",
+                    config.accountId(), action, video.bvid());
+            return cache(cacheKey, new SendReceipt(SendReceipt.State.SENT,
+                    List.of(actionId), null, "", Instant.now()));
+        } catch (BilibiliHttpClient.BilibiliApiException rejected) {
+            OpsLog.warn("event=bili_interaction_rejected accountId={} action={} bvid={} code={}",
+                    config.accountId(), action, video.bvid(), rejected.code());
+            return cache(cacheKey, SendReceipt.failed(rejected.code(),
+                    "B站互动被明确拒绝"));
+        } catch (BilibiliHttpClient.BilibiliTransportException uncertain) {
+            OpsLog.error("event=bili_interaction_unknown accountId={} action={} bvid={} code={} "
+                            + "retry=forbidden", config.accountId(), action, video.bvid(),
+                    uncertain.code());
+            return cache(cacheKey, SendReceipt.unknown(uncertain.code(),
+                    "B站互动网络状态未知，禁止自动重发"));
+        } catch (RuntimeException unexpected) {
+            OpsLog.error("event=bili_interaction_unknown accountId={} action={} bvid={} reason={} "
+                            + "retry=forbidden", config.accountId(), action, video.bvid(),
+                    unexpected.getClass().getSimpleName());
+            return cache(cacheKey, SendReceipt.unknown("BILI_INTERACTION_UNEXPECTED",
+                    "B站互动异常，无法确认是否已生效"));
+        }
+    }
+
+    private SendReceipt cache(String key, SendReceipt receipt) {
+        interactionReceipts.putIfAbsent(key, receipt);
+        return interactionReceipts.getOrDefault(key, receipt);
+    }
+
+    @FunctionalInterface
+    private interface InteractionCall {
+        BilibiliModels.SendResult run(BilibiliModels.VideoInfo video);
     }
 
     private SendReceipt sendPrivate(OutboundMessage message) {
