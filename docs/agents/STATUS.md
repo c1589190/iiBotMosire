@@ -1,13 +1,13 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-31 01:10（Asia/Shanghai）
+> **更新时间**：2026-10-31 01:15（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
 ## 0. 最新更新：P1a/P1b 清理与统一 QQ 客户端重构
 
 - **2026-10-31 D-034 B 站通用视频与 Inbox 会话 Adapter 已实现（code-level）**，
-  主提交 `a3ddf32`：
+  主提交 `a3ddf32`，扫码登录提交 `6967a28`：
   - 通用只读 `bili_video_read`：任意来源 BV/av、bilibili.com/video、b23.tv 短链；
     返回视频元数据、简介、可选热评和登录态字幕；不进入消息板/Inbox；
   - `ChatType.EXTERNAL` + 统一 source：新增 `bili_dm/...`、`bili_comment/...`、
@@ -254,10 +254,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.7）；feature/fix 分支保留 |
-| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32` |
+| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28` |
 | Maven reactor | 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | D-034 主提交 `a3ddf32` 已提交；本 STATUS 更新单独收口，提交后工作树 clean |
+| 工作树 | D-034 主提交 `a3ddf32` + 扫码登录 `6967a28` 已提交；本 STATUS 更新后 clean |
 | 模块目标 | 已完成：`iibot-connect-agent` 已删除，模块数为 3 |
 
 ## 3. 最近功能门禁
