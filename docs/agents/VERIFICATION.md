@@ -35,6 +35,10 @@ tools/gate.sh full
   0 skipped**（connect 86、bot 127、app 91）；`tools/gate.sh docs` PASS
   （modules=3 files=47 links=142）。B 站匿名 `bili_video_read` 公开元数据/热评
   smoke PASS；登录态字幕、真实私信/评论轮询与发送 `NOT_RUN`。
+- 2026-10-31 D-035 V0 基线（docs-only）：`tools/gate.sh docs` PASS
+  （modules=3 files=49 links=159）；代码/配置未改，full 沿用 D-034 的 304 tests。
+  `iibot-video-connect`、Playwright/Chromium、`quality/time/times`、`video_comments`
+  与 `video.*` 配置均未实现；真实浏览器/服务器验收 `NOT_RUN`。
 - 依赖：Jackson 2.22.4、SLF4J 2.0.20、JUnit 6.1.3、Java-WebSocket 1.6.0；
   `iibot-app` shaded jar 构建成功。
 - Inbox 依赖刷新后 `./mvnw -B -ntp clean verify` PASS：37 tests / 0 failures / 0 errors。
@@ -61,6 +65,8 @@ tools/gate.sh full
 | 应用集成 | BotRuntime + fake Adapter + embedded loopback Inbox/MCP | 已有 |
 | B 站公开读取 | 元数据/热评/字幕/短链 | 元数据+热评 smoke PASS；ffmpeg 3 帧看图 smoke PASS；字幕/短链 `NOT_RUN` |
 | B 站账号会话 | Cookie 登录、WBI、私信轮询、评论通知、私信/评论发送 | fake HTTP 单测 PASS；真实 `NOT_RUN` |
+| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询 | 设计已确认；实施 `NOT_RUN` |
+| 无头浏览器（D-035） | Playwright embedded/remote-cdp、headless Linux、codec/超时/清理 | 依赖与实现 `NOT_RUN`；Chromium 未安装核对 |
 | 真实 NapCat E2E | 真实私聊/群聊入站与发送 | `NOT_RUN` |
 | 真实 DSH/OpenCode wake | 真实 wake/ack 闭环 | `NOT_RUN` |
 | 长跑/崩溃恢复 | 多账号、日志轮转、进程崩溃与重启 | `NOT_RUN` |
@@ -83,6 +89,14 @@ tools/gate.sh full
     缺失或跨 thread 时必须 fail-closed。
 14. B 站私信/评论发送超时或响应不可解析 ⇒ `UNKNOWN`，不得自动重发。
 15. 通用 source 的 `bili_dm/...`、`bili_comment/...` 不能落回 QQ private/group 分支。
+16. D-035 `video_read` 请求不可用清晰度：`strictQuality=true` ⇒ `QUALITY_UNAVAILABLE`；
+    `false` ⇒ 回退并返回 requested/actual/available/fallback，不得静默伪装成请求值。
+17. D-035 `time/times` 超出分P时长 ⇒ `INVALID_TIMESTAMPS`，不得截断或抽错帧；
+    `time/times` 与 `count` 同时出现 ⇒ 参数错误。
+18. D-035 `browser.enabled=false` 不得启动浏览器；浏览器只能访问 B 站允许域名，
+    禁止 `file:`/`data:`/`javascript:` 与 Agent 任意 URL/JS；失败必须有稳定错误码。
+19. D-035 视频/浏览器日志、异常和 MCP 文本不得出现正文、Cookie、token、签名 URL
+    或 HTML；浏览器 stdout/stderr 必须有界脱敏。
 13. read 窗口只按入站消息计数；OUT 不能占用窗口或造成 `more=false` 假阴性。
 14. replay 已投递批次时，若批次之后仍有未读入站，`more` 必须为 true。
 15. `replyToSeq` 只能解析同一 thread 内消息；与 `replyToMessageId` 同时出现必须拒绝；

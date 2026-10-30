@@ -2,6 +2,9 @@
 
 > **状态**：已实施 P1–P7（2026-10-28）；D-034 已把统一 source/会话面扩展至
 > B 站私信与评论（2026-10-31，code-level）；真实外部联调待用户授权。
+> D-035 已确认下一步把视频站/无头浏览器抽到独立 `iibot-video-connect`，并把 MCP
+> 工具注册统一到 app 的 `BotToolCatalog`；实施未开始，见
+> [`2026-10-31-video-site-connect-and-browser-backend.md`](2026-10-31-video-site-connect-and-browser-backend.md)。
 > **本文取代**：无；细化并扩展 D-021 的 bot-first 方向。
 > **用户原话**：
 > > 「iibot模块不额外提供程序化的文游服务，只作为给各类Agent软件提供一个统一QQ消息客户端的功能，因此文游相关模块可以标弃用删除了」

@@ -1,6 +1,6 @@
 # AGENTS.md —— iiBotMosire 常驻索引
 
-> **更新时间**：2026-10-28（统一 QQ Agent 客户端重构 P7 收口）
+> **更新时间**：2026-10-31（D-035 视频站模块/无头浏览器/配置日志设计确认）
 > **本文件只做三件事**：项目边界、常驻红线、文档与模块路由。
 > **规则正文不在本文件**：项目设计看 `docs/superpowers/`，项目维护看 `docs/agents/`。
 > **禁止用 `@` 导入长文**；按需打开链接。
@@ -8,7 +8,7 @@
 ## 0. 冲突顺序
 
 1. 用户当次明确指令。
-2. 用户设计裁定：D-025..D-030、统一 QQ Agent 客户端目标架构、来源地址与 direct ack。
+2. 用户设计裁定：D-025..D-035、统一 QQ Agent 客户端目标架构、来源地址与 direct ack。
 3. 项目维护裁定：`docs/agents/MAINTENANCE_RULINGS.md`、`docs/AGENTS.md`。
 4. 当前有效设计与契约：`docs/superpowers/specs/**`。
 5. 本文件。
@@ -24,9 +24,11 @@
 - 一个或多个 OneBot 11 / NapCat / LLBot 账号接入；
 - 一个或多个 B 站账号的凭据校验、私信/评论回复通知轮询与显式发送；
 - QQ / B 站统一消息板、thread、历史、用户备注和媒体；
-- 通用只读 `bili_video_read`（任意来源 B 站链接/BV/av/b23）；
+- 通用只读 `bili_video_read` / `bili_video_frames`（任意来源 B 站链接/BV/av/b23）；
+- D-035 目标：视频站抽取/评论/交互集中到 `iibot-video-connect`，标准 `video_*`
+  MCP 工具统一在 app 注册，并兼容无头浏览器；
 - 发送三态与 Inbox 唤醒；
-- 统一 MCP 工具面，供外部 Agent 读取、回复和管理 QQ 会话。
+- 统一 MCP 工具面，供外部 Agent 读取、回复和管理 QQ/B 站会话。
 
 非目标：
 
@@ -50,29 +52,35 @@
 9. **真实联调不冒充通过。** Mock/fake/回环测试不能写成真实 QQ/DSH 验收；没跑写 `NOT_RUN`。
 10. **不擅自 commit/push/合并。** 遵循用户当次指令与 M-005；不 `git add -A`，不强制推送。
 
-## 3. 当前模块（P6 后）
+## 3. 当前模块（D-035 前；目标 4 模块）
 
-根 `pom.xml` 当前 3 个模块：
+根 `pom.xml` 当前 3 个模块；D-035 V1 计划新增第 4 个 `iibot-video-connect`，
+尚未创建，不得写成已存在：
 
 | 模块 | 职责 | 依赖 |
 |---|---|---|
-| `iibot-connect` | OneBot 11 接入、B 站 Adapter/WBI、事件/发送 SPI、三态回执、Adapter 状态 | Jackson、SLF4J |
+| `iibot-connect` | OneBot 11 接入、事件/发送 SPI、三态回执；D-034 B 站 Adapter 暂留，D-035 目标迁出 | Jackson、SLF4J |
+| `iibot-video-connect`（D-035 计划） | 视频站元数据/播放/评论/抽帧/浏览器；不依赖 AgentLib/MCP | connect core + Jackson + Playwright（后续） |
 | `iibot-bot` | 统一消息板、thread、用户备注、摘要、Inbox digest、conversation/QQ MCP 工具 | connect + AgentLib + SQLite |
-| `iibot-app` | 可运行组合根：配置、Adapter、embedded Inbox、Bot MCP、B 站视频工具、日志 | bot + Inbox artifacts |
+| `iibot-app` | 可运行组合根：配置、Adapter、embedded Inbox、唯一 MCP 工具目录、B 站视频工具、日志 | bot + video-connect + Inbox artifacts |
 
 当前依赖图：
 
 ```text
 iibot-connect
       │
-      ▼
-iibot-bot
-      │
-      ▼
-iibot-app
+      ├──────────────┐
+      ▼              ▼
+iibot-bot     iibot-video-connect（D-035 目标，尚未创建）
+      │              │
+      └──────┬───────┘
+             ▼
+         iibot-app
 ```
 
-账号工具已进入 `iibot-bot` 的统一 MCP 工具包；独立 `iibot-connect-agent` 模块已删除，reactor 固定为 3 模块。
+账号工具已进入 `iibot-bot` 的统一 MCP 工具包；独立 `iibot-connect-agent` 模块已删除。
+D-035 后 `BotRuntime`/`BotMain` 不再直接注册 B 站工具，所有 MCP 工具由 app 的
+`BotToolCatalog` 统一装配。
 
 ## 4. 当前有效设计与计划
 
@@ -87,6 +95,8 @@ iibot-app
 | 用户需求原话 | [`docs/superpowers/specs/2026-10-24-user-requirements-source.md`](docs/superpowers/specs/2026-10-24-user-requirements-source.md) |
 | 统一消息来源地址 | [`docs/superpowers/specs/2026-10-28-unified-message-source-address.md`](docs/superpowers/specs/2026-10-28-unified-message-source-address.md) |
 | B 站通用视频与 Inbox 会话（D-034） | [`docs/superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md`](docs/superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md) |
+| 视频站 Connect 与无头浏览器（D-035） | [`docs/superpowers/specs/2026-10-31-video-site-connect-and-browser-backend.md`](docs/superpowers/specs/2026-10-31-video-site-connect-and-browser-backend.md) |
+| D-035 V0–V7 实施计划 | [`docs/superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md`](docs/superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md) |
 | P8 来源地址/wake 计划 | [`docs/superpowers/plans/2026-10-28-p8-source-address-and-wake-contract.md`](docs/superpowers/plans/2026-10-28-p8-source-address-and-wake-contract.md) |
 | 文档规则 | [`docs/AGENTS.md`](docs/AGENTS.md) |
 | 工作流 | [`docs/agents/WORKFLOW.md`](docs/agents/WORKFLOW.md) |
@@ -99,6 +109,7 @@ iibot-app
 
 - JDK 21；仓库内 `./mvnw`。
 - 门禁：`tools/gate.sh docs|selftest|pre|focused|full`。
+- D-035 当前仅文档冻结（V0），代码/配置未改；下一步 V1 新模块抽取。
 - 当前产品分支：`refactor/bot-first-main-agent`；按责任区提交并推送，全量验证后再合并（M-005）。
 - worktree 统一放 `<仓库根>/worktree/<name>/`。
 - 同一 checkout 不并发跑 Maven；不覆盖正在运行的 jar；不提交 `.work/`、`target/`、数据库、日志和 secret。

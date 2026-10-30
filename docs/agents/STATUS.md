@@ -1,10 +1,34 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-31 01:25（Asia/Shanghai）
+> **更新时间**：2026-10-31 02:58（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
 ## 0. 最新更新：P1a/P1b 清理与统一 QQ 客户端重构
+
+- **2026-10-31 D-035 视频站 Connect/无头浏览器/配置日志设计已确认（docs-only）**：
+  - 新增 4 模块目标：`iibot-connect`（只做外部消息连接）+ 计划中的
+    `iibot-video-connect`（视频站/评论/播放/抽帧/浏览器）+ `iibot-bot`（消息板/Inbox）
+    + `iibot-app`（唯一组合根与 MCP 工具目录）；当前 reactor 仍是 3 模块，V1 才创建。
+  - MCP 工具注册收敛到 app 单一 `BotToolCatalog`；标准名
+    `video_read/frames/comments/comment_reply/account_login_*`，保留 `bili_*` 别名。
+  - 已确认 `quality` 分辨率选择、`time/times` 精确抽帧、评论按需查询；
+    Playwright + 系统 Chromium 的 `embedded`/`remote-cdp` 为正式兼容 backend，
+    ffmpeg 仍是公开视频抽帧默认路径。
+  - 配置与日志同步设计：严格 `video` schema、`--check-config`/
+    `--print-effective-config`、启动/热更新矩阵；新增 `io.mosire.iibot.video.*`
+    logger，只记 ID/状态/计数/耗时/结果码，正文/Cookie/token/URL/HTML 不入日志。
+  - 阶段 V0 文档冻结 → V1 模块抽取 → V2 app 工具目录 → V3 精确时间/分辨率/评论
+    → V4 Playwright embedded → V5 remote-cdp/服务器 → V6 交互写入 → V7 真实验收；
+    每阶段独立门禁，未通过不进入下一阶段。
+  - 代码/配置未改；`tools/gate.sh docs` PASS（modules=3 files=49 links=159）；
+    `tools/gate.sh full` 仍沿用 D-034 的 **304 tests**（代码未变）。
+  - 设计正本：
+    [`../superpowers/specs/2026-10-31-video-site-connect-and-browser-backend.md`](../superpowers/specs/2026-10-31-video-site-connect-and-browser-backend.md)；
+    实施计划：
+    [`../superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md`](../superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md)。
+  - 未定：交互范围 A（评论/私信/登录）或 B（再加点赞/投币/收藏/关注）；
+    确认前不实现额外交互写接口。真实浏览器/服务器验收 `NOT_RUN`。
 
 - **2026-10-31 D-034 B 站通用视频与 Inbox 会话 Adapter 已实现（code-level）**，
   主提交 `a3ddf32`，扫码登录 `6967a28`，分帧看图 `7214a2e`：
@@ -224,16 +248,18 @@
 目标是把 iiBotMosire 收敛成：
 
 ```text
-OneBot 11 / NapCat / LLBot（可多个）
-  → iibot-connect
-  → 通用账号/连接 AgentTool
-  → iibot-bot 消息板 + 统一 QQ MCP
-  → iibot-app 组合根（embedded Inbox、日志、配置）
+OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
+  → iibot-connect（外部消息连接）            → iibot-video-connect（D-035 目标，尚未创建）
+  → 通用账号/连接 AgentTool                  → 视频/评论/抽帧/浏览器
+  → iibot-bot 消息板 + Inbox 服务
+  → iibot-app 组合根（唯一 MCP 工具目录、embedded Inbox、日志、配置）
   → 外部 Agent
 ```
 
 当前进行中：
 
+- D-035 V0 文档冻结已完成（docs-only）；下一步 V1 `iibot-video-connect` 抽取，
+  代码尚未改动；
 - P1b–P8.7 已完成并合并；
 - **Bot 试运行摩擦第一批（2026-10-29）已完成（code-level）**：按
   [`../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md`](../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md)
@@ -257,15 +283,17 @@ OneBot 11 / NapCat / LLBot（可多个）
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.7）；feature/fix 分支保留 |
 | 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e` |
-| Maven reactor | 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app` |
+| Maven reactor | 当前 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app`；D-035 V1 目标增加 `iibot-video-connect` 为第 4 模块（尚未创建） |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | D-034 主提交 `a3ddf32` + 扫码登录 `6967a28` + 分帧看图 `7214a2e` 已提交；本 STATUS 更新后 clean |
-| 模块目标 | 已完成：`iibot-connect-agent` 已删除，模块数为 3 |
+| 工作树 | D-034 代码提交在 `a3ddf32`/`6967a28`/`7214a2e`；D-035 文档修改已落盘，待单独提交 |
+| 模块目标 | 当前 3 模块；D-035 目标 4 模块，`iibot-connect` 退出 B 站/视频职责 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
+| D-035 docs | `tools/gate.sh docs` PASS（modules=3 files=49 links=159）；代码未改 |
+| D-035 full | 沿用 D-034 基线 **304 tests / 0 failures / 0 errors / 0 skipped**（docs-only，未重跑 Maven） |
 | D-034 full | `tools/gate.sh full` PASS：**304 tests / 0 failures / 0 errors / 0 skipped**（connect 86、bot 127、app 91） |
 | D-034 docs | `tools/gate.sh docs` PASS（modules=3 files=47 links=142） |
 | D-034 B站匿名 smoke | `bili_video_read` 元数据/热评 PASS；`bili_video_frames` 真实公开视频 3 帧 + ImageContent PASS；登录态字幕、私信、评论通知与真实外发 `NOT_RUN` |
@@ -330,8 +358,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 | 统一 QQ Agent 客户端目标架构 | [`../superpowers/specs/2026-10-28-unified-qq-agent-client-architecture.md`](../superpowers/specs/2026-10-28-unified-qq-agent-client-architecture.md) |
 | 日志分级与诊断 | [`../superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md`](../superpowers/specs/2026-10-28-logging-levels-and-diagnostics.md) |
 | 配置文件系统 | [`../superpowers/specs/2026-10-28-configuration-system.md`](../superpowers/specs/2026-10-28-configuration-system.md) |
+| 视频站 Connect 与无头浏览器（D-035） | [`../superpowers/specs/2026-10-31-video-site-connect-and-browser-backend.md`](../superpowers/specs/2026-10-31-video-site-connect-and-browser-backend.md) |
+| 视频站 V0–V7 实施计划 | [`../superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md`](../superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md) |
 | P0–P7 改造计划 | [`../superpowers/plans/2026-10-28-unified-qq-agent-client-refactor-plan.md`](../superpowers/plans/2026-10-28-unified-qq-agent-client-refactor-plan.md) |
-| 用户需求原话 / D-025..D-029 | [`../superpowers/specs/2026-10-24-user-requirements-source.md`](../superpowers/specs/2026-10-24-user-requirements-source.md) |
+| 用户需求原话 / D-025..D-035 | [`../superpowers/specs/2026-10-24-user-requirements-source.md`](../superpowers/specs/2026-10-24-user-requirements-source.md) |
 | 设计裁定索引 | [`../superpowers/DESIGN_RULINGS.md`](../superpowers/DESIGN_RULINGS.md) |
 | 维护裁定 | [`MAINTENANCE_RULINGS.md`](MAINTENANCE_RULINGS.md) |
 
@@ -396,27 +426,36 @@ OneBot 11 / NapCat / LLBot（可多个）
 14. **source-only direct ack 竞态**：未 read 时 ack 归档当前 active item；
     wake 后、ack 前到达的新消息可能被一并归档。这是既有 direct-ack 边界，D-032
     没有引入 through 字段；需要真实运行观察，必要时再裁定。
+15. **D-035 尚未进入代码**：`iibot-video-connect` 未创建、app 单一工具目录未实现、
+    `quality/time/times`/`video_comments` 未落地、Playwright/Chromium 未安装核对、
+    `video.*` 配置与浏览器日志未实现；真实浏览器帧、remote-cdp、服务器部署均
+    `NOT_RUN`。V6 交互范围 A/B 未确认，不得提前实现点赞/投币/收藏/关注。
 
 ## 7. 下一步
 
-1. **B 站 D-034 验收**：为 B 站 Adapter 准备独立测试账号 Cookie，验证登录、
+**D-035 优先顺序**：先做 V1 新模块抽取（行为不变），再做 V2 app 单一工具目录；
+V3 之后才改视频质量/时间/评论查询；V4/V5 才引入浏览器；V6 等用户确认 A/B。
+
+1. **D-035 V1**：创建 `iibot-video-connect`，迁移 B 站领域/抽帧类，保持工具行为
+   不变；`iibot-connect` 退出 B 站依赖；full/docs 必须回归 PASS。
+2. **B 站 D-034 验收**：为 B 站 Adapter 准备独立测试账号 Cookie，验证登录、
    私信轮询、评论回复通知、统一 source 入库/Inbox wake、conversation_send
    三态和 UNKNOWN 不重发；真实写入前先取得用户授权。
-2. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
+3. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。
-3. **已推进的摩擦项**：F-001/F-002/F-003/F-014/F-015/F-016 已完成 code-level；
+4. **已推进的摩擦项**：F-001/F-002/F-003/F-014/F-015/F-016 已完成 code-level；
    下一步是替换测试 jar、reload 宿主并用真实样本验收。
-4. **D-031 已实现 code-level**：3A mentionAll + qq_message_recall；3B qq_private_send；
+5. **D-031 已实现 code-level**：3A mentionAll + qq_message_recall；3B qq_private_send；
    3C qq_media_upload + image/sticker + qq_group_file_upload；3D AUDIO + qq_audio_get。
    下一步是替换测试 jar 后做真实 LLBot 外部动作验收；ASR 仍未接。
-5. **Raw LLBot 兜底**：按 D-031 允许常规使用；纪律和审计边界已写设计，不新增
+6. **Raw LLBot 兜底**：按 D-031 允许常规使用；纪律和审计边界已写设计，不新增
    iibot scheduler。
-6. **D-032 验证**：替换测试 jar、reload 两个 DSH bundle 后，用新会话验证
+7. **D-032 验证**：替换测试 jar、reload 两个 DSH bundle 后，用新会话验证
    `complete=true` 不走 read、普通消息走 compact read/ack、`more` 同轮续读；
    旧 649 轮会话不能冒充新验收。
-7. **F-013 复验**：先按 MCP 发送路径确认 OUT 已落库；只有 Raw LLBot 路径无记录，
+8. **F-013 复验**：先按 MCP 发送路径确认 OUT 已落库；只有 Raw LLBot 路径无记录，
    不再把它当消息板缺陷。
-8. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
+9. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
    `PUBLICATION_GAP` / `BLOCKED`。
-9. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack；
-   当前均未实施。
+10. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack、
+    D-035 交互范围 A/B；当前均未实施。
