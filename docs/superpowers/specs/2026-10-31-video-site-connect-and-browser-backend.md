@@ -1,6 +1,6 @@
 # 视频站 Connect 模块、无头浏览器与配置/日志设计
 
-> **状态**：有效（2026-10-31；用户已确认模块拆分与无头浏览器兼容；V1/V2/V3/V4/V5 已完成，V6 待开始）
+> **状态**：有效（2026-10-31；用户已确认模块拆分、无头浏览器兼容与交互范围 B；V1/V2/V3/V4/V5/V6 已完成，V7 待开始）
 > **用户原话**：
 > - 「首先我建议把视频网站的视频抽取、评论区查询和整合，以及视屏网站的交互全都集中到一个统一的connect包里面方便管理，然后做标准MCP工具，统一在APP做注册，而不是分散在各个模块」
 > - 「此外还有易用性，允许选择分辨率吗？」
@@ -261,6 +261,10 @@ video_read
 video_frames
 video_comments
 video_comment_reply
+video_like
+video_coin
+video_favorite
+video_follow
 video_account_login_start
 video_account_login_poll
 ```
@@ -356,14 +360,15 @@ video_comments(
 
 ### 6.3 交互范围
 
-当前项目既有非目标包括“自动刷视频、自动评论、自动私信、自动点赞/关注”。
-D-035 允许**显式、单次、可审计**的评论写入能力，但点赞/投币/收藏/关注的范围
-仍待用户确认：
+用户已确认范围 **B**：评论/私信/登录 + 点赞/投币/收藏/关注。V6 已实现为
+**显式、单次、可审计** 的写入：
 
-- 方案 A：只统一评论读写、私信、账号登录；
-- 方案 B：点赞/投币/收藏/关注也进 connect，但仍默认关闭、每次显式调用、不得自动循环。
-
-在该问题确认前，不实现额外交互写接口。
+- 评论/楼中楼回复经 `video_comment_reply` → `BotReplyService.sendExternal` →
+  消息板/`BotOutboxReplyPort` → `BilibiliAdapter.sendComment`；
+- 点赞/投币/收藏/关注由 `video_like` / `video_coin` / `video_favorite` /
+  `video_follow` 调用 `BilibiliAdapter`，共享写入开关、冷却、每日额度与幂等缓存；
+- 所有写入默认关闭；API 明确拒绝记 `FAILED_BEFORE_SEND`，传输/运行时不确定记
+  `UNKNOWN` 且不自动重发；不提供自动循环、定时刷量或批量操作。
 
 ## 7. 无头浏览器后端
 
@@ -582,15 +587,15 @@ V2 app 单一工具目录（行为不变，已完成）
 V3 精确时间 + 分辨率 + 评论查询（已完成）
 V4 Playwright embedded 浏览器 backend（已完成）
 V5 remote-cdp + 服务器部署草案（已完成，真实服务器验收未跑）
-V6 交互写入（已选范围 B，下一步）
-V7 真实 B 站/服务器验收
+V6 交互写入（范围 B，已完成）
+V7 真实 B 站/服务器验收（下一步）
 ```
 
 任何阶段未通过 docs/full/负向验收，不得进入下一阶段。
 
 ## 12. 未定项
 
-1. 视频站交互范围：用户已选 **B**（A + 点赞/投币/收藏/关注），V6 实现，默认关闭、单次显式、禁止自动循环；
+1. 视频站交互范围：用户已选 **B**（A + 点赞/投币/收藏/关注），V6 已实现，默认关闭、单次显式、禁止自动循环；
 2. `video_*` 标准名与 `bili_*` 兼容别名的最终保留周期；
 3. 服务器默认采用 `remote-cdp` 还是 `embedded`（建议 remote-cdp）；
 4. 浏览器边界：V4 已确定为仅视频帧 fallback，不参与评论查询；

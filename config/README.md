@@ -174,7 +174,12 @@ bili_comment/{accountId}/{bvid}/{rootRpid}
 （可用 `IIBOT_FFMPEG` 指定路径），把抽出的 JPEG 作为 MCP ImageContent 返回；
 `video.browser.enabled=true` 时 ffmpeg 单帧失败可用 Playwright embedded 或 `remote-cdp` 补帧。
 `video_comments` 默认只读单页，显式 `allowFullScan=true` 才连续翻页（最多 20 页）。
-B 站 Cookie、视频流和临时路径不会进入日志、MCP 文本或模板配置。
+`video_comment_reply` 与 `video_like` / `video_coin` / `video_favorite` /
+`video_follow` 是显式写入工具；只有账号 `bilibili.writeEnabled=true` 时才可能成功，
+且受 5 秒冷却与 `maxWritesPerDay` 限制。每次调用必须显式给出目标，评论写入还要求
+文本/幂等键；不提供自动循环、批量或定时写入。API 明确拒绝为失败，传输/运行时
+不确定为 `UNKNOWN`，不会自动重发。B 站 Cookie、视频流和临时路径不会进入日志、
+MCP 文本或模板配置。
 
 视频默认值可配置：
 

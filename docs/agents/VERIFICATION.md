@@ -23,6 +23,17 @@ tools/gate.sh full
 
 ## 二、当前基线
 
+- 2026-10-31 D-035 V6 基线：显式 B 站评论/楼中楼回复走
+  `BotReplyService.sendExternal` → 消息板 → `BotOutboxReplyPort`；点赞/投币/收藏/关注由
+  `BilibiliAdapter` 统一经过 `writeEnabled`、5 秒冷却、每日额度与
+  `interactionReceipts` 幂等缓存，API 明确拒绝返回 `FAILED_BEFORE_SEND`，
+  传输/运行时不确定返回 `UNKNOWN` 且不自动重发；工具名
+  `video_comment_reply` / `video_like` / `video_coin` / `video_favorite` /
+  `video_follow`。`tools/gate.sh full` PASS，**339 tests / 0 failures / 0 errors /
+  0 skipped**（connect 73、video 26、bot 128、app 112）；docs PASS
+  （modules=4 files=51 links=168）。fake HTTP 覆盖 interaction 表单/CSRF、写入关闭
+  fail-closed、幂等与 external Reply+Text；真实 B 站评论/点赞/投币/收藏/关注写入
+  `NOT_RUN`，真实写入必须取得用户当次授权。
 - 2026-10-31 D-035 V5 基线：`RemoteCdpBrowserBackend` + `CdpEndpoint` 已接入
   `video.browser.mode=remote-cdp`；CDP 只允许回环 http/https/ws/wss，拒绝 userinfo；
   `VideoSiteToolPack` 在 embedded/remote 之间切换并共享 frame backend；服务器 sidecar
@@ -100,7 +111,7 @@ tools/gate.sh full
 | 应用集成 | BotRuntime + fake Adapter + embedded loopback Inbox/MCP | 已有 |
 | B 站公开读取 | 元数据/热评/字幕/短链 | 元数据+热评 smoke PASS；ffmpeg 3 帧看图 smoke PASS；字幕/短链 `NOT_RUN` |
 | B 站账号会话 | Cookie 登录、WBI、私信轮询、评论通知、私信/评论发送 | fake HTTP 单测 PASS；真实 `NOT_RUN` |
-| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询、browser fallback | V1/V2/V3/V4/V5 已实现；video 23 tests、app 109 tests；quality fallback/strict、time/times、评论分页、browser config/guard/fallback、CDP 回环与 remote smoke 均为 fake/本地单测；真实 B 站验收 `NOT_RUN` |
+| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询、browser fallback、显式评论/互动写入 | V1–V6 已实现；video 26 tests、bot 128 tests、app 112 tests；quality fallback/strict、time/times、评论分页、browser config/guard/fallback、CDP 回环、remote smoke、写入三态/幂等均为 fake/本地单测；真实 B 站写入/验收 `NOT_RUN` |
 | 无头浏览器（D-035） | Playwright embedded/remote-cdp、headless Linux、codec/超时/清理 | V4/V5 Playwright `1.55.0` + snap Chromium 156；headless about:blank、embedded/remote-cdp fake 页面截图 PASS；真实 B 站页面、服务器镜像/部署、并发/断线/崩溃/超时清理负向 `NOT_RUN` |
 | 真实 NapCat E2E | 真实私聊/群聊入站与发送 | `NOT_RUN` |
 | 真实 DSH/OpenCode wake | 真实 wake/ack 闭环 | `NOT_RUN` |

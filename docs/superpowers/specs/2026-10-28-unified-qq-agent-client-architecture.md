@@ -5,7 +5,8 @@
 > D-035 V1/V2 已把视频站领域/登录/抽帧迁到独立 `iibot-video-connect`，并把
 > MCP 工具注册统一到 app 的 `BotToolCatalog`；V3 已补 quality/time/comments 与
 > `video.*` 配置；V4 已补 Playwright embedded browser backend 与 `video.browser.*`
-> 配置；V5 已补 remote-cdp、CDP 回环校验与 sidecar 部署草案；下一步 V6 交互写入，
+> 配置；V5 已补 remote-cdp、CDP 回环校验与 sidecar 部署草案；V6 已补显式评论/互动写入
+>（默认关闭、单次显式、账号配额/幂等、UNKNOWN 不重发）；下一步 V7 真实验收，
 > 见
 > [`2026-10-31-video-site-connect-and-browser-backend.md`](2026-10-31-video-site-connect-and-browser-backend.md)。
 > **本文取代**：无；细化并扩展 D-021 的 bot-first 方向。

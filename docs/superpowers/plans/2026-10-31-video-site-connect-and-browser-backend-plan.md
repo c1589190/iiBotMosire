@@ -1,8 +1,8 @@
 # 视频站 Connect 与无头浏览器实施计划
 
-> **状态**：V1/V2/V3/V4/V5 已完成（2026-10-31）；V6 待开始
+> **状态**：V1/V2/V3/V4/V5/V6 已完成（2026-10-31）；V7 待开始
 > **设计**：[`../specs/2026-10-31-video-site-connect-and-browser-backend.md`](../specs/2026-10-31-video-site-connect-and-browser-backend.md)
-> **当前基线**：V5 代码 `dabe87d`；**332 tests**（connect 73 / video 23 / bot 127 / app 109）；远程 CDP 本地 fake smoke PASS；真实 B 站 quality/time/comments、服务器镜像/部署、3 并发/断线/崩溃联调 `NOT_RUN`。
+> **当前基线**：V6 代码 `d611b10`；**339 tests**（connect 73 / video 26 / bot 128 / app 112）；fake 页面/远程 CDP/写入三态与幂等 PASS；真实 B 站写入、quality/time/comments、服务器镜像/部署、3 并发/断线/崩溃联调 `NOT_RUN`。
 > **用户要求**：视频站能力集中到 connect；MCP 统一在 app 注册；分辨率/精确时间；
 > 无头浏览器必须兼容；配置项、易维护性和日志同步做好。
 
@@ -246,6 +246,19 @@
 - 未启用写入时 fail-closed；
 - 重放/幂等、冷却、配额、UNKNOWN、审计 PASS；
 - 真实写入仅在使用独立测试账号和用户当次授权后验收。
+
+**V6 实际结果（2026-10-31，提交 `d611b10`）**：
+
+- `BotReplyService.sendExternal`、`VideoCommentReplyTool` 与
+  `BilibiliAdapter.sendComment` 打通顶层评论/楼中楼回复的消息板/出站路径；
+- `BilibiliHttpClient` 增加点赞/投币/收藏/关注；`BilibiliAdapter` 统一
+  `writeEnabled`、5 秒冷却、每日额度、`interactionReceipts` 幂等与
+  `UNKNOWN` 不重发；
+- app 注册 `video_comment_reply` / `video_like` / `video_coin` /
+  `video_favorite` / `video_follow`，默认关闭、单次显式、无自动循环；
+- full gate PASS **339 tests**（connect 73 / video 26 / bot 128 / app 112）；
+  docs gate PASS（modules=4 files=51 links=168）；
+- 真实 B 站评论/互动写入 `NOT_RUN`，必须取得用户当次授权。
 
 ## V7 真实 B 站与服务器验收
 

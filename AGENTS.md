@@ -1,6 +1,6 @@
 # AGENTS.md —— iiBotMosire 常驻索引
 
-> **更新时间**：2026-10-31（D-035 V5 remote-cdp 浏览器 backend 完成）
+> **更新时间**：2026-10-31（D-035 V6 显式 B 站评论与互动写入完成）
 > **本文件只做三件事**：项目边界、常驻红线、文档与模块路由。
 > **规则正文不在本文件**：项目设计看 `docs/superpowers/`，项目维护看 `docs/agents/`。
 > **禁止用 `@` 导入长文**；按需打开链接。
@@ -25,7 +25,7 @@
 - 一个或多个 B 站账号的凭据校验、私信/评论回复通知轮询与显式发送；
 - QQ / B 站统一消息板、thread、历史、用户备注和媒体；
 - 通用只读 `video_read`/`bili_video_read`、`video_frames`/`bili_video_frames`、`video_comments`（任意来源 B 站链接/BV/av/b23）；
-- D-035 V4：Playwright embedded 浏览器 backend、`video.browser.*` 配置、B 站页面 seek/截图与 ffmpeg 失败 fallback 已完成；V3 的分辨率 `quality`/`strictQuality`、精确 `time/times`、评论分页查询；V2 单一 `BotToolCatalog`/tool packs；V1 视频站抽取/评论/交互在 `iibot-video-connect`；V5 已接入 remote-cdp 与服务器部署草案；
+- D-035 V6：范围 B 的显式评论写入与点赞/投币/收藏/关注已完成（默认关闭、单次显式、账号配额/幂等、禁止自动循环）；V5 remote-cdp/服务器部署草案、V4 embedded 浏览器 backend 与 ffmpeg 失败 fallback、V3 分辨率 `quality`/`strictQuality`/精确 `time/times`/评论分页查询、V2 单一 `BotToolCatalog`/tool packs、V1 视频站抽取均已完成；
 - 发送三态与 Inbox 唤醒；
 - 统一 MCP 工具面，供外部 Agent 读取、回复和管理 QQ/B 站会话。
 
@@ -58,7 +58,7 @@
 | 模块 | 职责 | 依赖 |
 |---|---|---|
 | `iibot-connect` | OneBot 11 接入、事件/发送 SPI、三态回执；只保留外部消息连接与 core 契约，B 站已迁出 | Jackson、SLF4J |
-| `iibot-video-connect` | B 站视频元数据/播放/评论/登录/抽帧与 B 站会话 Adapter；不依赖 AgentLib/MCP | connect + Jackson |
+| `iibot-video-connect` | B 站视频元数据/播放/评论/登录/抽帧/显式写入与 B 站会话 Adapter；不依赖 AgentLib/MCP | connect + Jackson |
 | `iibot-bot` | 统一消息板、thread、用户备注、摘要、Inbox digest、conversation/QQ MCP 工具 | connect + AgentLib + SQLite |
 | `iibot-app` | 可运行组合根：配置、Adapter、embedded Inbox、唯一 MCP 工具目录、B 站视频工具、日志 | bot + video-connect + Inbox artifacts |
 
@@ -82,7 +82,7 @@ D-035 V1 已完成模块抽取；V2 已把 QQ/媒体/Inbox/视频站工具收敛
 `time/times`、`video_comments` 与 `video.*` 配置；V4 已补 Playwright embedded
 `browser/` SPI、`video.browser.*` 配置和 ffmpeg 失败 fallback；V5 已补
 `RemoteCdpBrowserBackend`/`CdpEndpoint` 回环校验、共享 backend 与 sidecar 部署草案，
-保留 `bili_*` 兼容名；下一步 V6 交互写入（范围 B）与 V7 真实验收。
+V6 已补显式评论回复与点赞/投币/收藏/关注写入；保留 `bili_*` 兼容名；下一步 V7 真实验收。
 
 ## 4. 当前有效设计与计划
 
@@ -111,7 +111,7 @@ D-035 V1 已完成模块抽取；V2 已把 QQ/媒体/Inbox/视频站工具收敛
 
 - JDK 21；仓库内 `./mvnw`。
 - 门禁：`tools/gate.sh docs|selftest|pre|focused|full`。
-- D-035 V1 新模块抽取、V2 单一工具目录、V3 分辨率/精确时间/评论查询、V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案已完成（第 4 模块 `iibot-video-connect` + app `BotToolCatalog`），下一步 V6 交互写入（范围 B）；真实 B 站浏览器抽帧、服务器镜像/部署/断线重连仍 `NOT_RUN`。
+- D-035 V1 新模块抽取、V2 单一工具目录、V3 分辨率/精确时间/评论查询、V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案、V6 显式评论与互动写入已完成（第 4 模块 `iibot-video-connect` + app `BotToolCatalog`），下一步 V7 真实验收；真实 B 站写入/浏览器抽帧、服务器镜像/部署/断线重连仍 `NOT_RUN`。
 - 当前产品分支：`refactor/bot-first-main-agent`；按责任区提交并推送，全量验证后再合并（M-005）。
 - worktree 统一放 `<仓库根>/worktree/<name>/`。
 - 同一 checkout 不并发跑 Maven；不覆盖正在运行的 jar；不提交 `.work/`、`target/`、数据库、日志和 secret。

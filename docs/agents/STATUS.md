@@ -6,6 +6,23 @@
 
 ## 0. 最新更新：P1a/P1b 清理与统一 QQ 客户端重构
 
+- **2026-10-31 D-035 V6 显式 B 站评论与互动写入已完成（code-level）**，提交 `d611b10`：
+  - `BotReplyService.sendExternal` + `video_comment_reply` 把评论/楼中楼回复经消息板、
+    `BotOutboxReplyPort` 与 B 站 Adapter 发出；顶层评论用 `bili_video` source，回复用
+    `bili_comment` source，`replyToRpid` 仅允许在 root 下使用。
+  - `BilibiliHttpClient` 增加点赞/投币/收藏/关注 API；`BilibiliAdapter` 用独立
+    `interactionReceipts` 做幂等缓存，统一经过 `writeEnabled`、5 秒冷却、每日额度；
+    API 明确拒绝→`FAILED_BEFORE_SEND`，传输/运行时不确定→`UNKNOWN`，不自动重发。
+  - app 新增 `video_like` / `video_coin` / `video_favorite` / `video_follow`；
+    `VideoSiteToolPack.writeTools()` 只在启用读取且配置账号时注册写入工具；
+    `VideoToolSupport` 提供 app-local 参数/结果辅助，避免依赖 package-private
+    `BotToolSupport`。
+  - `tools/gate.sh full` PASS：**339 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 73、video 26、bot 128、app 112）；docs gate 见 §3。
+  - fake HTTP 覆盖 interaction 表单/CSRF、写入关闭 fail-closed、幂等与
+    `sendExternal` 的 Reply+Text 段；真实 B 站评论/点赞/投币/收藏/关注写入 `NOT_RUN`。
+  - 范围 B 已由用户确认；所有写入默认关闭、单次显式、禁止自动循环。
+
 - **2026-10-31 D-035 V5 remote-cdp 浏览器 backend 已完成（code-level）**，提交 `dabe87d`：
   - `iibot-video-connect/video/browser` 新增 `CdpEndpoint` 与
     `RemoteCdpBrowserBackend`：Playwright `connectOverCDP`、回环 http/https/ws/wss
@@ -101,7 +118,7 @@
     实施计划：
     [`../superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md`](../superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md)。
   - V0 当时交互范围未定；后续用户已选 B（评论/私信/登录 + 点赞/投币/收藏/关注），
-    V6 才实现，仍默认关闭、单次显式、禁止自动循环。真实浏览器/服务器验收 `NOT_RUN`。
+    V6 已实现，仍默认关闭、单次显式、禁止自动循环。真实浏览器/服务器验收 `NOT_RUN`。
 
 - **2026-10-31 D-034 B 站通用视频与 Inbox 会话 Adapter 已实现（code-level）**，
   主提交 `a3ddf32`，扫码登录 `6967a28`，分帧看图 `7214a2e`：
@@ -333,8 +350,8 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 
 - D-035 V1 `iibot-video-connect` 抽取、V2 app 单一 `BotToolCatalog`/tool packs、
   V3 分辨率/精确时间/评论查询、V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署
-  草案已完成（code-level，提交 `84fd1a8` / `7d24f9b` / `494294b` / `ef3aa31` /
-  `dabe87d`）；下一步 V6 交互写入（范围 B）；
+  草案、V6 显式评论与互动写入已完成（code-level，提交 `84fd1a8` / `7d24f9b` /
+  `494294b` / `ef3aa31` / `dabe87d` / `d611b10`）；下一步 V7 真实验收；
 - P1b–P8.7 已完成并合并；
 - **Bot 试运行摩擦第一批（2026-10-29）已完成（code-level）**：按
   [`../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md`](../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md)
@@ -357,16 +374,18 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.7）；feature/fix 分支保留 |
-| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e`；D-035 设计 `5e901b3`；D-035 环境补充 `059de6f`；D-035 V1 `84fd1a8`；D-035 V2 `7d24f9b`；D-035 V3 `494294b`；D-035 V4 `ef3aa31`；D-035 V5 `dabe87d` |
+| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e`；D-035 设计 `5e901b3`；D-035 环境补充 `059de6f`；D-035 V1 `84fd1a8`；D-035 V2 `7d24f9b`；D-035 V3 `494294b`；D-035 V4 `ef3aa31`；D-035 V5 `dabe87d`；D-035 V6 `d611b10` |
 | Maven reactor | **4 模块**：`iibot-connect` / `iibot-video-connect` / `iibot-bot` / `iibot-app`；V1 已创建并迁移 |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | V1/V2/V3/V4/V5 代码已提交（V5 `dabe87d`）；V5 文档待提交；D-034 代码在 `a3ddf32`/`6967a28`/`7214a2e` |
+| 工作树 | V1–V6 代码已提交（V6 `d611b10`）；V6 文档待提交；D-034 代码在 `a3ddf32`/`6967a28`/`7214a2e` |
 | 模块目标 | **当前 4 模块**；`iibot-connect` 已退出 B 站/视频职责，`iibot-video-connect` 为视频站边界 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
+| D-035 V6 full | `tools/gate.sh full` PASS：**339 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 26、bot 128、app 112） |
+| D-035 V6 docs | `tools/gate.sh docs` PASS（modules=4 files=51 links=168） |
 | D-035 V5 full | `tools/gate.sh full` PASS：**332 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 23、bot 127、app 109） |
 | D-035 V5 docs | `tools/gate.sh docs` PASS（modules=4 files=51 links=168） |
 | D-035 V4 full | `tools/gate.sh full` PASS：**327 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 20、bot 127、app 107） |
@@ -511,19 +530,20 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 14. **source-only direct ack 竞态**：未 read 时 ack 归档当前 active item；
     wake 后、ack 前到达的新消息可能被一并归档。这是既有 direct-ack 边界，D-032
     没有引入 through 字段；需要真实运行观察，必要时再裁定。
-15. **D-035 V6–V7 尚未进入代码**：V1–V5 已完成模块、工具目录、质量/精确时间/
+15. **D-035 V7 尚未进入真实验收**：V1–V6 已完成模块、工具目录、质量/精确时间/
     评论查询、embedded/remote-cdp 浏览器 backend 与部署草案；真实 B 站页面帧、
     服务器镜像/部署/断线重连/崩溃恢复仍未验收。snap Chromium 156 已安装，
     headless `about:blank`、embedded/remote-cdp fake 页面截图 PASS，但服务器和真实
-    B 站页面均 `NOT_RUN`。交互范围已选 B，V6 才实现点赞/投币/收藏/关注，不得提前。
+    B 站页面均 `NOT_RUN`。交互范围 B 已在 V6 实施（评论 + 点赞/投币/收藏/关注），
+    真实写入仍未验收；V7 才做真实 B 站/服务器验收。
 
 ## 7. 下一步
 
 **D-035 优先顺序**：V1 模块抽取、V2 单一工具目录、V3 质量/精确时间/评论查询、
-V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案已完成；下一步 V6 按已选
-范围 B 实现交互写入，再做 V7 真实 B 站/服务器验收。
+V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案、V6 显式评论与互动写入
+已完成；下一步 V7 真实 B 站/服务器验收。
 
-1. **D-035 V6**：按已选范围 B 实现评论/私信/登录之外的点赞/投币/收藏/关注 capability；
+1. **D-035 V7**：在用户当次授权下做真实 B 站扫码/评论/互动、浏览器与服务器验收；
    写入默认关闭、单次显式、账号级配额/冷却、UNKNOWN 不重发，真实写入仍需用户当次授权。
 2. **B 站 D-034 验收**：为 B 站 Adapter 准备独立测试账号 Cookie，验证登录、
    私信轮询、评论回复通知、统一 source 入库/Inbox wake、conversation_send
@@ -544,5 +564,5 @@ V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案已完成；�
    不再把它当消息板缺陷。
 9. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
    `PUBLICATION_GAP` / `BLOCKED`。
-10. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack、
-    D-035 交互范围已选 B（V6）；当前均未实施。
+10. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack 仍未实施；
+    D-035 交互范围 B 已在 V6 实施，下一步 V7 真实验收。
