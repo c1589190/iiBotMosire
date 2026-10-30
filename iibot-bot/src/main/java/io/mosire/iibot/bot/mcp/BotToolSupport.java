@@ -198,6 +198,9 @@ final class BotToolSupport {
                                                  List<MessageSegment> segments) {
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("seq", message.localSeq());
+        if (!message.messageId().isBlank()) {
+            value.put("messageId", message.messageId());
+        }
         value.put("from", message.senderName() == null
                 || message.senderName().isBlank()
                 ? message.senderId() : message.senderName());

@@ -32,7 +32,10 @@ public final class BotReplyTool implements AgentTool {
                             "description", "旧版内部 threadId；新调用方使用 source"),
                     "text", Map.of("type", "string", "maxLength", 4000,
                             "description", "正文；有附件时可省略"),
-                    "replyToMessageId", Map.of("type", "string"),
+                    "replyToMessageId", Map.of("type", "string",
+                            "description", "被回复消息的 QQ messageId；与 replyToSeq 最多一个"),
+                    "replyToSeq", Map.of("type", "integer", "minimum", 1,
+                            "description", "本 source/thread 内消息的 seq；服务端解析 QQ messageId 和 mention 目标"),
                     "mentionSender", Map.of("type", "boolean",
                             "description", "群聊中回复时 @ 被回复消息的发送者"),
                     "mentionAll", Map.of("type", "boolean",
@@ -63,10 +66,12 @@ public final class BotReplyTool implements AgentTool {
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "回复一个来源 thread；目标由宿主从 threadId 解析，不接受任意 QQ/群号。"
-                + "mentionSender=true 时可 @ 被回复消息的发送者；mentionAll=true 时 "
-                + "在群聊 @全体成员，两者不可同时使用。attachments 可附带 "
-                + "qq_media_upload 得到的 image assetRef 或 sticker faceId。";
+        return "回复一个来源 thread；目标由服务端从 source 解析，不接受任意 QQ/群号。"
+                + "replyToSeq 使用 qq_conversation_read 返回的 seq，服务端解析平台 "
+                + "messageId 与发送者；也可直接传 replyToMessageId，二者最多一个。"
+                + "mentionSender=true 时 @ 被回复消息的发送者；mentionAll=true 时在群聊 "
+                + "@全体成员，两者不可同时使用。attachments 可附带 qq_media_upload "
+                + "得到的 image assetRef 或 sticker faceId。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -90,6 +95,7 @@ public final class BotReplyTool implements AgentTool {
                     threadId,
                     BotToolSupport.optionalText(context.arguments(), "text", 4000),
                     BotToolSupport.optionalText(context.arguments(), "replyToMessageId", 256),
+                    BotToolSupport.optionalLongObject(context.arguments(), "replyToSeq"),
                     BotToolSupport.optionalBoolean(context.arguments(), "mentionSender", false),
                     BotToolSupport.optionalBoolean(context.arguments(), "mentionAll", false),
                     attachments,
@@ -103,6 +109,7 @@ public final class BotReplyTool implements AgentTool {
             data.put("messageIds", result.messageIds());
             data.put("errorCode", result.errorCode());
             data.put("alreadyAttempted", result.alreadyAttempted());
+            data.put("replyToMessageId", result.message().replyToMessageId());
             data.put("attachmentCount", attachments.size());
             return BotToolSupport.ok(NAME, data);
         } catch (BotToolSupport.InvalidArgumentsException invalid) {
@@ -177,7 +184,7 @@ public final class BotReplyTool implements AgentTool {
 
     @Override public Map<String, Object> ledgerArgs(ToolContext context) {
         Map<String, Object> safe = new LinkedHashMap<>();
-        for (String name : List.of("source", "threadId", "replyToMessageId",
+        for (String name : List.of("source", "threadId", "replyToMessageId", "replyToSeq",
                 "mentionSender", "mentionAll", "idempotencyKey")) {
             if (context.arguments().containsKey(name)) {
                 safe.put(name, context.arguments().get(name));

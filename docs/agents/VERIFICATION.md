@@ -23,6 +23,14 @@ tools/gate.sh full
 
 ## 二、当前基线
 
+- 2026-10-30 D-033 第一阶段基线：`tools/gate.sh full` PASS，
+  **282 tests / 0 failures / 0 errors / 0 skipped**（connect 73、bot 124、app 85）；
+  `tools/gate.sh docs` PASS（modules=3 files=46 links=132）。本机 loopback/fake
+  验证，真实 QQ/LLBot/DSH 联调仍为 `NOT_RUN`。
+- 2026-10-31 D-033 DSH 侧基线：`InboxMosire-DSH` 0.7.0 `npm test` PASS，
+  **150 tests / 147 pass / 3 live-skipped / 0 fail**；`iiBotMosire-DSH`
+  wake-profile 2/2、persona 24/24 PASS。真实 DSH reload/rebind 与 generic
+  view-ack live wake 仍为 `NOT_RUN`。
 - 2026-10-29 P8.7 基线：`tools/gate.sh full` PASS，**240 tests / 0 failures / 0 errors /
   0 skipped**（connect 61、bot 109、app 70）；`tools/gate.sh docs` PASS
   （modules=3 files=41 links=103）；`tools/gate.sh selftest` PASS
@@ -69,6 +77,10 @@ tools/gate.sh full
 10. 日志/MCP 结果不得出现 raw token、Authorization、完整协议 JSON 或聊天正文。
 11. 非回环监听、错误 Bearer、未知工具/参数 ⇒ fail-closed。
 12. 配置 JSON 错误必须给来源文件与 JSON pointer；`--print-effective-config` 必须脱敏。
+13. read 窗口只按入站消息计数；OUT 不能占用窗口或造成 `more=false` 假阴性。
+14. replay 已投递批次时，若批次之后仍有未读入站，`more` 必须为 true。
+15. `replyToSeq` 只能解析同一 thread 内消息；与 `replyToMessageId` 同时出现必须拒绝；
+    mention 目标必须是同 thread 入站消息。
 
 ## 六、未验证表达
 

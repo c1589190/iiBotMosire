@@ -4,7 +4,6 @@ import io.mosire.agentlib.permission.ToolSpec;
 import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolResult;
-import io.mosire.iibot.bot.chat.ChatDirection;
 import io.mosire.iibot.bot.chat.ChatMessage;
 import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.store.ConsumerConversationState;
@@ -58,8 +57,13 @@ public final class BotQqConversationReadTool implements AgentTool {
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "读取 source 的未读入站消息；返回 compact 消息和 more 标记。"
-                + "complete=true 的 Inbox 摘要可直接 ack，不需要先 read。";
+        return "读取 source 当前未 ack 的入站消息批次。每条消息返回 seq、messageId、"
+                + "发送者、text 和必要媒体段；messageId/seq 可直接用于 qq_conversation_send "
+                + "的 replyToMessageId/replyToSeq。more=true 表示本次批次之后仍有未读，"
+                + "处理完当前批次应调用 qq_conversation_ack(source)，再按 ack.more 决定"
+                + "是否同轮继续 read。若本轮 wake 的 kind=digest_complete 或"
+                + " complete=true，并且没有 truncated=true，正文已完整，不需要先 read，"
+                + "可直接 ack(source)；truncated=true 表示摘要被截断，必须先 read。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -89,16 +93,13 @@ public final class BotQqConversationReadTool implements AgentTool {
             // so returning only a prefix would let ack consume messages the model
             // never saw. New batches are bounded and advertise more instead.
             int fetchLimit = replay ? 1000 : limit + 1;
-            List<ChatMessage> fetched = board.readThread(threadId, readSeq, fetchLimit);
+            List<ChatMessage> fetched = board.readInboundThread(threadId, readSeq, fetchLimit);
             List<ChatMessage> inbound = new ArrayList<>();
             for (ChatMessage message : fetched) {
                 if (message.localSeq() > replayUpperBound) break;
-                if (message.direction() == ChatDirection.IN) {
-                    inbound.add(message);
-                }
+                inbound.add(message);
             }
-            boolean more = !replay && inbound.size() > limit;
-            if (more) {
+            if (!replay && inbound.size() > limit) {
                 inbound = new ArrayList<>(inbound.subList(0, limit));
             }
             if (!replay && !inbound.isEmpty()) {
@@ -108,6 +109,12 @@ public final class BotQqConversationReadTool implements AgentTool {
                         threadId, batchDelivered, clock.instant());
                 deliveredSeq = state.deliveredSeq();
             }
+            // more must describe unread inbound after this returned batch, not
+            // whether the raw thread window (which may contain OUT rows) filled.
+            // Replay is not "the end": extra unread can remain in the active item.
+            long moreAfterSeq = replay ? deliveredSeq
+                    : inbound.isEmpty() ? readSeq : inbound.getLast().localSeq();
+            boolean more = !board.readInboundThread(threadId, moreAfterSeq, 1).isEmpty();
 
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("source", key.sourceAddress().canonical());

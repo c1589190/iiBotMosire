@@ -92,6 +92,31 @@ class SqliteMessageBoardStoreTest {
     }
 
     @Test
+    void readsInboundWindowWithoutLettingOutboundRowsOccupyIt() {
+        Path db = tempDir.resolve("bot.db");
+        try (SqliteMessageBoardStore store = new SqliteMessageBoardStore(db)) {
+            store.append(inbound("m-1", "alice", "Alice", "第一条"));
+            store.append(ChatMessage.outbound(GROUP, "reply-1", T0, "自己的回复", "", ""));
+            store.append(inbound("m-3", "bob", "Bob", "第三条"));
+            store.append(inbound("m-4", "alice", "Alice", "第四条"));
+
+            assertThat(store.readInboundThread(GROUP.threadId(), 0L, 10))
+                    .extracting(ChatMessage::localSeq)
+                    .containsExactly(1L, 3L, 4L);
+            assertThat(store.readInboundThread(GROUP.threadId(), 1L, 1))
+                    .extracting(ChatMessage::localSeq)
+                    .containsExactly(3L);
+            assertThat(store.readInboundThread(GROUP.threadId(), 0L, 1))
+                    .extracting(ChatMessage::localSeq)
+                    .containsExactly(1L);
+            assertThat(store.findByLocalSeq(GROUP.threadId(), 2L)).get()
+                    .extracting(ChatMessage::direction, ChatMessage::text)
+                    .containsExactly(ChatDirection.OUT, "自己的回复");
+            assertThat(store.findByLocalSeq(GROUP.threadId(), 99L)).isEmpty();
+        }
+    }
+
+    @Test
     void persistsSegmentsAndSupportsHistoryPaging() {
         Path db = tempDir.resolve("bot.db");
         try (SqliteMessageBoardStore store = new SqliteMessageBoardStore(db)) {

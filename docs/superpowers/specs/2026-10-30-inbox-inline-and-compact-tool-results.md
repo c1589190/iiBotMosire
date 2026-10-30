@@ -1,6 +1,10 @@
 # Inbox 短正文内联与 Compact MCP 结果
 
 > **状态**：有效设计，code-level 已实施（2026-10-30）；真实 DSH/QQ 联调 `NOT_RUN`。
+> **修订（2026-10-30，D-033）**：read 的 compact 形状增加 `messageId`，`more` 按
+> 未读入站范围修正；`qq_conversation_send` 增加 `replyToSeq`。本文件 §10 中
+> “纯文本不返回 messageId”的旧约束由
+> [薄 DSH 边界与语义化 QQ MCP](2026-10-30-thin-dsh-boundary-and-semantic-mcp.md) 取代。
 > **来源**：用户对上下文优化的连续裁定。
 
 ## 1. 用户原话与裁定
@@ -179,7 +183,7 @@ qq_conversation_read(source)
 {
   "source": "qq_group/...",
   "messages": [
-    {"seq": 41, "from": "Alice", "uid": "123", "text": "..."}
+    {"seq": 41, "messageId": "68923894", "from": "Alice", "uid": "123", "text": "..."}
   ],
   "more": false
 }
@@ -189,10 +193,11 @@ qq_conversation_read(source)
 - 不返回每条消息重复的 source/threadId/messageKey；
 - 不返回 readSeq/deliveredSeq/count/空 outbound；
 - 空的 reply/segment 字段省略；
-- 纯文本消息不返回 TEXT segment；
+- 每条消息返回业务 `seq` 和 QQ `messageId`，纯文本消息不返回 TEXT segment；
 - 只有媒体/转发/未知段消息保留一个 `key`，用于现有媒体工具取图/语音/转发；
   纯文本消息不返回 `messageKey`；
-- `more=true` 表示本页之后还有当前批次消息。
+- `more=true` 表示本页之后还有未读入站消息；不得因窗口内夹 OUT 或 replay
+  分支误报 `false`。
 
 ### ack
 

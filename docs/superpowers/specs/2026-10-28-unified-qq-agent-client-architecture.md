@@ -225,9 +225,9 @@ Adapter 事件
 ```text
 Inbox wake（只含 threadId/摘要/未读数）
   → Agent 可调用 qq_conversation_read(source)（可选；Inbox 摘要足够时直接 ack）
-  → 服务读取 readSeq 之后、deliveredSeq 之前的未读消息
-  → 返回消息，并仅在服务端记录 deliveredSeq
-  → 不推进 readSeq，不归档 Inbox item
+  → 服务按入站消息窗口读取 readSeq 之后的未读消息
+  → 返回 seq/messageId/发送者/text/必要媒体段和可信 more
+  → 仅记录 deliveredSeq；不推进 readSeq，不归档 Inbox item
 
 Agent 完成处理后：
   → 调用 qq_conversation_ack(source)
@@ -252,10 +252,11 @@ Agent 完成处理后：
 ### 6.4 Agent 发送
 
 ```text
-qq_conversation_send(threadId, text, replyToMessageId?)
-  → 服务校验 thread 和账号
-  → 生成服务端幂等键
-  → 写 PENDING 出站消息
+qq_conversation_send(source, text,
+                     replyToMessageId? | replyToSeq?, mentionSender?, mentionAll?)
+  → 服务校验 source/thread 和账号
+  → 如给 replyToSeq：在同一 thread 内解析平台 messageId 和入站发送者
+  → 生成服务端幂等键并写入 PENDING 出站消息
   → 按 thread.source.accountId() 选择 Adapter
   → 发送并写回三态
 ```
@@ -355,7 +356,7 @@ Inbox 工具和内部绑定工具全量倒入。
 
 1. 消息板是正文、历史、未读和发送状态的唯一事实源；Inbox 不是。
 2. Agent 不提供 `expectedRevision`、`snapshotToSeq`、`itemId` 作为完成前置条件；服务内部可保留乐观锁。
-3. `qq_conversation_read(source)` 只预览并记录服务端 deliveredSeq；`qq_conversation_ack(source)` 才推进 readSeq；ack 只返回 `more`，不接受 seq/revision/itemId。
+3. `qq_conversation_read(source)` 只预览并记录服务端 deliveredSeq；`qq_conversation_ack(source)` 才推进 readSeq；ack 只返回 `more`，不接受 seq/revision/itemId。read.more 必须只由剩余入站未读决定，不能被 OUT 或 replay 分支误报为 false。
 4. Agent 不提供必填 `idempotencyKey`；服务根据 consumer、工具调用和会话生成稳定幂等键。
 5. 出站目标只由 thread 的 accountId + targetId 决定，模型不能伪造其他目标。
 6. 发送超时/中断一律 `UNKNOWN`，禁止自动重发。
@@ -417,3 +418,5 @@ Inbox 工具和内部绑定工具全量倒入。
 - 2026-10-30：补充 partial ack 同轮续处理语义。
 - 2026-10-30：D-032 把 read/ack 收敛为 source-only compact 契约，`ack` 只返回
   `more`；短纯文本批次使用 `kind=digest_complete` 在 Inbox wake 内联。
+- 2026-10-30：D-033 明确 DSH 只做宿主传输面；iibot MCP 自解释业务。read 增加
+  `messageId` 并修正 `more`，send 增加 `replyToSeq`，DSH 不再需要镜像业务工具契约。

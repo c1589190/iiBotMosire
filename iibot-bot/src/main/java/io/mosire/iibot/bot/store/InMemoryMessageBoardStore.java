@@ -126,6 +126,34 @@ public final class InMemoryMessageBoardStore implements MessageBoardStore {
     }
 
     @Override
+    public synchronized List<ChatMessage> readInboundThread(
+            String threadId, long afterSeq, int limit) {
+        if (threadId == null || threadId.isBlank()) {
+            throw new IllegalArgumentException("threadId 不能为空");
+        }
+        if (afterSeq < 0L) {
+            throw new IllegalArgumentException("afterSeq 不能为负");
+        }
+        if (limit < 1 || limit > 1000) {
+            throw new IllegalArgumentException("limit 必须在 1..1000");
+        }
+        List<ChatMessage> result = new ArrayList<>();
+        for (ChatMessage message : byThreadId.getOrDefault(threadId, List.of())) {
+            if (message.localSeq() <= afterSeq) {
+                continue;
+            }
+            if (message.direction() != ChatDirection.IN) {
+                continue;
+            }
+            result.add(message);
+            if (result.size() == limit) {
+                break;
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    @Override
     public synchronized long lastInboundSeqAfter(String threadId, long afterSeq) {
         if (threadId == null || threadId.isBlank() || afterSeq < 0L) {
             throw new IllegalArgumentException("threadId/afterSeq 非法");

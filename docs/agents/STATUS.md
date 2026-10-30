@@ -1,11 +1,37 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-30 23:30（Asia/Shanghai）
+> **更新时间**：2026-10-31 00:25（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
 ## 0. 最新更新：P1a/P1b 清理与统一 QQ 客户端重构
 
+- **2026-10-30 D-033 第一阶段已实现（code-level）**：明确 `iiBotMosire`（QQ
+  业务事实源 + MCP 产品面）与 `iiBotMosire-DSH`（DSH 宿主扩展）的边界；
+  `qq_conversation_read` 增加每条消息的 `messageId`，并修正 `more` 只按入站未读
+  判断（OUT 不占窗口、replay 不掩盖剩余未读）；`qq_conversation_send` 新增
+  `replyToSeq`，由服务端同 thread 解析平台 messageId 和 mention 发送者。
+  设计正本：
+  [`../superpowers/specs/2026-10-30-thin-dsh-boundary-and-semantic-mcp.md`](../superpowers/specs/2026-10-30-thin-dsh-boundary-and-semantic-mcp.md)。
+  `tools/gate.sh full` PASS，**282 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 73、bot 124、app 85）；`tools/gate.sh docs` PASS
+  （modules=3 files=46 links=132）。真实 QQ/LLBot/DSH 联调、运行中 jar 替换均
+  `NOT_RUN`。
+- **2026-10-31 隔壁 Bot 实测反馈已并入 D-033**：工具 description 已足以自解释
+  read/send/ack；通用 wake 必须保留 `source` 和 `available`，建议保留 `kind`，
+  view-ack 不需要 `itemId`；唤醒正文不得出现不存在的 `inbox_claim`。read/ack
+  description 已补回 `kind=digest_complete` / `complete=true` 可直接 ack 的说明。
+- **2026-10-31 D-033 DSH 侧通用化已完成（code-level）**：
+  `InboxMosire-DSH` 0.7.0 的 view-ack 现在通用渲染
+  `source/kind/summary[/truncated]`，保留 wake 头 `available`，不再依赖 profile
+  的工具名、业务 kind、compact 开关或程序 MCP 警告；view-ack readiness 为
+  `unknown`，claim 模式仍保留通用 claim 工具探测。`iiBotMosire-DSH` 的
+  wake profile 收敛为零语义兼容 alias 0.3.0。iibot read/ack description 对
+  `truncated=true` 明确要求先 read。
+  `InboxMosire-DSH npm test` PASS **150 tests / 147 pass / 3 live-skipped /
+  0 fail**；iiBotDSH wake-profile 2/2、persona 24/24 PASS。
+  **真实 DSH reload/rebind、generic view-ack live wake、运行中 jar 替换均
+  `NOT_RUN`；当前实际 binding 仍可能是 claim，部署前不得宣称 F-025 已解除。**
 - **2026-10-30 可用代码检查点已提交 `d67b757`**：D-031/D-032 的源码、测试、
   配置、设计文档与摩擦调查报告收口提交；本 STATUS 与 B 站 Adapter 调查报告
   随后单独收口。提交前实跑 `tools/gate.sh docs` PASS
@@ -216,6 +242,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 | 项 | 实际结果 |
 |---|---|
+| D-033 phase 1 full | `tools/gate.sh full` PASS：**282 tests / 0 failures / 0 errors / 0 skipped**（connect 73、bot 124、app 85）；docs PASS（modules=3 files=46 links=132） |
+| D-033 DSH generic | InboxMosire-DSH `npm test` PASS：150 tests / 147 pass / 3 live-skipped / 0 fail；iiBotDSH wake-profile 2/2、persona 24/24；真实 reload/rebind `NOT_RUN` |
 | P1a full gate | `tools/gate.sh full` PASS：**174 tests / 0 failures / 0 errors / 0 skipped**（connect 46、connect-agent 21、bot 67、app 40） |
 | P1a focused | `tools/gate.sh focused iibot-app -am test` PASS：153 tests / 0 / 0 / 0 |
 | P1a jar 扫描 | `taskflow class = 0`，默认 jar 无 taskflow |

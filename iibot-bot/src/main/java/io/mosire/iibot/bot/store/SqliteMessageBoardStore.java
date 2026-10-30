@@ -261,6 +261,41 @@ public final class SqliteMessageBoardStore implements MessageBoardStore, AutoClo
     }
 
     @Override
+    public synchronized List<ChatMessage> readInboundThread(
+            String threadId, long afterSeq, int limit) {
+        ensureOpen();
+        if (threadId == null || threadId.isBlank()) {
+            throw new IllegalArgumentException("threadId 不能为空");
+        }
+        if (afterSeq < 0L) {
+            throw new IllegalArgumentException("afterSeq 不能为负");
+        }
+        if (limit < 1 || limit > 1000) {
+            throw new IllegalArgumentException("limit 必须在 1..1000");
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT %s
+                FROM chat_message
+                WHERE thread_id = ? AND local_seq > ? AND direction = 'IN'
+                ORDER BY local_seq ASC
+                LIMIT ?
+                """.formatted(MESSAGE_COLUMNS))) {
+            statement.setString(1, threadId);
+            statement.setLong(2, afterSeq);
+            statement.setInt(3, limit);
+            try (ResultSet result = statement.executeQuery()) {
+                List<ChatMessage> messages = new ArrayList<>();
+                while (result.next()) {
+                    messages.add(mapMessage(result));
+                }
+                return List.copyOf(messages);
+            }
+        } catch (SQLException failure) {
+            throw new IllegalStateException("读取 SQLite 入站消息失败", failure);
+        }
+    }
+
+    @Override
     public synchronized long countInboundAfter(String threadId, long afterSeq) {
         if (threadId == null || threadId.isBlank() || afterSeq < 0L) {
             throw new IllegalArgumentException("threadId/afterSeq 非法");

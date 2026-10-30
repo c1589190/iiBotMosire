@@ -57,6 +57,18 @@ public interface MessageBoardStore {
     List<ChatMessage> readThread(String threadId, long afterSeq, int limit);
 
     /**
+     * 读取一个 thread 中 {@code afterSeq} 之后的入站消息，按 localSeq 升序。
+     *
+     * <p>Agent read 窗口只按入站消息计数；OUT 消息不能占窗口，也不能让
+     * {@code more} 变成假阴性。</p>
+     *
+     * @param threadId 来源 thread
+     * @param afterSeq 严格大于该 seq；0 表示从头
+     * @param limit    1..1000
+     */
+    List<ChatMessage> readInboundThread(String threadId, long afterSeq, int limit);
+
+    /**
      * 统计一个 thread 在 {@code afterSeq} 之后的入站消息数。
      * 默认实现用于最小 fake；SQLite 实现使用精确 COUNT。
      */
@@ -99,6 +111,20 @@ public interface MessageBoardStore {
                 .toList();
         int from = Math.max(0, all.size() - limit);
         return List.copyOf(all.subList(from, all.size()));
+    }
+
+    /**
+     * 在 thread 内按 localSeq 精确定位一条消息；不存在返回空。
+     *
+     * <p>这是 Agent 回复时使用业务序号解析平台 messageId 的服务端入口。</p>
+     */
+    default Optional<ChatMessage> findByLocalSeq(String threadId, long localSeq) {
+        if (threadId == null || threadId.isBlank() || localSeq <= 0L) {
+            return Optional.empty();
+        }
+        return readThread(threadId, localSeq - 1L, 1).stream()
+                .filter(message -> message.localSeq() == localSeq)
+                .findFirst();
     }
 
     /** 在 thread 内按 QQ messageId 定位；默认实现适合 fake。 */

@@ -54,8 +54,12 @@ public final class BotQqConversationAckTool implements AgentTool {
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "确认 source 已处理；返回 more 表示同一 active item 还有未读，"
-                + "需要同轮继续 read。";
+        return "确认 source 当前已投递批次处理完毕。返回 more=true 表示同一 active item "
+                + "还有未读，应在同一回合继续 qq_conversation_read(source)。未 read 时"
+                + "调用会直接消费当前 active item；若只想消费已看到的批次，应先 read。"
+                + "若 wake 的 kind=digest_complete 或 complete=true，且没有"
+                + " truncated=true，可直接调用本工具 ack(source)，不需要先 read；"
+                + "truncated=true 时摘要已截断，必须先 read。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }

@@ -84,6 +84,29 @@ class InMemoryMessageBoardStoreTest {
     }
 
     @Test
+    void readInboundThreadSkipsOutboundRowsAndFindsByLocalSeq() {
+        InMemoryMessageBoardStore store = new InMemoryMessageBoardStore();
+        store.append(inbound("m-1", "alice", "Alice", "第一条", T0));
+        store.append(ChatMessage.outbound(GROUP, "reply-1", T0,
+                "自己的回复", "", ""));
+        store.append(inbound("m-3", "bob", "Bob", "第三条", T0.plusSeconds(2)));
+        store.append(inbound("m-4", "alice", "Alice", "第四条", T0.plusSeconds(3)));
+
+        assertThat(store.readInboundThread(GROUP.threadId(), 0L, 10))
+                .extracting(ChatMessage::localSeq)
+                .containsExactly(1L, 3L, 4L);
+        assertThat(store.readInboundThread(GROUP.threadId(), 1L, 1))
+                .extracting(ChatMessage::localSeq)
+                .containsExactly(3L);
+        assertThat(store.readInboundThread(GROUP.threadId(), 4L, 10)).isEmpty();
+
+        assertThat(store.findByLocalSeq(GROUP.threadId(), 2L)).get()
+                .extracting(ChatMessage::direction, ChatMessage::text)
+                .containsExactly(io.mosire.iibot.bot.chat.ChatDirection.OUT, "自己的回复");
+        assertThat(store.findByLocalSeq(GROUP.threadId(), 99L)).isEmpty();
+    }
+
+    @Test
     void lastInboundSeqIgnoresOwnOutboundMessages() {
         InMemoryMessageBoardStore store = new InMemoryMessageBoardStore();
         store.append(inbound("m-1", "alice", "Alice", "收到", T0));

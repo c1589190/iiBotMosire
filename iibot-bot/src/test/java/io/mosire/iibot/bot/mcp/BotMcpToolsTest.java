@@ -158,6 +158,72 @@ class BotMcpToolsTest {
     }
 
     @Test
+    void replyBySeqResolvesMessageIdAndMentionTarget() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        ChatMessage quoted = board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, "原消息", "", "")).message();
+        FakeReplyPort replyPort = new FakeReplyPort();
+        AgentTool reply = new BotReplyTool(
+                new BotReplyService(board, replyPort, CLOCK));
+
+        JsonNode result = call(reply, Map.of(
+                "source", "qq_group/bot-1/group-9",
+                "text", "收到",
+                "replyToSeq", quoted.localSeq(),
+                "mentionSender", true,
+                "idempotencyKey", "reply-by-seq-1"));
+
+        assertThat(result.path("data").path("deliveryState").asText()).isEqualTo("SENT");
+        assertThat(result.path("data").path("replyToMessageId").asText()).isEqualTo("m-1");
+        assertThat(replyPort.mentionQqId).isEqualTo("qq-1");
+        ChatMessage stored = board.find(ChatMessage.outboundKey(GROUP, "reply-by-seq-1"))
+                .orElseThrow();
+        assertThat(stored.replyToMessageId()).isEqualTo("m-1");
+        assertThat(stored.nonTextSummary()).contains("[引用×1]", "[@×1]");
+        assertThat(board.segments(stored.messageKey()))
+                .extracting(MessageSegment::type)
+                .containsExactly(MessageSegment.Type.REPLY,
+                        MessageSegment.Type.MENTION, MessageSegment.Type.TEXT);
+    }
+
+    @Test
+    void replyBySeqRejectsConflictingMissingAndIdlessTargets() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        ChatMessage quoted = board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, "原消息", "", "")).message();
+        ChatMessage idlessOutbound = board.append(ChatMessage.outbound(
+                GROUP, "pending-1", T0, "尚未发出", "", "")).message();
+        FakeReplyPort replyPort = new FakeReplyPort();
+        AgentTool reply = new BotReplyTool(
+                new BotReplyService(board, replyPort, CLOCK));
+
+        ToolResult conflict = reply.execute(context(reply, Map.of(
+                "source", "qq_group/bot-1/group-9",
+                "text", "冲突",
+                "replyToMessageId", "m-1",
+                "replyToSeq", quoted.localSeq(),
+                "idempotencyKey", "reply-conflict-1")));
+        assertThat(conflict.success()).isFalse();
+        assertThat(conflict.code()).isEqualTo("INVALID_ARGUMENTS");
+
+        ToolResult missing = reply.execute(context(reply, Map.of(
+                "source", "qq_group/bot-1/group-9",
+                "text", "找不到",
+                "replyToSeq", 99L,
+                "idempotencyKey", "reply-missing-1")));
+        assertThat(missing.success()).isFalse();
+        assertThat(missing.code()).isEqualTo("REPLY_TARGET_NOT_FOUND");
+
+        ToolResult idless = reply.execute(context(reply, Map.of(
+                "source", "qq_group/bot-1/group-9",
+                "text", "无平台 id",
+                "replyToSeq", idlessOutbound.localSeq(),
+                "idempotencyKey", "reply-idless-1")));
+        assertThat(idless.success()).isFalse();
+        assertThat(idless.code()).isEqualTo("REPLY_TARGET_MISSING_MESSAGE_ID");
+    }
+
+    @Test
     void mentionAllPersistsAtAllSegmentAndRejectsCombinedMentionModes() throws Exception {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
@@ -265,7 +331,8 @@ class BotMcpToolsTest {
                 Map.of("threadId", GROUP.threadId(), "limit", 1));
         assertThat(repeatedRead.path("messages")).hasSize(1);
         assertThat(repeatedRead.path("messages").get(0).path("seq").asLong()).isEqualTo(1L);
-        assertThat(repeatedRead.path("more").asBoolean()).isFalse();
+        // Replay is not the end of the unread window: message m-2 is still unread.
+        assertThat(repeatedRead.path("more").asBoolean()).isTrue();
         assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
                 GROUP.threadId()).orElseThrow().readSeq()).isZero();
 
@@ -323,8 +390,43 @@ class BotMcpToolsTest {
         assertThat(segment.path("mediaType").asText()).isEqualTo("image/png");
         assertThat(segment.path("size").asLong()).isEqualTo(123L);
         assertThat(result.toString()).doesNotContain("secret-file-id", "secret/url");
+        assertThat(result.path("messages").get(0).path("messageId").asText())
+                .isEqualTo("m-1");
         assertThat(result.path("messages").get(0).path("key").asText())
                 .isEqualTo(message.messageKey());
+    }
+
+    @Test
+    void readWindowCountsInboundNotOutboundRowsAndReturnsTruthfulMore() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, "第一条", "", ""));
+        board.append(ChatMessage.outbound(GROUP, "out-1", T0, "自己的回复", "", ""));
+        board.append(ChatMessage.inbound(GROUP, "m-3", "qq-2", "Bob",
+                T0, T0, "第三条", "", ""));
+        board.append(ChatMessage.inbound(GROUP, "m-4", "qq-1", "Alice",
+                T0, T0, "第四条", "", ""));
+        BotQqConversationReadTool read = new BotQqConversationReadTool(
+                board, new InMemoryConsumerConversationStore(), CLOCK);
+
+        JsonNode first = call(read, Map.of(
+                "source", "qq_group/bot-1/group-9", "limit", 2));
+
+        assertThat(first.path("messages"))
+                .extracting(value -> value.path("seq").asLong())
+                .containsExactly(1L, 3L);
+        assertThat(first.path("messages").get(0).path("messageId").asText())
+                .isEqualTo("m-1");
+        assertThat(first.path("more").asBoolean()).isTrue();
+
+        JsonNode replay = call(read, Map.of(
+                "source", "qq_group/bot-1/group-9", "limit", 2));
+        assertThat(replay.path("messages"))
+                .extracting(value -> value.path("seq").asLong())
+                .containsExactly(1L, 3L);
+        assertThat(replay.path("more").asBoolean())
+                .as("replay must not hide the remaining inbound message")
+                .isTrue();
     }
 
     @Test
@@ -468,10 +570,20 @@ class BotMcpToolsTest {
                 .has("source")).isTrue();
         assertThat(JSON.valueToTree(send.jsonSchema()).path("properties")
                 .has("source")).isTrue();
+        assertThat(JSON.valueToTree(send.jsonSchema()).path("properties")
+                .has("replyToSeq")).isTrue();
         assertThat(JSON.valueToTree(read.jsonSchema()).path("properties")
                 .has("limit")).isFalse();
         assertThat(schema).doesNotContain("expectedRevision", "snapshotToSeq", "itemId",
                 "localSeq", "afterSeq");
+        assertThat(read.description()).contains(
+                "messageId", "replyToSeq", "more", "digest_complete", "complete=true",
+                "truncated=true");
+        assertThat(ack.description()).contains(
+                "more=true", "qq_conversation_read", "digest_complete", "complete=true",
+                "truncated=true");
+        assertThat(send.description()).contains("replyToSeq", "replyToMessageId",
+                "mentionSender");
     }
 
     @Test

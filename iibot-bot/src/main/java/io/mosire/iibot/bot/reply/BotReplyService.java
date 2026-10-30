@@ -119,15 +119,28 @@ public final class BotReplyService {
                                     boolean mentionSender, boolean mentionAll,
                                     List<OutboundSegment> attachments,
                                     String idempotencyKey) {
+        return replyRich(threadId, text, replyToMessageId, null, mentionSender,
+                mentionAll, attachments, idempotencyKey);
+    }
+
+    /**
+     * 回复一个已有 thread；{@code replyToSeq} 是消息板 localSeq，由服务端解析
+     * 平台 messageId 与 mention 目标。{@code replyToSeq} 和
+     * {@code replyToMessageId} 最多提供一个。
+     */
+    public BotReplyResult replyRich(String threadId, String text, String replyToMessageId,
+                                    Long replyToSeq, boolean mentionSender, boolean mentionAll,
+                                    List<OutboundSegment> attachments,
+                                    String idempotencyKey) {
         try (LogContext.Scope ignored = LogContext.openTrace(
                 LogContext.newTraceId("reply"))) {
-            return replyScoped(threadId, text, replyToMessageId, mentionSender,
-                    mentionAll, attachments, idempotencyKey);
+            return replyScoped(threadId, text, replyToMessageId, replyToSeq,
+                    mentionSender, mentionAll, attachments, idempotencyKey);
         }
     }
 
     private BotReplyResult replyScoped(String threadId, String text, String replyToMessageId,
-                                       boolean mentionSender, boolean mentionAll,
+                                       Long replyToSeq, boolean mentionSender, boolean mentionAll,
                                        List<OutboundSegment> attachments,
                                        String idempotencyKey) {
         ChatThread thread = board.thread(requireText(threadId, "threadId"))
@@ -152,6 +165,10 @@ public final class BotReplyService {
         }
         String key = requireText(idempotencyKey, "idempotencyKey");
         String normalizedReplyTo = replyToMessageId == null ? "" : replyToMessageId.trim();
+        if (!normalizedReplyTo.isEmpty() && replyToSeq != null) {
+            throw new BotReplyException("INVALID_ARGUMENTS",
+                    "replyToSeq 与 replyToMessageId 不能同时提供");
+        }
         if (mentionAll && mentionSender) {
             throw new BotReplyException("INVALID_ARGUMENTS",
                     "mentionAll 与 mentionSender 不能同时为 true");
@@ -160,9 +177,23 @@ public final class BotReplyService {
             throw new BotReplyException("MENTION_ALL_REQUIRES_GROUP",
                     "@全体只适用于群聊");
         }
+        ChatMessage replyTarget = null;
+        if (replyToSeq != null) {
+            if (replyToSeq <= 0L) {
+                throw new BotReplyException("INVALID_ARGUMENTS", "replyToSeq 必须为正整数");
+            }
+            replyTarget = board.findByLocalSeq(thread.threadId(), replyToSeq)
+                    .orElseThrow(() -> new BotReplyException("REPLY_TARGET_NOT_FOUND",
+                            "被回复消息不在该 thread"));
+            if (replyTarget.messageId().isBlank()) {
+                throw new BotReplyException("REPLY_TARGET_MISSING_MESSAGE_ID",
+                        "被回复消息没有可用的平台 messageId");
+            }
+            normalizedReplyTo = replyTarget.messageId();
+        }
         LOG.debug("event=reply_routing threadId={} key={} mention={} mentionAll={} "
-                        + "hasReplyTo={}", thread.source().threadId(), key, mentionSender,
-                mentionAll, !normalizedReplyTo.isEmpty());
+                        + "hasReplyTo={} hasReplyToSeq={}", thread.source().threadId(), key,
+                mentionSender, mentionAll, !normalizedReplyTo.isEmpty(), replyToSeq != null);
         String mentionQqId = "";
         if (mentionSender) {
             if (thread.source().chatType() != ChatType.GROUP) {
@@ -170,9 +201,10 @@ public final class BotReplyService {
             }
             if (normalizedReplyTo.isEmpty()) {
                 throw new BotReplyException("MENTION_TARGET_REQUIRED",
-                        "mentionSender 需要 replyToMessageId 定位发送者");
+                        "mentionSender 需要 replyToMessageId 或 replyToSeq 定位发送者");
             }
-            ChatMessage quoted = board.findByMessageId(thread.threadId(), normalizedReplyTo)
+            ChatMessage quoted = replyTarget != null ? replyTarget
+                    : board.findByMessageId(thread.threadId(), normalizedReplyTo)
                     .orElseThrow(() -> new BotReplyException("MENTION_TARGET_NOT_FOUND",
                             "被回复消息不在该 thread"));
             if (quoted.direction() != ChatDirection.IN) {
