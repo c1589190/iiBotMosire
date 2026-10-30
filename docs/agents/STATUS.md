@@ -282,10 +282,10 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.7）；feature/fix 分支保留 |
-| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e` |
+| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e`；D-035 设计 `5e901b3`；D-035 环境补充 `059de6f` |
 | Maven reactor | 当前 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app`；D-035 V1 目标增加 `iibot-video-connect` 为第 4 模块（尚未创建） |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | D-034 代码提交在 `a3ddf32`/`6967a28`/`7214a2e`；D-035 文档修改已落盘，待单独提交 |
+| 工作树 | 干净；D-034 代码提交在 `a3ddf32`/`6967a28`/`7214a2e`；D-035 文档已提交 `5e901b3`，Chromium 环境补充 `059de6f` |
 | 模块目标 | 当前 3 模块；D-035 目标 4 模块，`iibot-connect` 退出 B 站/视频职责 |
 
 ## 3. 最近功能门禁
