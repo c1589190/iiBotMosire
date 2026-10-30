@@ -15,6 +15,7 @@ import io.mosire.iibot.connect.video.browser.BrowserBackend;
 import io.mosire.iibot.connect.video.browser.BrowserPolicy;
 import io.mosire.iibot.connect.video.browser.BrowserProfile;
 import io.mosire.iibot.connect.video.browser.PlaywrightBrowserBackend;
+import io.mosire.iibot.connect.video.browser.RemoteCdpBrowserBackend;
 import io.mosire.iibot.connect.video.core.VideoAccountRef;
 
 import java.nio.file.Path;
@@ -57,15 +58,16 @@ public final class VideoSiteToolPack {
     /** 分帧工具始终注册；浏览器仅在配置启用时作为 ffmpeg 失败 fallback。 */
     public List<AgentTool> frameTools() {
         BrowserProfile profile = browserProfile();
+        BrowserBackend backend = browserBackend();
         return List.of(
                 new BiliVideoFramesTool(mediaStore, BiliVideoFramesTool.NAME,
                         video.defaultQuality(), video.maxHeight(),
                         video.defaultFrameCount(), video.maxFrameCount(),
-                        browserBackend(), profile),
+                        backend, profile),
                 new BiliVideoFramesTool(mediaStore, "video_frames",
                         video.defaultQuality(), video.maxHeight(),
                         video.defaultFrameCount(), video.maxFrameCount(),
-                        browserBackend(), profile));
+                        backend, profile));
     }
 
     private BrowserBackend browserBackend() {
@@ -73,8 +75,10 @@ public final class VideoSiteToolPack {
         if (!browser.enabled()) {
             return null;
         }
-        if (!"embedded".equals(browser.mode())) {
-            throw new IllegalStateException("video.browser.mode=remote-cdp 尚未实现");
+        if ("remote-cdp".equals(browser.mode())) {
+            return new RemoteCdpBrowserBackend(new BilibiliBrowserTarget(),
+                    BrowserPolicy.bilibili(), browser.cdpEndpoint(),
+                    browser.maxConcurrentSessions());
         }
         Path executable = browser.executablePath().isBlank()
                 ? null : Path.of(browser.executablePath());

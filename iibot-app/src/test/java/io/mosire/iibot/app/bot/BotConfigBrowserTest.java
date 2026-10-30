@@ -28,6 +28,19 @@ class BotConfigBrowserTest {
                 .hasMessageContaining("cdpEndpoint");
     }
 
+
+    @Test
+    void remoteCdpEndpointMustBeLoopback() {
+        assertThatThrownBy(() -> new BotConfig.Browser(true, "remote-cdp", "",
+                "http://example.com:9222", true, 2, 60, "", 1280, 720))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("回环");
+        assertThatThrownBy(() -> new BotConfig.Browser(true, "remote-cdp", "",
+                "http://user:pass@127.0.0.1:9222", true, 2, 60, "", 1280, 720))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("userinfo");
+    }
+
     @Test
     void executablePathMustBeAbsolute() {
         assertThatThrownBy(() -> new BotConfig.Browser(true, "embedded",

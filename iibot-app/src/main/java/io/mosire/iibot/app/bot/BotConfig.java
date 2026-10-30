@@ -1,5 +1,6 @@
 package io.mosire.iibot.app.bot;
 
+import io.mosire.iibot.connect.video.browser.CdpEndpoint;
 import io.mosire.iibot.connect.video.core.VideoQuality;
 import io.mosire.inbox.server.ServerConfig;
 
@@ -215,6 +216,9 @@ public record BotConfig(
             if ("remote-cdp".equals(mode) && cdpEndpoint.isEmpty()) {
                 throw new IllegalArgumentException(
                         "video.browser.mode=remote-cdp 时必须配置 cdpEndpoint");
+            }
+            if (!cdpEndpoint.isEmpty()) {
+                CdpEndpoint.parse(cdpEndpoint);
             }
             if (maxConcurrentSessions < 1 || maxConcurrentSessions > 8) {
                 throw new IllegalArgumentException(
