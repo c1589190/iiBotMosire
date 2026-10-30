@@ -1,8 +1,8 @@
 # 视频站 Connect 与无头浏览器实施计划
 
-> **状态**：V1/V2/V3/V4 已完成（2026-10-31）；V5 待开始
+> **状态**：V1/V2/V3/V4/V5 已完成（2026-10-31）；V6 待开始
 > **设计**：[`../specs/2026-10-31-video-site-connect-and-browser-backend.md`](../specs/2026-10-31-video-site-connect-and-browser-backend.md)
-> **当前基线**：`edad06f` 文档 + V4 代码 `ef3aa31`；**327 tests**（connect 73 / video 20 / bot 127 / app 107）；真实 B 站 quality/time/comments 与浏览器抽帧联调 `NOT_RUN`；Playwright `1.55.0` 已接入，remote-cdp 未实现。
+> **当前基线**：V5 代码 `dabe87d`；**332 tests**（connect 73 / video 23 / bot 127 / app 109）；远程 CDP 本地 fake smoke PASS；真实 B 站 quality/time/comments、服务器镜像/部署、3 并发/断线/崩溃联调 `NOT_RUN`。
 > **用户要求**：视频站能力集中到 connect；MCP 统一在 app 注册；分辨率/精确时间；
 > 无头浏览器必须兼容；配置项、易维护性和日志同步做好。
 
@@ -214,6 +214,20 @@
 - `remote-cdp` 连接、断线重连、崩溃恢复；
 - 资源限制下不拖垮 Java；
 - 真实服务器部署证据；未跑写 `NOT_RUN`。
+
+**V5 实际结果（2026-10-31，提交 `dabe87d`）**：
+
+- 新增 `CdpEndpoint`：只允许回环 `http/https/ws/wss`，拒绝 userinfo；新增
+  `RemoteCdpBrowserBackend`：Playwright `connectOverCDP`、并发信号量、超时、
+  JPEG/ImageIO 校验、稳定错误码、幂等关闭。
+- `BotConfig.Browser` 对非空 `cdpEndpoint` fail-closed；`VideoSiteToolPack` 按
+  `mode` 选择 embedded/remote，并让两个分帧工具共享 backend。
+- `deploy/browser/Dockerfile` + `deploy/browser/README.md`：Debian + Chromium +
+  ffmpeg + CJK 字体、非 root、CDP 只绑回环、healthcheck、资源限制示例。
+- 本地 `--remote-debugging-port=0` Chromium + fake 页面 640x360 JPEG PASS；
+  `tools/gate.sh full` PASS：**332 tests**（connect 73 / video 23 / bot 127 / app 109）。
+- 真实服务器镜像构建/部署、真实 B 站页面、3 并发、断线重连、崩溃恢复、资源限制
+  仍 `NOT_RUN`；本机 Docker daemon 无权限。
 
 ## V6 交互写入（范围 B）
 

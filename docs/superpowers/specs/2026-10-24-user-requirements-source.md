@@ -20,7 +20,7 @@
 | D-027 | debug/info 日志与易用配置 | 已实现 P2/P3；后续只维护 |
 | D-028 | 依赖最新且可复现、文档一致 | 已完成 P6/P7a 主要依赖刷新；AgentLib 0.2.4 公开发布仍待上游 |
 | D-034 | B 站通用视频阅读 + 账号/私信/评论 Inbox 会话 | 第一批已实施（code-level）；视频工具与 B 站 Adapter 分离，统一走 source/conversation |
-| D-035 | 视频站 Connect 独立模块、无头浏览器与配置/日志 | V1/V2/V3/V4 已完成；V5 待开始；当前 reactor 4 模块 |
+| D-035 | 视频站 Connect 独立模块、无头浏览器与配置/日志 | V1/V2/V3/V4/V5 已完成；V6 待开始；当前 reactor 4 模块 |
 
 ## 二、当前用户原话
 
@@ -232,7 +232,7 @@
   8. 实施按 V0 文档冻结 → V1 新模块抽取 → V2 app 单一工具目录 → V3 精确时间/
      分辨率/评论查询 → V4 Playwright embedded → V5 remote-cdp/服务器 →
      V6 交互写入（范围 B）→ V7 真实 B 站/服务器验收；每阶段独立门禁，
-     不得跨失败阶段继续。V0/V1/V2/V3/V4 已完成，下一步 V5 remote-cdp/服务器。
+     不得跨失败阶段继续。V0/V1/V2/V3/V4/V5 已完成，下一步 V6 交互写入（范围 B）。
 
 - **设计正本**：
   [`2026-10-31-video-site-connect-and-browser-backend.md`](2026-10-31-video-site-connect-and-browser-backend.md)
@@ -245,7 +245,8 @@
   4 模块；D-035 V1 已创建 `iibot-video-connect` 并完成 B 站领域迁移；
   V2 已收敛 app 单一 `BotToolCatalog`/tool packs；V3 已实现
   quality/time/comments 与 `video.*` 配置；V4 已实现 Playwright embedded
-  `video.browser.*` 配置与 ffmpeg 失败 fallback；
+  `video.browser.*` 配置与 ffmpeg 失败 fallback；V5 已实现 remote-cdp、CDP 回环校验
+  与服务器 sidecar 部署草案；
 - QQ 业务工具继续使用 `qq_*`；平台无关收发使用 `conversation_*` 别名；
   B 站内容读取使用 `video_read`/`video_frames`/`video_comments`，并保留
   `bili_video_read`/`bili_video_frames` 别名；不出现 `bot_*` / `tf_*` 业务工具；

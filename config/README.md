@@ -172,7 +172,7 @@ bili_comment/{accountId}/{bvid}/{rootRpid}
 会尝试使用登录态获取字幕。`video_frames` 支持 `count` 均匀抽帧或 `time`/`times`
 精确时间，并可用 `quality`/`strictQuality` 选择清晰度；默认需要本机 `ffmpeg`
 （可用 `IIBOT_FFMPEG` 指定路径），把抽出的 JPEG 作为 MCP ImageContent 返回；
-`video.browser.enabled=true` 时 ffmpeg 单帧失败可用 Playwright embedded 补帧。
+`video.browser.enabled=true` 时 ffmpeg 单帧失败可用 Playwright embedded 或 `remote-cdp` 补帧。
 `video_comments` 默认只读单页，显式 `allowFullScan=true` 才连续翻页（最多 20 页）。
 B 站 Cookie、视频流和临时路径不会进入日志、MCP 文本或模板配置。
 
@@ -208,9 +208,12 @@ B 站 Cookie、视频流和临时路径不会进入日志、MCP 文本或模板�
 `defaultQuality` 只允许 `auto/360p/480p/720p/1080p/best`；`maxHeight` 为 `144..1080`；
 抽帧数量为 `1..9`；评论 `limit` 为 `1..20`。`browser.enabled` 默认 `false`；启用后
 `embedded` 使用系统 Chromium，在 ffmpeg 单帧失败时为 `video_frames` 补帧；
-`remote-cdp` 留给 V5，当前未实现。`browser.executablePath` 为空时按
-`IIBOT_CHROMIUM`、`/snap/bin/chromium` 等顺序查找；`profileRoot` 为空时使用
-运行数据目录。浏览器只允许 B 站域名，URL/HTML/Cookie 不入日志。
+`remote-cdp` 通过 Playwright `connectOverCDP` 连接同网络命名空间的 Chromium
+sidecar，`cdpEndpoint` 只接受回环 http/https/ws/wss，非回环或 userinfo 会
+fail-closed。`browser.executablePath` 为空时按 `IIBOT_CHROMIUM`、
+`/snap/bin/chromium` 等顺序查找；`profileRoot` 为空时使用运行数据目录。
+浏览器只允许 B 站域名，URL/HTML/Cookie 不入日志。服务器部署草案见
+[`../deploy/browser/README.md`](../deploy/browser/README.md)。
 这些值只影响工具参数默认值，不改变只读语义；`--print-effective-config` 会输出
 脱敏后的实际值。
 

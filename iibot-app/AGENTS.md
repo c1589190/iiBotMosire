@@ -5,7 +5,7 @@
 - 加载配置并创建 QQ / B 站 Adapter；
 - 装配 SQLite 消息板、embedded Inbox 与 Bot MCP；
 - 通过 app 的单一 `BotToolCatalog`/`BotToolContext` 注册 QQ、媒体、Inbox、B 站视频读取/分帧/评论/登录 MCP 工具；
-- 解析 `video.browser.*`，在 browser 启用时向分帧工具注入 Playwright embedded fallback，并统一关闭工具资源；
+- 解析 `video.browser.*`，在 browser 启用时向分帧工具注入 Playwright embedded/remote-cdp fallback，并统一关闭工具资源；
 - 管理进程生命周期、日志和安全创建；
 - 提供唯一可运行入口 `io.mosire.iibot.app.Main`。
 

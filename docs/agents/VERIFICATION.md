@@ -23,6 +23,14 @@ tools/gate.sh full
 
 ## 二、当前基线
 
+- 2026-10-31 D-035 V5 基线：`RemoteCdpBrowserBackend` + `CdpEndpoint` 已接入
+  `video.browser.mode=remote-cdp`；CDP 只允许回环 http/https/ws/wss，拒绝 userinfo；
+  `VideoSiteToolPack` 在 embedded/remote 之间切换并共享 frame backend；服务器 sidecar
+  草案在 `deploy/browser/`。`tools/gate.sh full` PASS，**332 tests / 0 failures /
+  0 errors / 0 skipped**（connect 73、video 23、bot 127、app 109）；docs PASS
+  （modules=4 files=51 links=168）。本地 Chromium `--remote-debugging-port=0` +
+  fake 页面 640x360 JPEG PASS；真实服务器镜像/部署、真实 B 站页面、3 并发、断线重连、
+  崩溃恢复与资源限制 `NOT_RUN`。
 - 2026-10-31 D-035 V4 基线：`iibot-video-connect` 已加入 Playwright Java `1.55.0`
   与 `video/browser` SPI/`PlaywrightBrowserBackend`；`video.browser.*` 严格配置、
   system Chromium 路径、fake 页面截图与 `BrowserGuard` 已完成。`tools/gate.sh full`
@@ -92,8 +100,8 @@ tools/gate.sh full
 | 应用集成 | BotRuntime + fake Adapter + embedded loopback Inbox/MCP | 已有 |
 | B 站公开读取 | 元数据/热评/字幕/短链 | 元数据+热评 smoke PASS；ffmpeg 3 帧看图 smoke PASS；字幕/短链 `NOT_RUN` |
 | B 站账号会话 | Cookie 登录、WBI、私信轮询、评论通知、私信/评论发送 | fake HTTP 单测 PASS；真实 `NOT_RUN` |
-| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询、browser fallback | V1/V2/V3/V4 已实现；video 20 tests、app 107 tests；quality fallback/strict、time/times、评论分页、browser config/guard/fallback 均为 fake 单测；真实 B 站验收 `NOT_RUN` |
-| 无头浏览器（D-035） | Playwright embedded/remote-cdp、headless Linux、codec/超时/清理 | V4 Playwright `1.55.0` + snap Chromium 156；headless about:blank 与 fake 页面截图 PASS；真实 B 站页面/remote-cdp/服务器/超时清理负向 `NOT_RUN` |
+| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询、browser fallback | V1/V2/V3/V4/V5 已实现；video 23 tests、app 109 tests；quality fallback/strict、time/times、评论分页、browser config/guard/fallback、CDP 回环与 remote smoke 均为 fake/本地单测；真实 B 站验收 `NOT_RUN` |
+| 无头浏览器（D-035） | Playwright embedded/remote-cdp、headless Linux、codec/超时/清理 | V4/V5 Playwright `1.55.0` + snap Chromium 156；headless about:blank、embedded/remote-cdp fake 页面截图 PASS；真实 B 站页面、服务器镜像/部署、并发/断线/崩溃/超时清理负向 `NOT_RUN` |
 | 真实 NapCat E2E | 真实私聊/群聊入站与发送 | `NOT_RUN` |
 | 真实 DSH/OpenCode wake | 真实 wake/ack 闭环 | `NOT_RUN` |
 | 长跑/崩溃恢复 | 多账号、日志轮转、进程崩溃与重启 | `NOT_RUN` |
@@ -124,6 +132,8 @@ tools/gate.sh full
     禁止 `file:`/`data:`/`javascript:` 与 Agent 任意 URL/JS；失败必须有稳定错误码。
 19. D-035 视频/浏览器日志、异常和 MCP 文本不得出现正文、Cookie、token、签名 URL
     或 HTML；浏览器 stdout/stderr 必须有界脱敏。
+20. D-035 `video.browser.mode=remote-cdp` 的 `cdpEndpoint` 非回环、含 userinfo 或
+    非 http/https/ws/wss ⇒ 配置加载 fail-closed；不得把 CDP 端口发布到公网。
 13. read 窗口只按入站消息计数；OUT 不能占用窗口或造成 `more=false` 假阴性。
 14. replay 已投递批次时，若批次之后仍有未读入站，`more` 必须为 true。
 15. `replyToSeq` 只能解析同一 thread 内消息；与 `replyToMessageId` 同时出现必须拒绝；

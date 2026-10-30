@@ -1,6 +1,6 @@
 # 视频站 Connect 模块、无头浏览器与配置/日志设计
 
-> **状态**：有效（2026-10-31；用户已确认模块拆分与无头浏览器兼容；V1/V2/V3/V4 已完成，V5 待开始）
+> **状态**：有效（2026-10-31；用户已确认模块拆分与无头浏览器兼容；V1/V2/V3/V4/V5 已完成，V6 待开始）
 > **用户原话**：
 > - 「首先我建议把视频网站的视频抽取、评论区查询和整合，以及视屏网站的交互全都集中到一个统一的connect包里面方便管理，然后做标准MCP工具，统一在APP做注册，而不是分散在各个模块」
 > - 「此外还有易用性，允许选择分辨率吗？」
@@ -48,7 +48,8 @@
 - B 站领域、登录、抽帧与 Adapter 在
   `iibot-video-connect/src/main/java/io/mosire/iibot/connect/video/{core,bilibili,frame,browser}`；
   V1 实际类名保留 `BiliFrameExtractor` / `FfmpegBiliFrameExtractor`；V4 已创建
-  `browser/` SPI 与 Playwright embedded 实现。
+  `browser/` SPI 与 Playwright embedded 实现；V5 已补 `CdpEndpoint` /
+  `RemoteCdpBrowserBackend`。
 - `BiliVideoReadTool`、`BiliVideoFramesTool`、登录 MCP 工具仍在
   `iibot-app/src/main/java/io/mosire/iibot/app/bilibili/`；`BiliLoginService` 已迁入
   `iibot-video-connect/.../bilibili/`，app 只做 MCP 适配。
@@ -71,8 +72,10 @@
 - `BilibiliAdapter.java:476` 评论回复通知轮询；
 - `FfmpegBiliFrameExtractor` 使用本机 `ffmpeg` 抽帧，仍是默认/首选；
 - V4 已加入 `video/browser` SPI、`BilibiliBrowserTarget`、`PlaywrightBrowserBackend`；
+  V5 已加入 `CdpEndpoint` / `RemoteCdpBrowserBackend`，`mode=remote-cdp` 通过
+  Playwright `connectOverCDP` 连接回环 sidecar；
   `bili_video_frames`/`video_frames` 在 ffmpeg 单帧失败且 `browser.enabled=true`
-  时懒加载浏览器补帧，`browser.enabled=false` 时完全不启动浏览器。
+  时懒加载浏览器补帧，`browser.enabled=false` 时完全不启动/连接浏览器。
 
 ### 2.3 配置与日志
 
@@ -85,7 +88,7 @@
   `remote-cdp` 条件要求 `cdpEndpoint`；三个 examples 已带默认 browser 节点；
 - 配置是启动时快照；`--check-config` 和 `--print-effective-config` 已覆盖 video 与
   browser 节点。
-- 现有日志使用 `LogContext`/`OpsLog`；视频和浏览器目前没有独立 ops 事件与包级级别。
+- 现有日志使用 `LogContext`/`OpsLog`；V4/V5 的浏览器 open/capture/close 已写 ops 事件，仍无独立包级 logger 级别。
 - 现有日志规则：正文、Cookie、Authorization、完整协议 JSON 不入日志；文件 0600、
   按天/大小滚动轮转。
 
@@ -171,7 +174,9 @@ iibot-video-connect/src/main/java/io/mosire/iibot/connect/video/
     BrowserFrameResult
     BrowserGuard
     BrowserPolicy
+    CdpEndpoint
     PlaywrightBrowserBackend
+    RemoteCdpBrowserBackend
 ```
 
 V1 已把原 `iibot-connect/.../bilibili` 的类迁移到 `iibot-video-connect` 的
@@ -179,7 +184,8 @@ V1 已把原 `iibot-connect/.../bilibili` 的类迁移到 `iibot-video-connect` 
 `iibot-connect` 不再包含 B 站类；V1 没有保留 deprecated 转发类。V1 实际落地
 `core/VideoAccountRef`、`bilibili/*`、`frame/BiliFrameExtractor` 与
 `frame/FfmpegBiliFrameExtractor`；V4 已创建 `browser/*` SPI 与
-`PlaywrightBrowserBackend`。上文 `VideoCatalogReader`/`VideoFrameExtractor` 等
+`PlaywrightBrowserBackend`，V5 增加 `CdpEndpoint`/`RemoteCdpBrowserBackend`。上文
+`VideoCatalogReader`/`VideoFrameExtractor` 等
 仍是目标接口命名，当前代码保留既有 Bili 类名，后续阶段再统一。
 
 ### 3.3 领域接口
@@ -391,7 +397,7 @@ BrowserBackend
 ### 7.3 后端模式
 
 - `embedded`：Playwright Java 启动系统 Chromium，适合本地/单机；
-- `remote-cdp`：Playwright `connectOverCDP` 连接独立 Chromium sidecar，适合服务器；
+- `remote-cdp`：Playwright `connectOverCDP` 连接独立 Chromium sidecar，适合服务器；V5 已实现并只接受回环 CDP endpoint；
 - 两种模式共用 `BrowserBackend` 和 B 站页面脚本；
 - 首版选 Playwright Java，Chromium 在镜像构建时安装，不在启动时下载。
 
@@ -545,15 +551,18 @@ io.mosire.iibot.video.browser
 
 ### 10.3 浏览器
 
-- V4 已完成：Linux headless Playwright 启动成功，无 Xvfb；`embedded` 本地 fake
+- V4 已完成 embedded：Linux headless Playwright 启动成功，无 Xvfb；本地 fake
   页面 640x360 JPEG 非空白 PASS；`browser.enabled=false` 不启动进程；
+- V5 已完成 remote-cdp：本地 Chromium `--remote-debugging-port=0` + fake 页面
+  640x360 JPEG PASS；`CdpEndpoint` 只允许回环 http/https/ws/wss 并拒绝 userinfo；
+  `deploy/browser/` 提供 Chromium+ffmpeg sidecar 草案与 healthcheck；
 - `BrowserGuard` 拒绝非 http(s)、非 B 站 allowlist 与任意 URL/JS；配置严格校验；
-- V4 未完成/`NOT_RUN`：`remote-cdp` smoke、真实 B 站公开视频浏览器抽帧、超时/崩溃/
-  profile 清理/并发上限负向测试、服务器镜像构建与启动、日志真实外部验收；
+- V5 未完成/`NOT_RUN`：真实 B 站公开视频浏览器抽帧、服务器镜像构建/启动、
+  3 并发、断线重连、崩溃恢复、资源限制与日志真实外部验收；
 - 浏览器仅作为 ffmpeg 失败 fallback，不参与评论查询；真实 B 站结果必须明确成功或
   给出稳定 codec/错误码。
 
-### 10.4 配置与日志（video 部分 V3 完成；browser 配置 V4 完成；浏览器真实日志验收 `NOT_RUN`）
+### 10.4 配置与日志（video 配置 V3 完成；browser 配置 V4/V5 完成；浏览器真实日志验收 `NOT_RUN`）
 
 - schema 严格校验未知字段；
 - `--check-config` 对每种非法 browser/quality/cap 组合给来源文件和 JSON pointer；
@@ -572,8 +581,8 @@ V1 新模块抽取（行为不变，已完成）
 V2 app 单一工具目录（行为不变，已完成）
 V3 精确时间 + 分辨率 + 评论查询（已完成）
 V4 Playwright embedded 浏览器 backend（已完成）
-V5 remote-cdp + 服务器部署（下一步）
-V6 交互写入（已选范围 B）
+V5 remote-cdp + 服务器部署草案（已完成，真实服务器验收未跑）
+V6 交互写入（已选范围 B，下一步）
 V7 真实 B 站/服务器验收
 ```
 

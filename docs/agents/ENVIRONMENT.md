@@ -11,9 +11,10 @@
 | Maven | 仓库内 `./mvnw`，Maven Wrapper 3.9.16；`./mvnw -v` 已实测 |
 | Python | 文档检查脚本需要 Python 3；`python3` 可直接调用 |
 | ffmpeg | 2026-10-31 实测 `/usr/bin/ffmpeg` 6.1.1；`bili_video_frames` 默认从 PATH 读取，可用 `IIBOT_FFMPEG` 覆盖 |
-| Chromium / Playwright | 2026-10-31 snap 安装 Chromium `156.0.8078.47`（`/snap/bin/chromium`）；`chromium --headless=new --disable-gpu --dump-dom about:blank` PASS。`iibot-video-connect` 已加入 Playwright Java `1.55.0`；embedded backend 用系统 Chromium，本地 fake 页面 640x360 JPEG PASS；真实 B 站页面、remote-cdp、服务器 headless `NOT_RUN` |
+| Chromium / Playwright | 2026-10-31 snap 安装 Chromium `156.0.8078.47`（`/snap/bin/chromium`）；`chromium --headless=new --disable-gpu --dump-dom about:blank` PASS。`iibot-video-connect` 已加入 Playwright Java `1.55.0`；embedded backend 用系统 Chromium，本地 fake 页面 640x360 JPEG PASS；V5 已用本地 `--remote-debugging-port=0` Chromium 验证 `remote-cdp` fake 页面截图 PASS；真实 B 站页面、服务器镜像/部署/断线重连 `NOT_RUN`。部署草案见 [deploy/browser/README.md](../../deploy/browser/README.md) |
 | Git | 独立 Git 仓库；当前在 `refactor/bot-first-main-agent` 分支 |
 | Maven reactor | 4 模块：`iibot-connect` / `iibot-video-connect` / `iibot-bot` / `iibot-app`；模块局部 `AGENTS.md` 由 docs gate 校验 |
+| 容器 | 2026-10-31 `docker --version` 为 29.1.3；当前用户无 `/var/run/docker.sock` 权限，`docker info` permission denied；`deploy/browser/Dockerfile` 镜像构建/启动/服务器 smoke `NOT_RUN` |
 | OS | Linux，当前时区 Asia/Shanghai |
 | 内存 | 本机约 11 GiB；当前测试/打包不需要额外堆参数 |
 

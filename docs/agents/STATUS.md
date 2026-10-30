@@ -1,10 +1,27 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-31 03:55（Asia/Shanghai）
+> **更新时间**：2026-10-31 04:10（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
 ## 0. 最新更新：P1a/P1b 清理与统一 QQ 客户端重构
+
+- **2026-10-31 D-035 V5 remote-cdp 浏览器 backend 已完成（code-level）**，提交 `dabe87d`：
+  - `iibot-video-connect/video/browser` 新增 `CdpEndpoint` 与
+    `RemoteCdpBrowserBackend`：Playwright `connectOverCDP`、回环 http/https/ws/wss
+    校验、userinfo 拒绝、超时/并发信号量、稳定错误码、幂等关闭。
+  - `BotConfig.Browser` 对非空 `cdpEndpoint` 统一做回环校验；`VideoSiteToolPack`
+    在 `mode=remote-cdp` 创建 remote backend，embedded/remote 共享一个 frame backend，
+    `bili_video_frames` 与 `video_frames` 都保留 ffmpeg 失败 fallback。
+  - 新增 `deploy/browser/Dockerfile` 与 `deploy/browser/README.md`：Debian + Chromium +
+    ffmpeg + CJK 字体、非 root uid 10001、CDP 仅绑 `127.0.0.1:9222`、healthcheck、
+    sidecar 资源限制；当前本机 Docker daemon 无权限，镜像构建/服务器部署 `NOT_RUN`。
+  - 本地 `--remote-debugging-port=0` Chromium + fake 页面 640x360 JPEG PASS；
+    `CdpEndpointTest` 2、`RemoteCdpBrowserBackendTest` 1、`BotConfigBrowserTest` 5、
+    `VideoSiteToolPackTest` 3。
+  - `tools/gate.sh full` PASS：**332 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 73、video 23、bot 127、app 109）；docs gate 见 §3。
+  - 真实 B 站页面、服务器镜像/部署、3 并发、断线重连、崩溃恢复与资源限制仍 `NOT_RUN`。
 
 - **2026-10-31 D-035 V4 Playwright embedded 浏览器 backend 已完成（code-level）**，提交 `ef3aa31`：
   - `iibot-video-connect` 新增 `video/browser` SPI：`BrowserBackend`/`BrowserSession`/
@@ -315,8 +332,9 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 当前进行中：
 
 - D-035 V1 `iibot-video-connect` 抽取、V2 app 单一 `BotToolCatalog`/tool packs、
-  V3 分辨率/精确时间/评论查询、V4 embedded 浏览器 backend 已完成（code-level，
-  提交 `84fd1a8` / `7d24f9b` / `494294b` / `ef3aa31`）；下一步 V5 remote-cdp/服务器；
+  V3 分辨率/精确时间/评论查询、V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署
+  草案已完成（code-level，提交 `84fd1a8` / `7d24f9b` / `494294b` / `ef3aa31` /
+  `dabe87d`）；下一步 V6 交互写入（范围 B）；
 - P1b–P8.7 已完成并合并；
 - **Bot 试运行摩擦第一批（2026-10-29）已完成（code-level）**：按
   [`../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md`](../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md)
@@ -339,16 +357,18 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.7）；feature/fix 分支保留 |
-| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e`；D-035 设计 `5e901b3`；D-035 环境补充 `059de6f`；D-035 V1 `84fd1a8`；D-035 V2 `7d24f9b`；D-035 V3 `494294b`；D-035 V4 `ef3aa31` |
+| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e`；D-035 设计 `5e901b3`；D-035 环境补充 `059de6f`；D-035 V1 `84fd1a8`；D-035 V2 `7d24f9b`；D-035 V3 `494294b`；D-035 V4 `ef3aa31`；D-035 V5 `dabe87d` |
 | Maven reactor | **4 模块**：`iibot-connect` / `iibot-video-connect` / `iibot-bot` / `iibot-app`；V1 已创建并迁移 |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | V1/V2/V3/V4 代码已提交（V4 `ef3aa31`）；D-034 代码在 `a3ddf32`/`6967a28`/`7214a2e` |
+| 工作树 | V1/V2/V3/V4/V5 代码已提交（V5 `dabe87d`）；V5 文档待提交；D-034 代码在 `a3ddf32`/`6967a28`/`7214a2e` |
 | 模块目标 | **当前 4 模块**；`iibot-connect` 已退出 B 站/视频职责，`iibot-video-connect` 为视频站边界 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
+| D-035 V5 full | `tools/gate.sh full` PASS：**332 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 23、bot 127、app 109） |
+| D-035 V5 docs | `tools/gate.sh docs` PASS（modules=4 files=51 links=168） |
 | D-035 V4 full | `tools/gate.sh full` PASS：**327 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 20、bot 127、app 107） |
 | D-035 V4 docs | `tools/gate.sh docs` PASS（modules=4 files=50 links=162） |
 | D-035 V3 full | `tools/gate.sh full` PASS：**317 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 16、bot 127、app 101） |
@@ -491,19 +511,20 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 14. **source-only direct ack 竞态**：未 read 时 ack 归档当前 active item；
     wake 后、ack 前到达的新消息可能被一并归档。这是既有 direct-ack 边界，D-032
     没有引入 through 字段；需要真实运行观察，必要时再裁定。
-15. **D-035 V5–V7 尚未进入代码**：V1/V2/V3/V4 已完成模块、工具目录、质量/精确时间/
-    评论查询、`video.*` 配置与 embedded 浏览器 backend；remote-cdp、服务器部署和
-    真实 B 站浏览器抽帧仍未实现/未验收。snap Chromium 156 已安装且 headless
-    `about:blank` PASS、fake 页面截图 PASS，但 B 站页面帧、remote-cdp、服务器部署
-    均 `NOT_RUN`。交互范围已选 B，V6 才实现点赞/投币/收藏/关注，不得提前。
+15. **D-035 V6–V7 尚未进入代码**：V1–V5 已完成模块、工具目录、质量/精确时间/
+    评论查询、embedded/remote-cdp 浏览器 backend 与部署草案；真实 B 站页面帧、
+    服务器镜像/部署/断线重连/崩溃恢复仍未验收。snap Chromium 156 已安装，
+    headless `about:blank`、embedded/remote-cdp fake 页面截图 PASS，但服务器和真实
+    B 站页面均 `NOT_RUN`。交互范围已选 B，V6 才实现点赞/投币/收藏/关注，不得提前。
 
 ## 7. 下一步
 
 **D-035 优先顺序**：V1 模块抽取、V2 单一工具目录、V3 质量/精确时间/评论查询、
-V4 embedded 浏览器 backend 已完成；下一步 V5 remote-cdp/服务器；V6 按已选范围 B 实现。
+V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案已完成；下一步 V6 按已选
+范围 B 实现交互写入，再做 V7 真实 B 站/服务器验收。
 
-1. **D-035 V5**：接入 `remote-cdp`、服务器 Chromium/ffmpeg 镜像、非 root/资源限制/
-   CDP 回环与 health check；真实服务器验收仍 `NOT_RUN`。
+1. **D-035 V6**：按已选范围 B 实现评论/私信/登录之外的点赞/投币/收藏/关注 capability；
+   写入默认关闭、单次显式、账号级配额/冷却、UNKNOWN 不重发，真实写入仍需用户当次授权。
 2. **B 站 D-034 验收**：为 B 站 Adapter 准备独立测试账号 Cookie，验证登录、
    私信轮询、评论回复通知、统一 source 入库/Inbox wake、conversation_send
    三态和 UNKNOWN 不重发；真实写入前先取得用户授权。
