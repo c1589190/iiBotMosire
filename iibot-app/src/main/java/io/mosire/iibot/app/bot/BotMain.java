@@ -1,12 +1,8 @@
 package io.mosire.iibot.app.bot;
 
-import io.mosire.agentlib.tool.AgentTool;
-import io.mosire.iibot.app.bilibili.BiliAccountLoginPollTool;
-import io.mosire.iibot.app.bilibili.BiliAccountLoginStartTool;
-import io.mosire.iibot.app.bilibili.BiliVideoReadTool;
 import io.mosire.iibot.app.config.SecretProvider;
+import io.mosire.iibot.app.mcp.BotToolCatalog;
 import io.mosire.iibot.app.inbox.BotInboxRuntimeOptions;
-import io.mosire.iibot.connect.video.bilibili.BiliLoginService;
 import io.mosire.iibot.connect.video.bilibili.BilibiliAdapter;
 import io.mosire.iibot.connect.video.bilibili.BilibiliAdapterConfig;
 import io.mosire.iibot.connect.video.core.VideoAccountRef;
@@ -172,14 +168,8 @@ public final class BotMain {
                     config.control().port(), config.control().path(),
                     config.inbox().inboxId(), board.summaryDebounceMillis(),
                     board.maxPreviewMessages(), board.inlineMaxChars());
-            List<AgentTool> extraTools = new ArrayList<>();
-            extraTools.add(new BiliVideoReadTool(biliVideoAccounts));
-            if (!biliVideoAccounts.isEmpty()) {
-                BiliLoginService loginService = new BiliLoginService(biliVideoAccounts);
-                extraTools.add(new BiliAccountLoginStartTool(loginService));
-                extraTools.add(new BiliAccountLoginPollTool(loginService));
-            }
-            runtime = BotRuntime.start(accountRegistry, options, extraTools,
+            runtime = BotRuntime.start(accountRegistry, options,
+                    BotToolCatalog.withVideoAccounts(biliVideoAccounts),
                     java.time.Clock.systemUTC());
             BotRuntime shutdownTarget = runtime;
             Runtime.getRuntime().addShutdownHook(
