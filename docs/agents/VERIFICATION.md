@@ -23,6 +23,14 @@ tools/gate.sh full
 
 ## 二、当前基线
 
+- 2026-10-31 D-035 V4 基线：`iibot-video-connect` 已加入 Playwright Java `1.55.0`
+  与 `video/browser` SPI/`PlaywrightBrowserBackend`；`video.browser.*` 严格配置、
+  system Chromium 路径、fake 页面截图与 `BrowserGuard` 已完成。`tools/gate.sh full`
+  PASS，**327 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 20、
+  bot 127、app 107）；docs PASS（modules=4 files=50 links=162）。本地 fake 页面
+  640x360 JPEG PASS；真实 B 站页面抽帧、remote-cdp、服务器部署 `NOT_RUN`。
+  浏览器仅作为 `bili_video_frames`/`video_frames` 在 ffmpeg 单帧失败后的可选
+  fallback，`browser.enabled=false` 时不启动进程。
 - 2026-10-31 D-035 V3 基线：`VideoQuality`/`VideoStreamInfo`、playStreamSelection、
   commentPage、`time/times`、`video_comments`、`video_*` 标准别名与 `video.*` 严格配置
   已实现；`tools/gate.sh full` PASS，**317 tests / 0 failures / 0 errors / 0 skipped**
@@ -84,8 +92,8 @@ tools/gate.sh full
 | 应用集成 | BotRuntime + fake Adapter + embedded loopback Inbox/MCP | 已有 |
 | B 站公开读取 | 元数据/热评/字幕/短链 | 元数据+热评 smoke PASS；ffmpeg 3 帧看图 smoke PASS；字幕/短链 `NOT_RUN` |
 | B 站账号会话 | Cookie 登录、WBI、私信轮询、评论通知、私信/评论发送 | fake HTTP 单测 PASS；真实 `NOT_RUN` |
-| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询 | V1/V2/V3 已实现；video 16 tests、app 101 tests；quality fallback/strict、time/times、评论分页均为 fake HTTP 单测；真实 B 站验收 `NOT_RUN` |
-| 无头浏览器（D-035） | Playwright embedded/remote-cdp、headless Linux、codec/超时/清理 | snap Chromium 156 headless `about:blank` PASS；Playwright/B 站页面/remote-cdp `NOT_RUN` |
+| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询、browser fallback | V1/V2/V3/V4 已实现；video 20 tests、app 107 tests；quality fallback/strict、time/times、评论分页、browser config/guard/fallback 均为 fake 单测；真实 B 站验收 `NOT_RUN` |
+| 无头浏览器（D-035） | Playwright embedded/remote-cdp、headless Linux、codec/超时/清理 | V4 Playwright `1.55.0` + snap Chromium 156；headless about:blank 与 fake 页面截图 PASS；真实 B 站页面/remote-cdp/服务器/超时清理负向 `NOT_RUN` |
 | 真实 NapCat E2E | 真实私聊/群聊入站与发送 | `NOT_RUN` |
 | 真实 DSH/OpenCode wake | 真实 wake/ack 闭环 | `NOT_RUN` |
 | 长跑/崩溃恢复 | 多账号、日志轮转、进程崩溃与重启 | `NOT_RUN` |

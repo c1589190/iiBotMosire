@@ -1,8 +1,8 @@
 # 视频站 Connect 与无头浏览器实施计划
 
-> **状态**：V1/V2/V3 已完成（2026-10-31）；V4 待开始
+> **状态**：V1/V2/V3/V4 已完成（2026-10-31）；V5 待开始
 > **设计**：[`../specs/2026-10-31-video-site-connect-and-browser-backend.md`](../specs/2026-10-31-video-site-connect-and-browser-backend.md)
-> **当前基线**：`494294b`；**317 tests**（connect 73 / video 16 / bot 127 / app 101）；真实 B 站 quality/time/comments 联调 `NOT_RUN`；Playwright 未接入。
+> **当前基线**：`edad06f` 文档 + V4 代码 `ef3aa31`；**327 tests**（connect 73 / video 20 / bot 127 / app 107）；真实 B 站 quality/time/comments 与浏览器抽帧联调 `NOT_RUN`；Playwright `1.55.0` 已接入，remote-cdp 未实现。
 > **用户要求**：视频站能力集中到 connect；MCP 统一在 app 注册；分辨率/精确时间；
 > 无头浏览器必须兼容；配置项、易维护性和日志同步做好。
 
@@ -179,6 +179,20 @@
 - 真实 B 站公开视频浏览器抽帧有非空白或明确 codec 错误；
 - 超时、崩溃、并发、profile 权限、日志脱敏负向测试 PASS；
 - 依赖只出现在 `iibot-video-connect`（或独立 browser 模块）。
+
+**V4 实际结果（2026-10-31，提交 `ef3aa31`）**：
+
+- 已新增 `io.mosire.iibot.connect.video.browser` SPI/Playwright 实现与
+  `BilibiliBrowserTarget`；`iibot-video-connect` 依赖 Playwright Java `1.55.0`；
+- `BotConfig.Browser` + 严格 `video.browser.*` loader/schema/examples/effective config；
+  默认 `enabled=false`，embedded 用系统 Chromium（`IIBOT_CHROMIUM` 或
+  `/snap/bin/chromium` 等），profile 0700、并发/超时/JPEG 校验与稳定错误码；
+- `BiliVideoFramesTool` 保持 ffmpeg 默认，ffmpeg 单帧失败且 browser 启用时懒加载
+  浏览器补帧；`BotToolCatalog` 统一关闭工具/后端资源；
+- 本地 fake 页面 640x360 JPEG PASS；`BrowserGuard`/配置负向测试 PASS；
+- `tools/gate.sh full` PASS：**327 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 73、video 20、bot 127、app 107）；docs gate 见 STATUS；
+- 真实 B 站页面抽帧、remote-cdp、服务器部署、超时/崩溃/并发清理负向验收仍 `NOT_RUN`。
 
 ## V5 remote-cdp 与服务器部署
 

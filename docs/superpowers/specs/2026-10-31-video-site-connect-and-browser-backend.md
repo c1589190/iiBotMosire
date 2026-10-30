@@ -1,6 +1,6 @@
 # 视频站 Connect 模块、无头浏览器与配置/日志设计
 
-> **状态**：有效（2026-10-31；用户已确认模块拆分与无头浏览器兼容；V1/V2/V3 已完成，V4 待开始）
+> **状态**：有效（2026-10-31；用户已确认模块拆分与无头浏览器兼容；V1/V2/V3/V4 已完成，V5 待开始）
 > **用户原话**：
 > - 「首先我建议把视频网站的视频抽取、评论区查询和整合，以及视屏网站的交互全都集中到一个统一的connect包里面方便管理，然后做标准MCP工具，统一在APP做注册，而不是分散在各个模块」
 > - 「此外还有易用性，允许选择分辨率吗？」
@@ -46,8 +46,9 @@
 - `iibot-connect` 已退出 B 站实现，只保留 `core`、`napcat`、`ops`：
   `iibot-connect/src/main/java/io/mosire/iibot/connect/{core,napcat,ops}`。
 - B 站领域、登录、抽帧与 Adapter 在
-  `iibot-video-connect/src/main/java/io/mosire/iibot/connect/video/{core,bilibili,frame}`；
-  V1 实际类名保留 `BiliFrameExtractor` / `FfmpegBiliFrameExtractor`，`browser/` 尚未创建。
+  `iibot-video-connect/src/main/java/io/mosire/iibot/connect/video/{core,bilibili,frame,browser}`；
+  V1 实际类名保留 `BiliFrameExtractor` / `FfmpegBiliFrameExtractor`；V4 已创建
+  `browser/` SPI 与 Playwright embedded 实现。
 - `BiliVideoReadTool`、`BiliVideoFramesTool`、登录 MCP 工具仍在
   `iibot-app/src/main/java/io/mosire/iibot/app/bilibili/`；`BiliLoginService` 已迁入
   `iibot-video-connect/.../bilibili/`，app 只做 MCP 适配。
@@ -68,14 +69,22 @@
   `quality`/`strictQuality`；`video_frames` 标准名与 `bili_video_frames` 兼容名并存；
 - `BiliVideoCommentsTool`（`video_comments`）按需读取评论；
 - `BilibiliAdapter.java:476` 评论回复通知轮询；
-- `FfmpegBiliFrameExtractor` 使用本机 `ffmpeg` 抽帧，当前无浏览器后端。
+- `FfmpegBiliFrameExtractor` 使用本机 `ffmpeg` 抽帧，仍是默认/首选；
+- V4 已加入 `video/browser` SPI、`BilibiliBrowserTarget`、`PlaywrightBrowserBackend`；
+  `bili_video_frames`/`video_frames` 在 ffmpeg 单帧失败且 `browser.enabled=true`
+  时懒加载浏览器补帧，`browser.enabled=false` 时完全不启动浏览器。
 
 ### 2.3 配置与日志
 
-- `BotConfig.Video`/`BotConfig.Comments` 已有 `defaultQuality`、`maxHeight`、
-  `defaultFrameCount`、`maxFrameCount`、`comments.defaultLimit/maxLimit/allowFullScan`；
-- `config/schema/bot-config.schema.json` 已支持严格 `video` 配置；浏览器配置仍待 V4；
-- 配置是启动时快照；`--check-config` 和 `--print-effective-config` 已覆盖 video 节点。
+- `BotConfig.Video`/`BotConfig.Comments`/`BotConfig.Browser` 已有 `defaultQuality`、
+  `maxHeight`、`defaultFrameCount`、`maxFrameCount`、
+  `comments.defaultLimit/maxLimit/allowFullScan` 与 `browser.enabled/mode/
+  executablePath/cdpEndpoint/headless/maxConcurrentSessions/timeoutSeconds/
+  profileRoot/viewportWidth/viewportHeight`；
+- `config/schema/bot-config.schema.json` 已支持严格 `video` 与 `video.browser` 配置，
+  `remote-cdp` 条件要求 `cdpEndpoint`；三个 examples 已带默认 browser 节点；
+- 配置是启动时快照；`--check-config` 和 `--print-effective-config` 已覆盖 video 与
+  browser 节点。
 - 现有日志使用 `LogContext`/`OpsLog`；视频和浏览器目前没有独立 ops 事件与包级级别。
 - 现有日志规则：正文、Cookie、Authorization、完整协议 JSON 不入日志；文件 0600、
   按天/大小滚动轮转。
@@ -169,8 +178,9 @@ V1 已把原 `iibot-connect/.../bilibili` 的类迁移到 `iibot-video-connect` 
 `connect.video.bilibili`，并把 `BiliLoginService`、抽帧接口/ffmpeg 实现迁入。
 `iibot-connect` 不再包含 B 站类；V1 没有保留 deprecated 转发类。V1 实际落地
 `core/VideoAccountRef`、`bilibili/*`、`frame/BiliFrameExtractor` 与
-`frame/FfmpegBiliFrameExtractor`；`browser/*` 及下文 `VideoFrameExtractor` 等
-未来命名尚待后续阶段创建或统一。
+`frame/FfmpegBiliFrameExtractor`；V4 已创建 `browser/*` SPI 与
+`PlaywrightBrowserBackend`。上文 `VideoCatalogReader`/`VideoFrameExtractor` 等
+仍是目标接口命名，当前代码保留既有 Bili 类名，后续阶段再统一。
 
 ### 3.3 领域接口
 
@@ -535,15 +545,15 @@ io.mosire.iibot.video.browser
 
 ### 10.3 浏览器
 
-- Linux headless Playwright 启动成功，无 Xvfb；
-- `embedded` 和 `remote-cdp` 至少各一个 smoke；
-- 本地 fake 页面截图非空白；
-- 真实 B 站公开视频浏览器抽帧有非空白结果或明确 codec 错误；
-- 超时、崩溃、profile 清理、并发上限有负向测试；
-- 日志/异常零 Cookie、零 token、零正文；
-- 服务器镜像可构建、可启动、可优雅关闭。
+- V4 已完成：Linux headless Playwright 启动成功，无 Xvfb；`embedded` 本地 fake
+  页面 640x360 JPEG 非空白 PASS；`browser.enabled=false` 不启动进程；
+- `BrowserGuard` 拒绝非 http(s)、非 B 站 allowlist 与任意 URL/JS；配置严格校验；
+- V4 未完成/`NOT_RUN`：`remote-cdp` smoke、真实 B 站公开视频浏览器抽帧、超时/崩溃/
+  profile 清理/并发上限负向测试、服务器镜像构建与启动、日志真实外部验收；
+- 浏览器仅作为 ffmpeg 失败 fallback，不参与评论查询；真实 B 站结果必须明确成功或
+  给出稳定 codec/错误码。
 
-### 10.4 配置与日志（video 部分 V3 已完成；browser 部分 V4）
+### 10.4 配置与日志（video 部分 V3 完成；browser 配置 V4 完成；浏览器真实日志验收 `NOT_RUN`）
 
 - schema 严格校验未知字段；
 - `--check-config` 对每种非法 browser/quality/cap 组合给来源文件和 JSON pointer；
@@ -561,8 +571,8 @@ V0 文档冻结
 V1 新模块抽取（行为不变，已完成）
 V2 app 单一工具目录（行为不变，已完成）
 V3 精确时间 + 分辨率 + 评论查询（已完成）
-V4 Playwright embedded 浏览器 backend（下一步）
-V5 remote-cdp + 服务器部署
+V4 Playwright embedded 浏览器 backend（已完成）
+V5 remote-cdp + 服务器部署（下一步）
 V6 交互写入（已选范围 B）
 V7 真实 B 站/服务器验收
 ```
@@ -574,5 +584,5 @@ V7 真实 B 站/服务器验收
 1. 视频站交互范围：用户已选 **B**（A + 点赞/投币/收藏/关注），V6 实现，默认关闭、单次显式、禁止自动循环；
 2. `video_*` 标准名与 `bili_*` 兼容别名的最终保留周期；
 3. 服务器默认采用 `remote-cdp` 还是 `embedded`（建议 remote-cdp）；
-4. 浏览器是否参与评论查询 fallback，还是只做页面/帧 fallback；
+4. 浏览器边界：V4 已确定为仅视频帧 fallback，不参与评论查询；
 5. 是否允许热更新账号凭据（当前设计为重启）。

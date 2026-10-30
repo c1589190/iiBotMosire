@@ -11,7 +11,7 @@
 | Maven | 仓库内 `./mvnw`，Maven Wrapper 3.9.16；`./mvnw -v` 已实测 |
 | Python | 文档检查脚本需要 Python 3；`python3` 可直接调用 |
 | ffmpeg | 2026-10-31 实测 `/usr/bin/ffmpeg` 6.1.1；`bili_video_frames` 默认从 PATH 读取，可用 `IIBOT_FFMPEG` 覆盖 |
-| Chromium / Playwright | 2026-10-31 snap 安装 Chromium `156.0.8078.47`（`/snap/bin/chromium`）；`chromium --headless=new --disable-gpu --dump-dom about:blank` PASS。Playwright Java 尚未加入，B 站页面/截图/remote-cdp `NOT_RUN` |
+| Chromium / Playwright | 2026-10-31 snap 安装 Chromium `156.0.8078.47`（`/snap/bin/chromium`）；`chromium --headless=new --disable-gpu --dump-dom about:blank` PASS。`iibot-video-connect` 已加入 Playwright Java `1.55.0`；embedded backend 用系统 Chromium，本地 fake 页面 640x360 JPEG PASS；真实 B 站页面、remote-cdp、服务器 headless `NOT_RUN` |
 | Git | 独立 Git 仓库；当前在 `refactor/bot-first-main-agent` 分支 |
 | Maven reactor | 4 模块：`iibot-connect` / `iibot-video-connect` / `iibot-bot` / `iibot-app`；模块局部 `AGENTS.md` 由 docs gate 校验 |
 | OS | Linux，当前时区 Asia/Shanghai |
