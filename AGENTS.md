@@ -17,12 +17,14 @@
 
 ## 1. 项目定位
 
-**iiBotMosire 是 Agent 无关的统一 QQ 消息客户端，不是文游服务。**
+**iiBotMosire 是 Agent 无关的统一 QQ / B 站会话客户端，不是文游服务。**
 
 默认产品只负责：
 
 - 一个或多个 OneBot 11 / NapCat / LLBot 账号接入；
-- QQ 私聊/群聊消息板、thread、历史、用户备注和媒体；
+- 一个或多个 B 站账号的凭据校验、私信/评论回复通知轮询与显式发送；
+- QQ / B 站统一消息板、thread、历史、用户备注和媒体；
+- 通用只读 `bili_video_read`（任意来源 B 站链接/BV/av/b23）；
 - 发送三态与 Inbox 唤醒；
 - 统一 MCP 工具面，供外部 Agent 读取、回复和管理 QQ 会话。
 
@@ -30,13 +32,15 @@
 
 - 玩家、秘书、回合、行动、裁定、世界、Ticket、ActionPool、Publication 等文游语义；
 - 在 iibot 内运行 LLM、业务主 Agent 或推演循环；
+- 自动刷视频、自动评论、自动私信、自动点赞/关注；
 - 任意 OneBot action、原始 JSON、任意 SQL/shell；
 - 把内部 revision、snapshot、游标维护责任转嫁给 Agent。
 
 ## 2. 常驻红线
 
 1. **默认只绑定回环地址。** 非回环监听必须 fail-closed。
-2. **密钥零泄露。** token、Authorization、QQ 凭据不得进入日志、MCP 结果、配置或提交。
+2. **密钥零泄露。** token、Authorization、QQ/B 站凭据不得进入日志、MCP 结果、配置或提交；
+   B 站 Cookie 文件必须是 0600。
 3. **正文不落日志。** 日志只记录 ID、状态、计数、错误码、耗时和参数 key。
 4. **消息板是唯一业务事实源。** 完整消息、历史、未读和发送状态以消息板为准；Inbox 只做唤醒和预览。
 5. **Agent 不维护内部标记。** revision、snapshot、itemId、内部 seq 和幂等键由服务端管理；Agent 只能使用业务实体和语义工具。
@@ -52,9 +56,9 @@
 
 | 模块 | 职责 | 依赖 |
 |---|---|---|
-| `iibot-connect` | OneBot 11 接入、事件/发送 SPI、三态回执、Adapter 状态 | Jackson、SLF4J |
-| `iibot-bot` | 消息板、thread、用户备注、摘要、Inbox digest、Bot MCP 工具 | connect + AgentLib + SQLite |
-| `iibot-app` | 可运行组合根：配置、Adapter、embedded Inbox、Bot MCP、日志 | bot + Inbox artifacts |
+| `iibot-connect` | OneBot 11 接入、B 站 Adapter/WBI、事件/发送 SPI、三态回执、Adapter 状态 | Jackson、SLF4J |
+| `iibot-bot` | 统一消息板、thread、用户备注、摘要、Inbox digest、conversation/QQ MCP 工具 | connect + AgentLib + SQLite |
+| `iibot-app` | 可运行组合根：配置、Adapter、embedded Inbox、Bot MCP、B 站视频工具、日志 | bot + Inbox artifacts |
 
 当前依赖图：
 
@@ -82,6 +86,7 @@ iibot-app
 | 设计裁定索引 | [`docs/superpowers/DESIGN_RULINGS.md`](docs/superpowers/DESIGN_RULINGS.md) |
 | 用户需求原话 | [`docs/superpowers/specs/2026-10-24-user-requirements-source.md`](docs/superpowers/specs/2026-10-24-user-requirements-source.md) |
 | 统一消息来源地址 | [`docs/superpowers/specs/2026-10-28-unified-message-source-address.md`](docs/superpowers/specs/2026-10-28-unified-message-source-address.md) |
+| B 站通用视频与 Inbox 会话（D-034） | [`docs/superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md`](docs/superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md) |
 | P8 来源地址/wake 计划 | [`docs/superpowers/plans/2026-10-28-p8-source-address-and-wake-contract.md`](docs/superpowers/plans/2026-10-28-p8-source-address-and-wake-contract.md) |
 | 文档规则 | [`docs/AGENTS.md`](docs/AGENTS.md) |
 | 工作流 | [`docs/agents/WORKFLOW.md`](docs/agents/WORKFLOW.md) |
@@ -94,7 +99,7 @@ iibot-app
 
 - JDK 21；仓库内 `./mvnw`。
 - 门禁：`tools/gate.sh docs|selftest|pre|focused|full`。
-- 当前重构分支：`refactor/unified-qq-agent-client`；按责任区提交并推送，全量验证后再合并（M-005）。
+- 当前产品分支：`refactor/bot-first-main-agent`；按责任区提交并推送，全量验证后再合并（M-005）。
 - worktree 统一放 `<仓库根>/worktree/<name>/`。
 - 同一 checkout 不并发跑 Maven；不覆盖正在运行的 jar；不提交 `.work/`、`target/`、数据库、日志和 secret。
 - 真实 QQ/DSH/OneBot 连接和外发必须先获得用户当次明确授权（M-004）。

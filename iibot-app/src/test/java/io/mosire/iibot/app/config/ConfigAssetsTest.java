@@ -19,7 +19,8 @@ class ConfigAssetsTest {
             "IIBOT_CONTROL_TOKEN", "test-control-secret",
             "IIBOT_NAPCAT_ACCESS_TOKEN", "test-onebot-secret",
             "IIBOT_NAPCAT_MAIN_TOKEN", "test-main-secret",
-            "IIBOT_NAPCAT_SECONDARY_TOKEN", "test-secondary-secret"));
+            "IIBOT_NAPCAT_SECONDARY_TOKEN", "test-secondary-secret",
+            "IIBOT_BILI_CREDENTIAL_FILE", "/tmp/bili-cookie.json"));
 
     @Test
     void examplesLoadAgainstCurrentLoaderAndSchemaShape() throws Exception {
@@ -35,6 +36,13 @@ class ConfigAssetsTest {
         assertThat(multi.accounts().values()).extracting(BotConfig.Account::accountId)
                 .containsExactlyInAnyOrder("100000001", "100000002");
 
+        BotConfig bili = BotConfigLoader.load(
+                configDir.resolve("examples/bot.bilibili.json"), SECRETS);
+        assertThat(bili.accounts()).containsOnlyKeys("bili-main");
+        assertThat(bili.activeAccount().adapter()).isEqualTo("bilibili");
+        assertThat(bili.activeAccount().bilibili().credentialFileEnv())
+                .isEqualTo("IIBOT_BILI_CREDENTIAL_FILE");
+
         JsonNode schema = JSON.readTree(
                 configDir.resolve("schema/bot-config.schema.json").toFile());
         assertThat(schema.path("additionalProperties").asBoolean()).isFalse();
@@ -43,7 +51,13 @@ class ConfigAssetsTest {
         JsonNode account = schema.path("$defs").path("account");
         assertThat(account.path("additionalProperties").asBoolean()).isFalse();
         assertThat(account.path("required")).extracting(JsonNode::asText)
-                .containsExactlyInAnyOrder("enabled", "adapter", "accountId", "oneBot");
+                .containsExactlyInAnyOrder("enabled", "adapter", "accountId");
+        assertThat(account.path("properties").path("adapter").path("enum"))
+                .extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("onebot11", "bilibili");
+        JsonNode bilibili = schema.path("$defs").path("bilibili");
+        assertThat(bilibili.path("required")).extracting(JsonNode::asText)
+                .containsExactly("credentialFileEnv");
         JsonNode oneBot = schema.path("$defs").path("oneBot");
         assertThat(oneBot.path("required")).extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder("eventWebSocketUri", "httpBaseUri");

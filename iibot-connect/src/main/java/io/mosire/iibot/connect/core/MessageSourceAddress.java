@@ -1,4 +1,4 @@
-package io.mosire.iibot.bot.chat;
+package io.mosire.iibot.connect.core;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -78,6 +78,23 @@ public record MessageSourceAddress(String family, String kind, List<String> segm
         return new MessageSourceAddress("app", "system", List.of(eventPath));
     }
 
+    /** B 站视频评论区来源：{@code bili_video/account/bvid}。 */
+    public static MessageSourceAddress biliVideo(String accountId, String bvid) {
+        return new MessageSourceAddress("bili", "video", List.of(accountId, bvid));
+    }
+
+    /** B 站评论树来源：{@code bili_comment/account/bvid/rootRpid}。 */
+    public static MessageSourceAddress biliComment(
+            String accountId, String bvid, String rootRpid) {
+        return new MessageSourceAddress("bili", "comment",
+                List.of(accountId, bvid, rootRpid));
+    }
+
+    /** B 站私信来源：{@code bili_dm/account/peerMid}。 */
+    public static MessageSourceAddress biliDm(String accountId, String peerMid) {
+        return new MessageSourceAddress("bili", "dm", List.of(accountId, peerMid));
+    }
+
     /** 解析 canonical source；只接受合法 family/kind/segment 组合。 */
     public static MessageSourceAddress parse(String raw) {
         Objects.requireNonNull(raw, "raw");
@@ -105,12 +122,6 @@ public record MessageSourceAddress(String family, String kind, List<String> segm
             segments.add(segment);
         }
         return new MessageSourceAddress(family, kind, segments);
-    }
-
-    /** 从旧版 {@code thread:<group|private>:<base64>:<base64>} 键解码。 */
-    public static MessageSourceAddress fromLegacyThreadId(String threadId) {
-        ChatSourceKey key = ChatSourceKey.fromThreadId(threadId);
-        return key.sourceAddress();
     }
 
     /** 规范地址文本。 */
@@ -142,9 +153,26 @@ public record MessageSourceAddress(String family, String kind, List<String> segm
         return isSystem() && "app".equals(family) ? "" : segments.getFirst();
     }
 
-    /** 群号或私聊对方 QQ；仅群/私聊来源有值。 */
+    /** 群号、私聊对方或 B 站主体 ID；仅会话来源有值。 */
     public String targetId() {
-        return "group".equals(kind) || "private".equals(kind) ? segments.get(1) : "";
+        if ("group".equals(kind) || "private".equals(kind)
+                || "video".equals(kind) || "dm".equals(kind)) {
+            return segments.get(1);
+        }
+        if ("comment".equals(kind)) {
+            return segments.get(1) + "/" + segments.get(2);
+        }
+        return "";
+    }
+
+    /** 是否为 QQ 群/私聊会话来源。 */
+    public boolean isQqConversation() {
+        return isQqGroup() || isQqPrivate();
+    }
+
+    /** 是否为可进入消息板的非 QQ 外部会话来源。 */
+    public boolean isExternalConversation() {
+        return !"qq".equals(family) && !isSystem();
     }
 
     /** 系统事件路径；非 system 来源返回空列表。 */
@@ -153,17 +181,6 @@ public record MessageSourceAddress(String family, String kind, List<String> segm
             return List.of();
         }
         return "app".equals(family) ? segments : segments.subList(1, segments.size());
-    }
-
-    /** 只有 QQ 群/私聊来源能映射为消息板 thread。 */
-    public ChatSourceKey toChatSourceKey() {
-        if (isQqGroup()) {
-            return ChatSourceKey.groupChat(segments.get(0), segments.get(1));
-        }
-        if (isQqPrivate()) {
-            return ChatSourceKey.privateChat(segments.get(0), segments.get(1));
-        }
-        throw new IllegalArgumentException("系统来源不能映射为消息板 thread: " + canonical());
     }
 
     @Override
@@ -184,6 +201,18 @@ public record MessageSourceAddress(String family, String kind, List<String> segm
             }
             if ("qq".equals(family) && segments.size() < 2) {
                 throw new IllegalArgumentException("qq_system 必须包含 account 和 event");
+            }
+            return;
+        }
+        if ("bili".equals(family)) {
+            int expected = switch (kind) {
+                case "video", "dm" -> 2;
+                case "comment" -> 3;
+                default -> -1;
+            };
+            if (expected != segments.size()) {
+                throw new IllegalArgumentException(
+                        "bili_" + kind + " 来源段数非法: " + segments.size());
             }
         }
     }

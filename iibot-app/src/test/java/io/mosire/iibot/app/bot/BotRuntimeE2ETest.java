@@ -79,15 +79,16 @@ class BotRuntimeE2ETest {
                     .map(McpSchema.Tool::name).toList();
             assertThat(toolNames).contains(
                     "qq_account_list", "qq_account_status", "qq_account_login_info",
-                    "qq_conversation_list", "qq_conversation_read",
-                    "qq_conversation_history", "qq_conversation_send",
+                    "qq_conversation_list", "qq_conversation_read", "conversation_read",
+                    "qq_conversation_history", "qq_conversation_send", "conversation_send",
+                    "conversation_ack",
                     "qq_message_get", "qq_message_thread",
                     "qq_inbox_history", "qq_user_note_get", "qq_user_note_list",
                     "qq_user_note_upsert", "qq_source_weight_list",
                     "qq_source_weight_get", "qq_source_weight_set",
                     "inbox_rest", "qq_inbox_binding_descriptor");
             assertThat(toolNames).allMatch(name -> name.startsWith("qq_")
-                    || "inbox_rest".equals(name));
+                    || name.startsWith("conversation_") || "inbox_rest".equals(name));
             assertThat(toolNames).noneMatch(name -> name.startsWith("bot_")
                     || name.startsWith("tf_")
                     || (name.startsWith("inbox_") && !"inbox_rest".equals(name)));

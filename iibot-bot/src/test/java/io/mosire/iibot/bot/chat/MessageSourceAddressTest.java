@@ -1,5 +1,7 @@
 package io.mosire.iibot.bot.chat;
 
+import io.mosire.iibot.connect.core.MessageSourceAddress;
+
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,7 +18,7 @@ class MessageSourceAddressTest {
         assertThat(parsedGroup).isEqualTo(group);
         assertThat(parsedGroup.accountId()).isEqualTo("10001");
         assertThat(parsedGroup.targetId()).isEqualTo("955432692");
-        assertThat(parsedGroup.toChatSourceKey())
+        assertThat(ChatSourceKey.fromSourceAddress(parsedGroup))
                 .isEqualTo(ChatSourceKey.groupChat("10001", "955432692"));
 
         MessageSourceAddress privateChat =
@@ -24,8 +26,32 @@ class MessageSourceAddressTest {
         assertThat(privateChat.canonical()).isEqualTo("qq_private/10001/123456789");
         assertThat(MessageSourceAddress.parse(privateChat.canonical()))
                 .isEqualTo(privateChat);
-        assertThat(privateChat.toChatSourceKey())
+        assertThat(ChatSourceKey.fromSourceAddress(privateChat))
                 .isEqualTo(ChatSourceKey.privateChat("10001", "123456789"));
+    }
+
+    @Test
+    void biliSourcesRoundTripAndMapToExternalThreads() {
+        MessageSourceAddress video = MessageSourceAddress.biliVideo(
+                "bili-123", "BV1EPnG6DEJC");
+        MessageSourceAddress comment = MessageSourceAddress.biliComment(
+                "bili-123", "BV1EPnG6DEJC", "317500007329");
+        MessageSourceAddress dm = MessageSourceAddress.biliDm("bili-123", "987654");
+
+        assertThat(video.canonical()).isEqualTo("bili_video/bili-123/BV1EPnG6DEJC");
+        assertThat(comment.canonical())
+                .isEqualTo("bili_comment/bili-123/BV1EPnG6DEJC/317500007329");
+        assertThat(dm.canonical()).isEqualTo("bili_dm/bili-123/987654");
+        assertThat(MessageSourceAddress.parse(comment.canonical())).isEqualTo(comment);
+        assertThat(comment.targetId()).isEqualTo("BV1EPnG6DEJC/317500007329");
+
+        ChatSourceKey commentKey = ChatSourceKey.fromSourceAddress(comment);
+        assertThat(commentKey.chatType()).isEqualTo(ChatType.EXTERNAL);
+        assertThat(commentKey.accountId()).isEqualTo("bili-123");
+        assertThat(commentKey.targetId()).isEqualTo(comment.canonical());
+        assertThat(commentKey.sourceAddress()).isEqualTo(comment);
+        assertThat(ChatSourceKey.fromThreadId(commentKey.threadId())).isEqualTo(commentKey);
+        assertThat(commentKey.threadId()).startsWith("thread:external:");
     }
 
     @Test
@@ -39,7 +65,7 @@ class MessageSourceAddressTest {
         assertThat(qq.canonical()).isEqualTo("qq_system/10001/friend_request");
         assertThat(qq.accountId()).isEqualTo("10001");
         assertThat(qq.eventPath()).containsExactly("friend_request");
-        assertThatThrownBy(app::toChatSourceKey)
+        assertThatThrownBy(() -> ChatSourceKey.fromSourceAddress(app))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -61,16 +87,17 @@ class MessageSourceAddressTest {
         assertThat(future.kind()).isEqualTo("group");
         assertThat(future.accountId()).isEqualTo("account-1");
         assertThat(future.targetId()).isEqualTo("group-2");
+        assertThat(ChatSourceKey.fromSourceAddress(future).chatType())
+                .isEqualTo(ChatType.EXTERNAL);
     }
 
     @Test
     void legacyThreadIdDecodesToSource() {
         ChatSourceKey key = ChatSourceKey.groupChat("10001", "955432692");
-        MessageSourceAddress address = MessageSourceAddress.fromLegacyThreadId(key.threadId());
 
-        assertThat(address).isEqualTo(key.sourceAddress());
-        assertThat(ChatSourceKey.fromSourceAddress(address)).isEqualTo(key);
         assertThat(ChatSourceKey.fromThreadId(key.threadId())).isEqualTo(key);
+        assertThat(key.sourceAddress())
+                .isEqualTo(MessageSourceAddress.qqGroup("10001", "955432692"));
     }
 
     @Test
@@ -87,6 +114,10 @@ class MessageSourceAddressTest {
         assertThatThrownBy(() -> MessageSourceAddress.parse("qq_group/account/%ZZ"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> MessageSourceAddress.parse("app_system"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MessageSourceAddress.parse("bili_comment/a/BV1"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MessageSourceAddress.parse("bili_video/a/BV1/extra"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(MessageSourceAddress.parse("QQ_GROUP/account/group").canonical())
                 .isEqualTo("qq_group/account/group");

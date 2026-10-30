@@ -114,6 +114,19 @@ public final class BotOutboxReplyPort implements BotReplyPort {
         OutboxSender outbox = selected.get();
         String correlationKey = "bot-reply:" + requireText(idempotencyKey, "idempotencyKey");
         boolean hasReply = replyToMessageId != null && !replyToMessageId.isBlank();
+        if (source.chatType() == ChatType.EXTERNAL) {
+            if (hasMention || mentionAll) {
+                return new BotReplySendResult(DeliveryState.FAILED_BEFORE_SEND,
+                        List.of(), "MENTION_NOT_SUPPORTED");
+            }
+            List<OutboundSegment> externalSegments = new ArrayList<>();
+            if (hasReply) {
+                externalSegments.add(new OutboundSegment.Reply(replyToMessageId.trim()));
+            }
+            externalSegments.add(new OutboundSegment.Text(requireText(text, "text")));
+            return map(outbox.sendToSource(source.sourceAddress(), externalSegments,
+                    correlationKey));
+        }
         if (!hasReply && !hasMention && !mentionAll) {
             return map(source.chatType() == ChatType.PRIVATE
                     ? outbox.sendPrivateToUser(source.targetId(), List.of(text), correlationKey)
@@ -147,6 +160,9 @@ public final class BotOutboxReplyPort implements BotReplyPort {
                     mentionAll, idempotencyKey);
         }
         boolean hasMention = mentionQqId != null && !mentionQqId.isBlank();
+        if (source.chatType() == ChatType.EXTERNAL) {
+            return richFailure("EXTERNAL_ATTACHMENTS_NOT_SUPPORTED");
+        }
         if (mentionAll && hasMention) {
             return richFailure("INVALID_ARGUMENTS");
         }

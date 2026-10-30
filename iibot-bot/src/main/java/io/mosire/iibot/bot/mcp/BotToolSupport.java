@@ -7,7 +7,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.mosire.agentlib.tool.ToolResult;
 import io.mosire.iibot.bot.chat.ChatMessage;
 import io.mosire.iibot.bot.chat.ChatSourceKey;
-import io.mosire.iibot.bot.chat.MessageSourceAddress;
+import io.mosire.iibot.connect.core.MessageSourceAddress;
 import io.mosire.iibot.bot.chat.ChatThread;
 import io.mosire.iibot.connect.core.MessageSegment;
 import io.mosire.iibot.bot.note.UserNote;

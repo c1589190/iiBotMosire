@@ -13,6 +13,7 @@ config/
   schema/bot-config.schema.json   # 机器可读 schema，结构必须与 loader 一致
   examples/bot.full.json          # 单账号完整脱敏示例
   examples/bot.multi-account.json # 多账号示例
+  examples/bot.bilibili.json      # B 站账号 + 私信/评论通知示例（默认只读）
   bot/README.md                   # 默认运行目录说明
   bot/bot.json                    # 首次启动生成，本地文件，gitignored
 ```
@@ -103,11 +104,15 @@ config/
 
 - `accounts` 至少一个 `enabled=true`；runtime 启动全部 enabled account；多账号下最近消息/远端历史/好友申请/用户备注工具必须显式传 `accountId`；
 - alias 必须匹配 `[A-Za-z0-9._-]+`；所有 `accountId` 必须全局唯一；
-- `adapter` 首版只允许 `onebot11`；
+- `adapter` 只允许 `onebot11`（QQ）或 `bilibili`（B 站）；
+- `onebot11` 账号必须提供 `oneBot`，不能带 `bilibili`；`bilibili` 账号必须提供
+  `bilibili`，不能带 `oneBot`；
 - WS URI 只允许 `ws/wss`，HTTP base URI 只允许 `http/https`，都必须带 host；
 - `control.host`、`inbox.apiHost`、`inbox.mcpHost` 只允许回环地址；
 - `control.bearerTokenEnv` 必需；`oneBot.accessTokenEnv` 可选。填写后必须是合法环境变量名，
   且启用账号的 secret 在启动/`--check-config` 时必须非空；disabled 账号不强制；
+- `bilibili.credentialFileEnv` 指向本机 0600 Cookie JSON 文件路径的环境变量名，
+  不得把 Cookie 值写进配置；B 站私信/评论写入默认关闭；
 - 未知字段 fail-closed，不静默忽略；
 - **当前全唤醒**：`weighting.notifyThreshold/quietMillis/cooldownMillis` 只保留为排序/
   诊断字段，不作为 wake gate；所有入站消息共用 `messageBoard.summaryDebounceMillis`
@@ -117,6 +122,48 @@ config/
   Inbox `summary` 的 512 字符存储边界约束；
 - `logging.levels` 只接受 `io.mosire.iibot.connect` / `bot` / `app` / `inbox`
   及其子包、`iibot.ops`，级别只接受 `TRACE/DEBUG/INFO/WARN/ERROR/OFF`。
+
+## B 站账号
+
+`adapter=bilibili` 使用独立账号配置：
+
+```json
+{
+  "enabled": true,
+  "adapter": "bilibili",
+  "accountId": "bili-123456789",
+  "bilibili": {
+    "credentialFileEnv": "IIBOT_BILI_CREDENTIAL_FILE",
+    "pollIntervalSeconds": 60,
+    "receivePrivateMessages": true,
+    "receiveCommentReplies": true,
+    "writeEnabled": false,
+    "maxWritesPerDay": 3
+  }
+}
+```
+
+Cookie 文件必须为 0600，格式：
+
+```json
+{
+  "sessdata": "...",
+  "biliJct": "...",
+  "buvid3": "...",
+  "buvid4": "...",
+  "dedeUserId": "..."
+}
+```
+
+B 站 Adapter 会把私信和评论回复转成统一 source：
+
+```text
+bili_dm/{accountId}/{peerMid}
+bili_comment/{accountId}/{bvid}/{rootRpid}
+```
+
+`bili_video_read` 是独立只读工具，不要求账号、不依赖 Inbox；有 B 站账号时会尝试
+使用登录态获取字幕。B 站 Cookie 不会进入日志、MCP 结果或模板配置。
 
 ## 多文件合并
 

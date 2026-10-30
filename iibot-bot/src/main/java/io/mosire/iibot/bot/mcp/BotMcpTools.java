@@ -211,8 +211,11 @@ public final class BotMcpTools {
                 new BotMessageGetTool(board),
                 new BotMessageThreadTool(board),
                 new BotReplyTool(replies),
+                new BotReplyTool(replies, "conversation_send"),
                 new BotQqConversationReadTool(board, consumers),
+                new BotQqConversationReadTool("conversation_read", board, consumers),
                 new BotQqConversationAckTool(consumers, inboxDigests),
+                new BotQqConversationAckTool("conversation_ack", consumers, inboxDigests),
                 new BotUserNoteGetTool(notes, noteScope),
                 new BotUserNoteListTool(notes, noteScope),
                 new BotUserNoteUpsertTool(notes, noteScope)));

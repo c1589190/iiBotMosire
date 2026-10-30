@@ -101,6 +101,7 @@ public final class BotRuntime implements AutoCloseable {
     private final SqliteFriendRequestStore friendRequests;
     private final SqliteInboxDigestAuditStore inboxAudit;
     private final SqliteSourceWeightStore sourceWeights;
+    private final List<AgentTool> extraTools;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     private BotRuntime(BotRuntimeOptions options, AccountRegistry accountRegistry,
@@ -112,7 +113,8 @@ public final class BotRuntime implements AutoCloseable {
                        InboxDigestScheduler digestScheduler, BotIngestionService ingestion,
                        BotMcpServer mcpServer, SqliteFriendRequestStore friendRequests,
                        SqliteInboxDigestAuditStore inboxAudit,
-                       SqliteSourceWeightStore sourceWeights) {
+                       SqliteSourceWeightStore sourceWeights,
+                       List<AgentTool> extraTools) {
         this.options = options;
         this.accountRegistry = accountRegistry;
         this.bindings = List.copyOf(bindings);
@@ -128,6 +130,7 @@ public final class BotRuntime implements AutoCloseable {
         this.friendRequests = friendRequests;
         this.inboxAudit = inboxAudit;
         this.sourceWeights = sourceWeights;
+        this.extraTools = extraTools == null ? List.of() : List.copyOf(extraTools);
     }
 
     /** 单 adapter 兼容入口；内部会建立只含该账号的 AccountRegistry。 */
@@ -155,17 +158,25 @@ public final class BotRuntime implements AutoCloseable {
     /** 启动 AccountRegistry 中的全部账号。 */
     public static BotRuntime start(AccountRegistry accountRegistry, BotRuntimeOptions options,
                                    Clock clock) throws IOException {
+        return start(accountRegistry, options, List.of(), clock);
+    }
+
+    /** 启动账号并注册额外的产品工具（例如通用 B 站视频阅读工具）。 */
+    public static BotRuntime start(AccountRegistry accountRegistry, BotRuntimeOptions options,
+                                   List<AgentTool> extraTools, Clock clock)
+            throws IOException {
         Objects.requireNonNull(accountRegistry, "accountRegistry");
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(clock, "clock");
         try (LogContext.Scope ignored = LogContext.openTrace(
                 LogContext.newTraceId("startup"))) {
-            return startScoped(accountRegistry, options, clock);
+            return startScoped(accountRegistry, options, extraTools, clock);
         }
     }
 
     private static BotRuntime startScoped(AccountRegistry accountRegistry,
-                                          BotRuntimeOptions options, Clock clock)
+                                          BotRuntimeOptions options,
+                                          List<AgentTool> extraTools, Clock clock)
             throws IOException {
         Path dataDir = options.dataDir();
         List<AdapterBinding> bindings = bindings(accountRegistry, options);
@@ -279,6 +290,7 @@ public final class BotRuntime implements AutoCloseable {
             if (recallByAccount.values().stream().anyMatch(Objects::nonNull)) {
                 tools.add(new BotMessageRecallTool(recallByAccount));
             }
+            tools.addAll(extraTools);
             // 默认 Agent MCP 只暴露统一 qq_* 业务工具、唯一通用 Inbox 工具
             // inbox_rest，以及暂留宿主交接的 descriptor 工具；不得全量倒入 16 个
             // Inbox claim/append/update 工具。
@@ -334,11 +346,17 @@ public final class BotRuntime implements AutoCloseable {
             return new BotRuntime(options, accountRegistry, bindings, outboxes,
                     board, notes, digestStates, consumerStates, inboxRuntime,
                     digestScheduler, ingestion, mcpServer, friendRequests, inboxAudit,
-                    sourceWeights);
+                    sourceWeights, extraTools);
         } catch (IOException | RuntimeException failure) {
             OpsLog.error("event=bot_runtime_start_failed errorType={}",
                     failure.getClass().getSimpleName());
             closeAdaptersReverse(bindings.stream().map(AdapterBinding::adapter).toList());
+            for (int index = extraTools.size() - 1; index >= 0; index--) {
+                AgentTool tool = extraTools.get(index);
+                if (tool instanceof AutoCloseable closeable) {
+                    closeQuietly(closeable);
+                }
+            }
             closeQuietly(mcpServer);
             closeQuietly(friendRequests);
             closeQuietly(inboxAudit);
@@ -428,7 +446,11 @@ public final class BotRuntime implements AutoCloseable {
                         ChatType type = switch (conversation.sessionType()) {
                             case GROUP -> ChatType.GROUP;
                             case PRIVATE -> ChatType.PRIVATE;
+                            case EXTERNAL -> null;
                         };
+                        if (type == null) {
+                            continue;
+                        }
                         ChatSourceKey key = new ChatSourceKey(binding.accountId(),
                                 type, conversation.targetId());
                         if (board.updateThreadDisplayName(key.threadId(), displayName)) {
@@ -546,6 +568,12 @@ public final class BotRuntime implements AutoCloseable {
         OpsLog.info("event=bot_runtime_close phase=starting accountCount={}",
                 bindings.size());
         closeAdaptersReverse(bindings.stream().map(AdapterBinding::adapter).toList());
+        for (int index = extraTools.size() - 1; index >= 0; index--) {
+            AgentTool tool = extraTools.get(index);
+            if (tool instanceof AutoCloseable closeable) {
+                closeQuietly(closeable);
+            }
+        }
         closeQuietly(mcpServer);
         closeQuietly(friendRequests);
         closeQuietly(inboxAudit);

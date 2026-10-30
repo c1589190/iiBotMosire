@@ -117,8 +117,14 @@ public final class Main {
         BotConfig config = result.config();
         printSecretStatus(out, secrets, config.control().bearerTokenEnv());
         for (BotConfig.Account account : config.accounts().values()) {
-            account.oneBot().accessTokenEnv().ifPresent(
-                    env -> printSecretStatus(out, secrets, env));
+            if (account.oneBot() != null) {
+                account.oneBot().accessTokenEnv().ifPresent(
+                        env -> printSecretStatus(out, secrets, env));
+            }
+            if (account.bilibili() != null) {
+                printSecretStatus(out, secrets,
+                        account.bilibili().credentialFileEnv());
+            }
         }
         out.println("effectiveConfig:");
         out.println(effectivePrinter(secrets, logLevelOverride).json(config));

@@ -1,10 +1,28 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-31 00:45（Asia/Shanghai）
+> **更新时间**：2026-10-31 01:10（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
 ## 0. 最新更新：P1a/P1b 清理与统一 QQ 客户端重构
+
+- **2026-10-31 D-034 B 站通用视频与 Inbox 会话 Adapter 已实现（code-level）**：
+  - 通用只读 `bili_video_read`：任意来源 BV/av、bilibili.com/video、b23.tv 短链；
+    返回视频元数据、简介、可选热评和登录态字幕；不进入消息板/Inbox；
+  - `ChatType.EXTERNAL` + 统一 source：新增 `bili_dm/...`、`bili_comment/...`、
+    `bili_video/...`，QQ 旧 threadId/数据保持兼容；
+  - `BilibiliAdapter`：0600 Cookie 文件、nav 登录校验、WBI、私信轮询、评论回复
+    通知轮询、私信/评论回复发送；入站进入统一消息板/Inbox；
+  - 新增 `conversation_read/ack/send` 通用别名，`qq_conversation_*` 继续兼容；
+  - 配置 schema 支持 `adapter=bilibili`，示例见
+    [`config/examples/bot.bilibili.json`](../../config/examples/bot.bilibili.json)。
+  - 真实匿名 `bili_video_read` smoke PASS：公开视频元数据/热评读取成功；
+    真实 B 站登录、私信轮询、评论通知、私信/评论发送均 `NOT_RUN`。
+  - `tools/gate.sh docs` PASS（modules=3 files=47 links=142）；
+    `tools/gate.sh full` PASS，**300 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 84、bot 127、app 89）。
+  - 设计正本：
+    [`../superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md`](../superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md)。
 
 - **2026-10-30 D-033 第一阶段已实现（code-level）**，主提交 `2fbc3a4`：
   明确 `iiBotMosire`（QQ 业务事实源 + MCP 产品面）与 `iiBotMosire-DSH`
@@ -243,6 +261,9 @@ OneBot 11 / NapCat / LLBot（可多个）
 
 | 项 | 实际结果 |
 |---|---|
+| D-034 full | `tools/gate.sh full` PASS：**300 tests / 0 failures / 0 errors / 0 skipped**（connect 84、bot 127、app 89） |
+| D-034 docs | `tools/gate.sh docs` PASS（modules=3 files=47 links=142） |
+| D-034 B站匿名 smoke | `bili_video_read` 公开视频元数据/热评读取 PASS；登录态字幕、私信、评论通知与真实外发 `NOT_RUN` |
 | D-033 phase 1 full | `tools/gate.sh full` PASS：**282 tests / 0 failures / 0 errors / 0 skipped**（connect 73、bot 124、app 85）；docs PASS（modules=3 files=46 links=132） |
 | D-033 DSH generic | InboxMosire-DSH `npm test` PASS：150 tests / 147 pass / 3 live-skipped / 0 fail；iiBotDSH wake-profile 2/2、persona 24/24；真实 reload/rebind `NOT_RUN` |
 | P1a full gate | `tools/gate.sh full` PASS：**174 tests / 0 failures / 0 errors / 0 skipped**（connect 46、connect-agent 21、bot 67、app 40） |
@@ -312,6 +333,8 @@ OneBot 11 / NapCat / LLBot（可多个）
 ## 5. 当前已实现能力
 
 - OneBot 11 事件 WS + HTTP Action，重连、心跳、去重、限速、分段、发送三态；
+- B 站 Cookie/WBI 登录校验、私信轮询、评论回复通知轮询、私信/评论回复发送；
+- `bili_video_read` 通用视频阅读（元数据/简介/热评/登录态字幕）；
 - QQ 私聊/群聊消息板、thread、历史、用户备注、媒体、好友申请；入站卡片提取安全
   标题/描述/链接，群文件保存文件名/大小/内部 file id；MCP 不返回 file id 或 URL；
 - `qq_forward_media_get`：顶层合并转发图片以 MCP ImageContent 返回；
@@ -352,30 +375,38 @@ OneBot 11 / NapCat / LLBot（可多个）
    运行中的 DSH 仍持有旧模块，reload 后 `programMcp` 状态转变尚未实测。
 8. **D-032 运行验证未跑**：`digest_complete`、compact read/ack 与 DSH compact
    profile 只有单测；真实 DSH reload 和新会话实测为 `NOT_RUN`。
-9. **ASR 未接**：语音只到 `audioRef`，`asrConfigured=false`；转写能力 `NOT_RUN`。
-10. **Raw LLBot 兜底未审计进消息板**：D-031 允许 Agent 常规使用，但其外发不会自动
+9. **B 站真实联调未跑**：Cookie 登录、WBI、私信轮询、评论通知、私信/评论外发
+   只有 fake HTTP 单测；真实 B 站风控、Cookie 过期、私信内容类型和评论审核状态
+   仍为 `NOT_RUN`。真实写入需要独立测试账号和用户当次授权。
+10. **B 站视频字幕未实测**：无登录态只做公开元数据/热评；登录态字幕链路和
+    b23 短链联网展开仍为 `NOT_RUN`。
+11. **ASR 未接**：语音只到 `audioRef`，`asrConfigured=false`；转写能力 `NOT_RUN`。
+12. **Raw LLBot 兜底未审计进消息板**：D-031 允许 Agent 常规使用，但其外发不会自动
     进入 iibot 消息板；必须由 Agent 如实记录 messageId/结果。
-11. **source-only direct ack 竞态**：未 read 时 ack 归档当前 active item；
+13. **source-only direct ack 竞态**：未 read 时 ack 归档当前 active item；
     wake 后、ack 前到达的新消息可能被一并归档。这是既有 direct-ack 边界，D-032
     没有引入 through 字段；需要真实运行观察，必要时再裁定。
 
 ## 7. 下一步
 
-1. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
+1. **B 站 D-034 验收**：为 B 站 Adapter 准备独立测试账号 Cookie，验证登录、
+   私信轮询、评论回复通知、统一 source 入库/Inbox wake、conversation_send
+   三态和 UNKNOWN 不重发；真实写入前先取得用户授权。
+2. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。
-2. **已推进的摩擦项**：F-001/F-002/F-003/F-014/F-015/F-016 已完成 code-level；
+3. **已推进的摩擦项**：F-001/F-002/F-003/F-014/F-015/F-016 已完成 code-level；
    下一步是替换测试 jar、reload 宿主并用真实样本验收。
-3. **D-031 已实现 code-level**：3A mentionAll + qq_message_recall；3B qq_private_send；
+4. **D-031 已实现 code-level**：3A mentionAll + qq_message_recall；3B qq_private_send；
    3C qq_media_upload + image/sticker + qq_group_file_upload；3D AUDIO + qq_audio_get。
    下一步是替换测试 jar 后做真实 LLBot 外部动作验收；ASR 仍未接。
-4. **Raw LLBot 兜底**：按 D-031 允许常规使用；纪律和审计边界已写设计，不新增
+5. **Raw LLBot 兜底**：按 D-031 允许常规使用；纪律和审计边界已写设计，不新增
    iibot scheduler。
-5. **D-032 验证**：替换测试 jar、reload 两个 DSH bundle 后，用新会话验证
+6. **D-032 验证**：替换测试 jar、reload 两个 DSH bundle 后，用新会话验证
    `complete=true` 不走 read、普通消息走 compact read/ack、`more` 同轮续读；
    旧 649 轮会话不能冒充新验收。
-6. **F-013 复验**：先按 MCP 发送路径确认 OUT 已落库；只有 Raw LLBot 路径无记录，
+7. **F-013 复验**：先按 MCP 发送路径确认 OUT 已落库；只有 Raw LLBot 路径无记录，
    不再把它当消息板缺陷。
-7. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
+8. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
    `PUBLICATION_GAP` / `BLOCKED`。
-8. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack；
+9. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack；
    当前均未实施。

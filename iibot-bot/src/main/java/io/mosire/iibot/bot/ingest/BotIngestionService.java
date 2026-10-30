@@ -149,9 +149,18 @@ public final class BotIngestionService {
     }
 
     private static ChatSourceKey sourceOf(String accountId, InboundMessage message) {
+        if (message.sourceAddress() != null) {
+            if (!accountId.equals(message.sourceAddress().accountId())) {
+                throw new IllegalArgumentException(
+                        "inbound source accountId 与绑定账号不一致");
+            }
+            return ChatSourceKey.fromSourceAddress(message.sourceAddress());
+        }
         return switch (message.sessionType()) {
             case PRIVATE -> ChatSourceKey.privateChat(accountId, message.userId());
             case GROUP -> ChatSourceKey.groupChat(accountId, message.groupId());
+            case EXTERNAL -> throw new IllegalArgumentException(
+                    "EXTERNAL 消息必须携带 sourceAddress");
         };
     }
 

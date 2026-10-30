@@ -66,19 +66,71 @@ public record BotConfig(
         return activeAccount().accountId();
     }
 
-    /** active/default account 的 OneBot 配置；每个账号的 Adapter 由 app 组合根创建。 */
+    /** active/default account 的 OneBot 配置；仅 active 为 onebot11 时可用。 */
     public OneBot activeOneBot() {
-        return activeAccount().oneBot();
+        OneBot oneBot = activeAccount().oneBot();
+        if (oneBot == null) {
+            throw new IllegalStateException("active account 不是 onebot11");
+        }
+        return oneBot;
     }
 
-    public record Account(boolean enabled, String adapter, String accountId, OneBot oneBot) {
+    public record Account(boolean enabled, String adapter, String accountId, OneBot oneBot,
+                          Bilibili bilibili) {
+        /** 兼容只支持 QQ 的旧构造。 */
+        public Account(boolean enabled, String adapter, String accountId, OneBot oneBot) {
+            this(enabled, adapter, accountId, oneBot, null);
+        }
+
         public Account {
             adapter = requireText(adapter, "accounts.adapter");
-            if (!"onebot11".equals(adapter)) {
-                throw new IllegalArgumentException("accounts.adapter 首版只允许 onebot11");
-            }
             accountId = requireText(accountId, "accounts.accountId");
-            oneBot = Objects.requireNonNull(oneBot, "accounts.oneBot");
+            switch (adapter) {
+                case "onebot11" -> {
+                    oneBot = Objects.requireNonNull(oneBot, "accounts.oneBot");
+                    if (bilibili != null) {
+                        throw new IllegalArgumentException(
+                                "onebot11 账号不能配置 bilibili");
+                    }
+                }
+                case "bilibili" -> {
+                    bilibili = Objects.requireNonNull(bilibili, "accounts.bilibili");
+                    if (oneBot != null) {
+                        throw new IllegalArgumentException(
+                                "bilibili 账号不能配置 oneBot");
+                    }
+                }
+                default -> throw new IllegalArgumentException(
+                        "accounts.adapter 只允许 onebot11/bilibili");
+            }
+        }
+    }
+
+    public record Bilibili(
+            String credentialFileEnv,
+            int pollIntervalSeconds,
+            boolean receivePrivateMessages,
+            boolean receiveCommentReplies,
+            boolean writeEnabled,
+            int maxWritesPerDay) {
+
+        public Bilibili {
+            credentialFileEnv = requireText(credentialFileEnv,
+                    "bilibili.credentialFileEnv");
+            validateSecretEnvName(Optional.of(credentialFileEnv),
+                    "bilibili.credentialFileEnv");
+            if (pollIntervalSeconds < 10 || pollIntervalSeconds > 3_600) {
+                throw new IllegalArgumentException(
+                        "bilibili.pollIntervalSeconds 必须在 10..3600");
+            }
+            if (maxWritesPerDay < 0 || maxWritesPerDay > 100) {
+                throw new IllegalArgumentException(
+                        "bilibili.maxWritesPerDay 必须在 0..100");
+            }
+        }
+
+        public static Bilibili defaults(String credentialFileEnv) {
+            return new Bilibili(credentialFileEnv, 60, true, true, false, 3);
         }
     }
 

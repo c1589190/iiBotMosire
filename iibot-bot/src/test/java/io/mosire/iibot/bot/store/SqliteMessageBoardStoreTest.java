@@ -6,6 +6,7 @@ import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.chat.ChatThread;
 import io.mosire.iibot.bot.chat.DeliveryState;
 import io.mosire.iibot.connect.core.MessageSegment;
+import io.mosire.iibot.connect.core.MessageSourceAddress;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -163,5 +164,27 @@ class SqliteMessageBoardStoreTest {
 
     private static ChatMessage inbound(String id, String senderId, String senderName, String text) {
         return ChatMessage.inbound(GROUP, id, senderId, senderName, T0, T0, text, "", "");
+    }
+
+    @Test
+    void persistsExternalBilibiliSourceAcrossReopen() {
+        Path db = tempDir.resolve("bot.db");
+        ChatSourceKey source = ChatSourceKey.fromSourceAddress(
+                MessageSourceAddress.biliDm("bili-123456", "98765"));
+        ChatMessage message = ChatMessage.inbound(
+                source, "msg-1", "98765", "BiliUser", T0, T0, "你好", "", "");
+        try (SqliteMessageBoardStore store = new SqliteMessageBoardStore(db)) {
+            store.append(message);
+            assertThat(store.thread(source.threadId())).get()
+                    .extracting(ChatThread::source)
+                    .isEqualTo(source);
+        }
+        try (SqliteMessageBoardStore reopened = new SqliteMessageBoardStore(db)) {
+            assertThat(reopened.thread(source.threadId())).get()
+                    .extracting(ChatThread::source)
+                    .isEqualTo(source);
+            assertThat(reopened.readThread(source.threadId(), 0L, 10))
+                    .extracting(ChatMessage::text).containsExactly("你好");
+        }
     }
 }

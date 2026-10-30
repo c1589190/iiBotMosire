@@ -5,7 +5,7 @@ import io.mosire.agentlib.permission.ToolSpec;
 import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolResult;
-import io.mosire.iibot.bot.chat.MessageSourceAddress;
+import io.mosire.iibot.connect.core.MessageSourceAddress;
 import io.mosire.iibot.connect.core.RecallCapability;
 import io.mosire.iibot.connect.core.SendReceipt;
 import io.mosire.iibot.connect.ops.OpsLog;

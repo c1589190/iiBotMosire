@@ -41,6 +41,7 @@ public final class BotQqConversationReadTool implements AgentTool {
     private final MessageBoardStore board;
     private final ConsumerConversationStore consumers;
     private final Clock clock;
+    private final String name;
 
     public BotQqConversationReadTool(MessageBoardStore board,
                                      ConsumerConversationStore consumers) {
@@ -49,12 +50,23 @@ public final class BotQqConversationReadTool implements AgentTool {
 
     public BotQqConversationReadTool(MessageBoardStore board,
                                      ConsumerConversationStore consumers, Clock clock) {
+        this(NAME, board, consumers, clock);
+    }
+
+    public BotQqConversationReadTool(String name, MessageBoardStore board,
+                                     ConsumerConversationStore consumers) {
+        this(name, board, consumers, Clock.systemUTC());
+    }
+
+    public BotQqConversationReadTool(String name, MessageBoardStore board,
+                                     ConsumerConversationStore consumers, Clock clock) {
+        this.name = Objects.requireNonNull(name, "name");
         this.board = Objects.requireNonNull(board, "board");
         this.consumers = Objects.requireNonNull(consumers, "consumers");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
-    @Override public String name() { return NAME; }
+    @Override public String name() { return name; }
 
     @Override public String description() {
         return "读取 source 当前未 ack 的入站消息批次。每条消息返回 seq、messageId、"

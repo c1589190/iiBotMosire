@@ -88,7 +88,8 @@ public final class SourceWeightService {
         }
         Set<WeightSignal> signals = new LinkedHashSet<>();
         String lowerText = stored.text() == null ? "" : stored.text().toLowerCase(Locale.ROOT);
-        if (stored.source().chatType() == io.mosire.iibot.bot.chat.ChatType.PRIVATE) {
+        if (stored.source().chatType() == io.mosire.iibot.bot.chat.ChatType.PRIVATE
+                || "dm".equals(stored.source().sourceAddress().kind())) {
             signals.add(WeightSignal.DM);
         }
         if (inbound.mentionedSelf()) {

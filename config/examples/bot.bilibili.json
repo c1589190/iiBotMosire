@@ -1,0 +1,57 @@
+{
+  "$schema": "../schema/bot-config.schema.json",
+  "dataDir": "../data",
+  "accounts": {
+    "bili-main": {
+      "enabled": true,
+      "adapter": "bilibili",
+      "accountId": "bili-123456789",
+      "bilibili": {
+        "credentialFileEnv": "IIBOT_BILI_CREDENTIAL_FILE",
+        "pollIntervalSeconds": 60,
+        "receivePrivateMessages": true,
+        "receiveCommentReplies": true,
+        "writeEnabled": false,
+        "maxWritesPerDay": 3
+      }
+    }
+  },
+  "control": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "path": "/mcp/bot",
+    "bearerTokenEnv": "IIBOT_CONTROL_TOKEN"
+  },
+  "inbox": {
+    "dataDir": "../data/inbox",
+    "inboxId": "iibot-bili",
+    "bindingLabel": "dsh-bili",
+    "channels": [
+      "bili"
+    ],
+    "bindingTtlHours": 24,
+    "apiHost": "127.0.0.1",
+    "apiPort": 0,
+    "mcpHost": "127.0.0.1",
+    "mcpPort": 0,
+    "mcpPath": "/mcp",
+    "heartbeatMillis": 15000,
+    "claimSweepIntervalMillis": 5000
+  },
+  "messageBoard": {
+    "summaryDebounceMillis": 2000,
+    "maxPreviewMessages": 20,
+    "inlineMaxChars": 512,
+    "outbox": {
+      "sendTimeoutSeconds": 15,
+      "minSendIntervalMillis": 150
+    }
+  },
+  "logging": {
+    "directory": "../logs",
+    "console": true,
+    "file": true,
+    "rootLevel": "INFO",
+    "opsLevel": "INFO"
+  }
+}

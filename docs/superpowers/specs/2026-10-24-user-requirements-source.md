@@ -19,6 +19,7 @@
 | D-026 | 通用 QQ 工具 + 消息板服务端状态 | connect-agent 整合删除；多账号路由；read/ack 由服务端维护 |
 | D-027 | debug/info 日志与易用配置 | 已实现 P2/P3；后续只维护 |
 | D-028 | 依赖最新且可复现、文档一致 | 已完成 P6/P7a 主要依赖刷新；AgentLib 0.2.4 公开发布仍待上游 |
+| D-034 | B 站通用视频阅读 + 账号/私信/评论 Inbox 会话 | 开始实施；视频工具与 B 站 Adapter 分离，统一走 source/conversation |
 
 ## 二、当前用户原话
 
@@ -168,10 +169,35 @@
 - **设计正本**：
   [`2026-10-30-inbox-inline-and-compact-tool-results.md`](2026-10-30-inbox-inline-and-compact-tool-results.md)
 
+### D-034 B 站通用视频阅读与 Inbox 会话 Adapter
+
+- **日期**：2026-10-31
+- **用户原话**：
+  > 「看视频这块，，我建议搞成通用工具，就是不管从哪里获取到b站视频链接都能看」
+  > 「评论区则是要涉及inbox，主要需要处理账号登录、私信消息检测等」
+  > 「其他没啥问题，开始吧」
+
+- **裁定**：
+  1. `bili_video_read` 是通用只读工具：输入只依赖 B 站链接/BV/av/b23，不要求来自
+     QQ、消息板或 Inbox；任何 Agent 都可以直接调用。
+  2. 视频阅读不产生消息板记录、不触发 Inbox、不发送 B 站评论/私信。
+  3. B 站账号登录、Cookie/WBI、私信轮询、评论回复通知轮询、评论/私信发送由
+     `BilibiliAdapter` 负责；入站进入 iibot 消息板并由 Inbox wake。
+  4. B 站统一 source 使用 `bili_dm/{accountId}/{peerMid}`、
+     `bili_comment/{accountId}/{bvid}/{rootRpid}`、`bili_video/{accountId}/{bvid}`。
+  5. 通用会话工具增加 `conversation_read/ack/send` 别名；现有 `qq_conversation_*`
+     继续兼容。B 站外发不得绕过 `BotReplyService`、`OutboxSender` 和三态。
+  6. B 站写入默认关闭；`UNKNOWN` 不自动重发；评论/私信正文和 Cookie 不进入日志。
+  7. DSH 不镜像 B 站工具、不保存 Cookie、不实现评论/私信业务规则。
+
+- **设计正本**：
+  [`2026-10-31-bilibili-generic-video-and-conversation-adapter.md`](2026-10-31-bilibili-generic-video-and-conversation-adapter.md)
+
 ## 三、当前验收判据
 
 - 默认 reactor 只有 `iibot-connect` / `iibot-bot` / `iibot-app`；
-- 默认 Agent MCP 工具名统一为 `qq_*`，不出现 `bot_*` / `tf_*` 业务工具；
+- QQ 业务工具继续使用 `qq_*`；平台无关收发使用 `conversation_*` 别名；
+  B 站内容读取使用 `bili_video_read`；不出现 `bot_*` / `tf_*` 业务工具；
 - 多账号消息按 accountId 隔离，出站按 thread.accountId 路由；
 - Agent 只传 threadId 即可 read + ack，不传 revision/snapshot/itemId/内部 seq；
 - 日志 INFO/DEBUG 可配置，正文/token/Authorization 零命中；

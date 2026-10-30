@@ -38,6 +38,7 @@ public final class BotQqConversationAckTool implements AgentTool {
     private final ConsumerConversationStore consumers;
     private final InboxDigestService inboxDigests;
     private final Clock clock;
+    private final String name;
 
     public BotQqConversationAckTool(ConsumerConversationStore consumers,
                                     InboxDigestService inboxDigests) {
@@ -46,20 +47,32 @@ public final class BotQqConversationAckTool implements AgentTool {
 
     public BotQqConversationAckTool(ConsumerConversationStore consumers,
                                     InboxDigestService inboxDigests, Clock clock) {
+        this(NAME, consumers, inboxDigests, clock);
+    }
+
+    public BotQqConversationAckTool(String name, ConsumerConversationStore consumers,
+                                    InboxDigestService inboxDigests) {
+        this(name, consumers, inboxDigests, Clock.systemUTC());
+    }
+
+    public BotQqConversationAckTool(String name, ConsumerConversationStore consumers,
+                                    InboxDigestService inboxDigests, Clock clock) {
+        this.name = Objects.requireNonNull(name, "name");
         this.consumers = Objects.requireNonNull(consumers, "consumers");
         this.inboxDigests = Objects.requireNonNull(inboxDigests, "inboxDigests");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
-    @Override public String name() { return NAME; }
+    @Override public String name() { return name; }
 
     @Override public String description() {
         return "确认 source 当前已投递批次处理完毕。返回 more=true 表示同一 active item "
-                + "还有未读，应在同一回合继续 qq_conversation_read(source)。未 read 时"
+                + "还有未读，应在同一回合继续 read(source)（qq_conversation_read 或 "
+                + "conversation_read）。未 read 时"
                 + "调用会直接消费当前 active item；若只想消费已看到的批次，应先 read。"
                 + "若 wake 的 kind=digest_complete 或 complete=true，且没有"
                 + " truncated=true，可直接调用本工具 ack(source)，不需要先 read；"
-                + "truncated=true 时摘要已截断，必须先 read。";
+                + "truncated=true 时摘要已截断，必须先 read。source 可为 QQ 或 B站统一来源。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }

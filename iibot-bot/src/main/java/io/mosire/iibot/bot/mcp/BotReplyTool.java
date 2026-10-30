@@ -27,15 +27,15 @@ public final class BotReplyTool implements AgentTool {
             "type", "object",
             "properties", Map.of(
                     "source", Map.of("type", "string", "minLength", 1,
-                            "description", "统一来源地址，如 qq_group/bot-1/955432692"),
+                            "description", "统一来源地址，例如 qq_group/bot-1/955432692、bili_dm/bili-123/456 或 bili_comment/bili-123/BV.../123"),
                     "threadId", Map.of("type", "string", "minLength", 1,
                             "description", "旧版内部 threadId；新调用方使用 source"),
                     "text", Map.of("type", "string", "maxLength", 4000,
                             "description", "正文；有附件时可省略"),
                     "replyToMessageId", Map.of("type", "string",
-                            "description", "被回复消息的 QQ messageId；与 replyToSeq 最多一个"),
+                            "description", "被回复消息的平台 messageId；与 replyToSeq 最多一个"),
                     "replyToSeq", Map.of("type", "integer", "minimum", 1,
-                            "description", "本 source/thread 内消息的 seq；服务端解析 QQ messageId 和 mention 目标"),
+                            "description", "本 source/thread 内消息的 seq；服务端解析平台 messageId 和 mention 目标"),
                     "mentionSender", Map.of("type", "boolean",
                             "description", "群聊中回复时 @ 被回复消息的发送者"),
                     "mentionAll", Map.of("type", "boolean",
@@ -58,17 +58,23 @@ public final class BotReplyTool implements AgentTool {
             "additionalProperties", false);
 
     private final BotReplyService service;
+    private final String name;
 
     public BotReplyTool(BotReplyService service) {
-        this.service = Objects.requireNonNull(service, "service");
+        this(service, NAME);
     }
 
-    @Override public String name() { return NAME; }
+    public BotReplyTool(BotReplyService service, String name) {
+        this.service = Objects.requireNonNull(service, "service");
+        this.name = Objects.requireNonNull(name, "name");
+    }
+
+    @Override public String name() { return name; }
 
     @Override public String description() {
-        return "回复一个来源 thread；目标由服务端从 source 解析，不接受任意 QQ/群号。"
-                + "replyToSeq 使用 qq_conversation_read 返回的 seq，服务端解析平台 "
-                + "messageId 与发送者；也可直接传 replyToMessageId，二者最多一个。"
+        return "回复一个来源 thread；目标由服务端从 source 解析，不接受任意账号/群号。"
+                + "source 可以是 QQ、B站私信或 B站评论树。replyToSeq 使用 read 返回的 seq，"
+                + "服务端解析平台 messageId 与发送者；也可直接传 replyToMessageId，二者最多一个。"
                 + "mentionSender=true 时 @ 被回复消息的发送者；mentionAll=true 时在群聊 "
                 + "@全体成员，两者不可同时使用。attachments 可附带 qq_media_upload "
                 + "得到的 image assetRef 或 sticker faceId。";

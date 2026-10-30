@@ -30,10 +30,13 @@ public final class BotConfigLoader {
     private static final Set<String> ROOT_FIELDS = Set.of(
             "$schema", "dataDir", "accounts", "control", "inbox", "messageBoard", "logging");
     private static final Set<String> ACCOUNT_FIELDS = Set.of(
-            "enabled", "adapter", "accountId", "oneBot");
+            "enabled", "adapter", "accountId", "oneBot", "bilibili");
     private static final Set<String> ONEBOT_FIELDS = Set.of(
             "eventWebSocketUri", "httpBaseUri", "accessTokenEnv", "privateTempGroupId",
             "suppressSelfMessages", "requestTimeoutSeconds", "maxTextLength");
+    private static final Set<String> BILIBILI_FIELDS = Set.of(
+            "credentialFileEnv", "pollIntervalSeconds", "receivePrivateMessages",
+            "receiveCommentReplies", "writeEnabled", "maxWritesPerDay");
     private static final Set<String> CONTROL_FIELDS = Set.of(
             "host", "port", "path", "bearerTokenEnv");
     private static final Set<String> INBOX_FIELDS = Set.of(
@@ -149,13 +152,23 @@ public final class BotConfigLoader {
             checkSecret(secrets, control.bearerTokenEnv(), "/control/bearerTokenEnv",
                     "control bearer token", secretErrors);
             for (Map.Entry<String, BotConfig.Account> entry : accounts.entrySet()) {
-                if (!entry.getValue().enabled()) {
+                BotConfig.Account account = entry.getValue();
+                if (!account.enabled()) {
                     continue;
                 }
-                Optional<String> env = entry.getValue().oneBot().accessTokenEnv();
-                env.ifPresent(name -> checkSecret(secrets, name,
-                        "/accounts/" + escape(entry.getKey()) + "/oneBot/accessTokenEnv",
-                        "OneBot access token", secretErrors));
+                if (account.oneBot() != null) {
+                    Optional<String> env = account.oneBot().accessTokenEnv();
+                    env.ifPresent(name -> checkSecret(secrets, name,
+                            "/accounts/" + escape(entry.getKey())
+                                    + "/oneBot/accessTokenEnv",
+                            "OneBot access token", secretErrors));
+                }
+                if (account.bilibili() != null) {
+                    checkSecret(secrets, account.bilibili().credentialFileEnv(),
+                            "/accounts/" + escape(entry.getKey())
+                                    + "/bilibili/credentialFileEnv",
+                            "Bilibili credential file", secretErrors);
+                }
             }
             return new LoadResult(config, secretErrors);
         }
@@ -178,21 +191,37 @@ public final class BotConfigLoader {
 
                 boolean enabled = requiredBoolean(accountNode, "enabled", pointer);
                 String adapter = requiredText(accountNode, "adapter", pointer);
-                if (!"onebot11".equals(adapter)) {
-                    throw error(pointer + "/adapter", "onebot11", "string",
-                            "adapter 首版只允许 onebot11，实际: " + adapter);
-                }
                 String accountId = requiredText(accountNode, "accountId", pointer);
                 if (!accountIds.add(accountId)) {
                     throw error(pointer + "/accountId", "globally unique accountId",
                             "string", "accountId 重复: " + accountId
                                     + "；每个账号的消息板分区键必须唯一");
                 }
-                JsonNode oneBotNode = requiredObject(accountNode, "oneBot", pointer);
-                BotConfig.OneBot oneBot = parseOneBot(oneBotNode,
-                        pointer + "/oneBot");
+                BotConfig.OneBot oneBot = null;
+                BotConfig.Bilibili bilibili = null;
+                switch (adapter) {
+                    case "onebot11" -> {
+                        if (accountNode.has("bilibili")) {
+                            throw error(pointer + "/bilibili", "absent for onebot11",
+                                    "object", "onebot11 账号不能配置 bilibili");
+                        }
+                        JsonNode oneBotNode = requiredObject(accountNode, "oneBot", pointer);
+                        oneBot = parseOneBot(oneBotNode, pointer + "/oneBot");
+                    }
+                    case "bilibili" -> {
+                        if (accountNode.has("oneBot")) {
+                            throw error(pointer + "/oneBot", "absent for bilibili",
+                                    "object", "bilibili 账号不能配置 oneBot");
+                        }
+                        JsonNode biliNode = requiredObject(accountNode, "bilibili", pointer);
+                        bilibili = parseBilibili(biliNode, pointer + "/bilibili");
+                    }
+                    default -> throw error(pointer + "/adapter",
+                            "onebot11|bilibili", "string",
+                            "adapter 只允许 onebot11 或 bilibili，实际: " + adapter);
+                }
                 accounts.put(alias, new BotConfig.Account(
-                        enabled, adapter, accountId, oneBot));
+                        enabled, adapter, accountId, oneBot, bilibili));
             }
             if (accounts.isEmpty()) {
                 throw error("/accounts", "non-empty object", "empty object",
@@ -219,6 +248,26 @@ public final class BotConfigLoader {
                         suppressSelf, requestTimeout, maxTextLength);
             } catch (IllegalArgumentException invalid) {
                 throw error(pointer, "valid oneBot config", "object", invalid.getMessage());
+            }
+        }
+
+        private BotConfig.Bilibili parseBilibili(JsonNode node, String pointer) {
+            rejectUnknown(node, BILIBILI_FIELDS, pointer, "bilibili");
+            String credentialEnv = requiredText(node, "credentialFileEnv", pointer);
+            validateEnvName(credentialEnv, pointer + "/credentialFileEnv");
+            int pollSeconds = optionalInt(node, "pollIntervalSeconds", pointer, 60);
+            boolean privateMessages = optionalBoolean(
+                    node, "receivePrivateMessages", pointer, true);
+            boolean commentReplies = optionalBoolean(
+                    node, "receiveCommentReplies", pointer, true);
+            boolean writeEnabled = optionalBoolean(node, "writeEnabled", pointer, false);
+            int maxWrites = optionalInt(node, "maxWritesPerDay", pointer, 3);
+            try {
+                return new BotConfig.Bilibili(credentialEnv, pollSeconds, privateMessages,
+                        commentReplies, writeEnabled, maxWrites);
+            } catch (IllegalArgumentException invalid) {
+                throw error(pointer, "valid bilibili config", "object",
+                        invalid.getMessage());
             }
         }
 

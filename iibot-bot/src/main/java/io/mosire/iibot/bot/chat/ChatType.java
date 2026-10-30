@@ -1,9 +1,10 @@
 package io.mosire.iibot.bot.chat;
 
-/** 私聊或群聊来源类型。 */
+/** 会话来源类型；EXTERNAL 承载非 QQ 平台的统一 source。 */
 public enum ChatType {
     PRIVATE("private"),
-    GROUP("group");
+    GROUP("group"),
+    EXTERNAL("external");
 
     private final String wire;
 

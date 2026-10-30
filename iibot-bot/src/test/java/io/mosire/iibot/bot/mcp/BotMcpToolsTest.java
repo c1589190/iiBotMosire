@@ -60,10 +60,12 @@ class BotMcpToolsTest {
         assertThat(tools).extracting(AgentTool::name).containsExactly(
                 "qq_conversation_list", "qq_conversation_history",
                 "qq_message_get", "qq_message_thread", "qq_conversation_send",
-                "qq_conversation_read", "qq_conversation_ack",
+                "conversation_send", "qq_conversation_read", "conversation_read",
+                "qq_conversation_ack", "conversation_ack",
                 "qq_user_note_get", "qq_user_note_list", "qq_user_note_upsert",
                 "qq_private_send");
-        assertThat(tools).extracting(AgentTool::name).allMatch(name -> name.startsWith("qq_"));
+        assertThat(tools).extracting(AgentTool::name).allMatch(name ->
+                name.startsWith("qq_") || name.startsWith("conversation_"));
         assertThat(tools).extracting(AgentTool::name)
                 .doesNotContain("bot_thread_read", "bot_thread_ack");
 

@@ -3,6 +3,7 @@ package io.mosire.iibot.bot.ingest;
 import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.store.InMemoryMessageBoardStore;
 import io.mosire.iibot.connect.core.InboundMessage;
+import io.mosire.iibot.connect.core.MessageSourceAddress;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -82,4 +83,27 @@ class BotIngestionServiceTest {
                 ChatSourceKey.privateChat("bot-a", "qq-1").threadId());
     }
 
+
+    @Test
+    void mapsExternalBilibiliDmToExternalThread() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        List<String> triggered = new ArrayList<>();
+        BotIngestionService service = new BotIngestionService(board, triggered::add);
+        MessageSourceAddress source = MessageSourceAddress.biliDm(
+                "bili-123456", "98765");
+        InboundMessage message = new InboundMessage("bilibili", "bili-123456",
+                "msg-1", "98765", "BiliUser", InboundMessage.SessionType.EXTERNAL,
+                null, "你好", "", "", false, T0, "bili-dm-1",
+                List.of(), source);
+
+        BotIngestionService.IngestResult result = service.ingest(message);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.message().source().chatType().wire()).isEqualTo("external");
+        assertThat(result.message().source().sourceAddress()).isEqualTo(source);
+        assertThat(result.message().source().threadId()).startsWith("thread:external:");
+        assertThat(board.readThread(result.message().source().threadId(), 0L, 10))
+                .hasSize(1);
+        assertThat(triggered).containsExactly(result.message().source().threadId());
+    }
 }

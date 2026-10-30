@@ -1,8 +1,13 @@
 package io.mosire.iibot.app.bot;
 
+import io.mosire.agentlib.tool.AgentTool;
+import io.mosire.iibot.app.bilibili.BiliVideoReadTool;
 import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.inbox.BotInboxRuntimeOptions;
+import io.mosire.iibot.connect.bilibili.BilibiliAdapter;
+import io.mosire.iibot.connect.bilibili.BilibiliAdapterConfig;
 import io.mosire.iibot.connect.core.AccountRegistry;
+import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.napcat.NapCatAdapter;
 import io.mosire.iibot.connect.napcat.NapCatConfig;
 import io.mosire.iibot.connect.ops.LogContext;
@@ -14,7 +19,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -64,41 +68,64 @@ public final class BotMain {
                             "Bot MCP token 未配置：环境变量 "
                                     + config.control().bearerTokenEnv() + " 为空"));
 
-            Map<String, String> oneBotTokens = new LinkedHashMap<>();
-            for (Map.Entry<String, BotConfig.Account> entry : enabledAccounts) {
-                BotConfig.Account account = entry.getValue();
-                String oneBotToken = account.oneBot().accessTokenEnv()
-                        .map(env -> secrets.lookup(env)
-                                .filter(value -> !value.isBlank())
-                                .orElseThrow(() -> new IllegalStateException(
-                                        "OneBot token 未配置：账号 " + entry.getKey()
-                                                + " 的环境变量 " + env + " 为空")))
-                        .orElse(null);
-                oneBotTokens.put(account.accountId(), oneBotToken);
-            }
-
             List<BotRuntimeOptions.AccountOptions> accountOptions = new ArrayList<>();
+            List<BiliVideoReadTool.BiliVideoAccount> biliVideoAccounts = new ArrayList<>();
             for (Map.Entry<String, BotConfig.Account> entry : enabledAccounts) {
                 String alias = entry.getKey();
                 BotConfig.Account account = entry.getValue();
-                BotConfig.OneBot oneBot = account.oneBot();
-                String oneBotToken = oneBotTokens.get(account.accountId());
-                NapCatAdapter adapter = new NapCatAdapter(
-                        napCatConfig(account, oneBotToken));
+                MessagingAdapter adapter;
+                String privateTempGroupId = null;
+                if (account.oneBot() != null) {
+                    BotConfig.OneBot oneBot = account.oneBot();
+                    String oneBotToken = oneBot.accessTokenEnv()
+                            .map(env -> secrets.lookup(env)
+                                    .filter(value -> !value.isBlank())
+                                    .orElseThrow(() -> new IllegalStateException(
+                                            "OneBot token 未配置：账号 " + alias
+                                                    + " 的环境变量 " + env + " 为空")))
+                            .orElse(null);
+                    adapter = new NapCatAdapter(napCatConfig(account, oneBotToken));
+                    privateTempGroupId = oneBot.privateTempGroupId().orElse(null);
+                    log.debug("event=adapter_configured adapter={} alias={} accountId={} "
+                                    + "wsScheme={} httpScheme={} accessTokenEnvConfigured={} "
+                                    + "suppressSelfMessages={}",
+                            adapter.adapterId(), alias, account.accountId(),
+                            oneBot.eventWebSocketUri().getScheme(),
+                            oneBot.httpBaseUri().getScheme(),
+                            oneBot.accessTokenEnv().isPresent(),
+                            oneBot.suppressSelfMessages());
+                } else {
+                    BotConfig.Bilibili bilibili = account.bilibili();
+                    String credentialPath = secrets.lookup(bilibili.credentialFileEnv())
+                            .filter(value -> !value.isBlank())
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "B站凭据文件未配置：账号 " + alias
+                                            + " 的环境变量 "
+                                            + bilibili.credentialFileEnv() + " 为空"));
+                    BilibiliAdapterConfig adapterConfig = new BilibiliAdapterConfig(
+                            account.accountId(),
+                            Path.of(credentialPath),
+                            Duration.ofSeconds(bilibili.pollIntervalSeconds()),
+                            bilibili.receivePrivateMessages(),
+                            bilibili.receiveCommentReplies(),
+                            bilibili.writeEnabled(),
+                            bilibili.maxWritesPerDay());
+                    adapter = new BilibiliAdapter(adapterConfig);
+                    biliVideoAccounts.add(new BiliVideoReadTool.BiliVideoAccount(
+                            account.accountId(), Path.of(credentialPath)));
+                    log.debug("event=adapter_configured adapter={} alias={} accountId={} "
+                                    + "pollSeconds={} privateMessages={} "
+                                    + "commentReplies={} writeEnabled={}",
+                            adapter.adapterId(), alias, account.accountId(),
+                            bilibili.pollIntervalSeconds(),
+                            bilibili.receivePrivateMessages(),
+                            bilibili.receiveCommentReplies(), bilibili.writeEnabled());
+                }
                 accountRegistry.register(account.accountId(), adapter);
                 accountOptions.add(new BotRuntimeOptions.AccountOptions(
-                        alias, account.accountId(),
-                        oneBot.privateTempGroupId().orElse(null)));
+                        alias, account.accountId(), privateTempGroupId));
                 OpsLog.info("event=account_registered alias={} accountId={} adapter={}",
                         alias, account.accountId(), adapter.adapterId());
-                log.debug("event=adapter_configured adapter={} alias={} accountId={} "
-                                + "wsScheme={} httpScheme={} accessTokenEnvConfigured={} "
-                                + "suppressSelfMessages={}",
-                        adapter.adapterId(), alias, account.accountId(),
-                        oneBot.eventWebSocketUri().getScheme(),
-                        oneBot.httpBaseUri().getScheme(),
-                        oneBot.accessTokenEnv().isPresent(),
-                        oneBot.suppressSelfMessages());
             }
 
             BotInboxRuntimeOptions inboxOptions = new BotInboxRuntimeOptions(
@@ -127,7 +154,8 @@ public final class BotMain {
                     board.maxPreviewMessages(),
                     board.inlineMaxChars(),
                     Duration.ofSeconds(board.outbox().sendTimeoutSeconds()),
-                    activeAccount.oneBot().privateTempGroupId().orElse(null),
+                    activeAccount.oneBot() == null ? null
+                            : activeAccount.oneBot().privateTempGroupId().orElse(null),
                     Duration.ofMillis(board.outbox().minSendIntervalMillis()),
                     board.weighting().toSettings(board.maxPreviewMessages()),
                     List.copyOf(accountOptions));
@@ -140,7 +168,9 @@ public final class BotMain {
                     config.control().port(), config.control().path(),
                     config.inbox().inboxId(), board.summaryDebounceMillis(),
                     board.maxPreviewMessages(), board.inlineMaxChars());
-            runtime = BotRuntime.start(accountRegistry, options);
+            List<AgentTool> extraTools = List.of(new BiliVideoReadTool(biliVideoAccounts));
+            runtime = BotRuntime.start(accountRegistry, options, extraTools,
+                    java.time.Clock.systemUTC());
             BotRuntime shutdownTarget = runtime;
             Runtime.getRuntime().addShutdownHook(
                     new Thread(() -> {

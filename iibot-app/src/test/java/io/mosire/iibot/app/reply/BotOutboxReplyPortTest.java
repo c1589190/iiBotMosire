@@ -7,6 +7,7 @@ import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.chat.DeliveryState;
 import io.mosire.iibot.bot.reply.BotReplySendResult;
 import io.mosire.iibot.connect.core.MediaAsset;
+import io.mosire.iibot.connect.core.MessageSourceAddress;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.connect.core.OutboundSegment;
 import org.junit.jupiter.api.Test;
@@ -144,4 +145,23 @@ class BotOutboxReplyPortTest {
         assertThat(adapterA.sent()).isEmpty();
     }
 
+
+    @Test
+    void routesExternalBilibiliSourceAsGenericOutbound() {
+        FakeMessagingAdapter adapter = new FakeMessagingAdapter();
+        BotOutboxReplyPort port = new BotOutboxReplyPort(
+                new OutboxSender(adapter, Duration.ofSeconds(2), null, Duration.ZERO));
+        MessageSourceAddress source = MessageSourceAddress.biliDm(
+                "bili-123456", "98765");
+
+        BotReplySendResult result = port.send(
+                ChatSourceKey.fromSourceAddress(source), "B站回复", "", "r-bili");
+
+        assertThat(result.state()).isEqualTo(DeliveryState.SENT);
+        OutboundMessage sent = adapter.sent().getFirst();
+        assertThat(sent.targetType()).isEqualTo(OutboundMessage.TargetType.EXTERNAL);
+        assertThat(sent.sourceAddress()).isEqualTo(source);
+        assertThat(sent.richSegments()).containsExactly(
+                new OutboundSegment.Text("B站回复"));
+    }
 }

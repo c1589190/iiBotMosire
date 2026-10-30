@@ -46,16 +46,34 @@ public final class EffectiveConfigPrinter {
             node.put("enabled", account.enabled());
             node.put("adapter", account.adapter());
             node.put("accountId", account.accountId());
-            ObjectNode oneBot = node.putObject("oneBot");
-            oneBot.put("eventWebSocketUri", account.oneBot().eventWebSocketUri().toString());
-            oneBot.put("httpBaseUri", account.oneBot().httpBaseUri().toString());
-            oneBot.put("accessTokenEnv", account.oneBot().accessTokenEnv()
-                    .map(this::secretMarker).orElse(""));
-            oneBot.put("privateTempGroupId",
-                    account.oneBot().privateTempGroupId().orElse(""));
-            oneBot.put("suppressSelfMessages", account.oneBot().suppressSelfMessages());
-            oneBot.put("requestTimeoutSeconds", account.oneBot().requestTimeoutSeconds());
-            oneBot.put("maxTextLength", account.oneBot().maxTextLength());
+            if (account.oneBot() != null) {
+                ObjectNode oneBot = node.putObject("oneBot");
+                oneBot.put("eventWebSocketUri",
+                        account.oneBot().eventWebSocketUri().toString());
+                oneBot.put("httpBaseUri", account.oneBot().httpBaseUri().toString());
+                oneBot.put("accessTokenEnv", account.oneBot().accessTokenEnv()
+                        .map(this::secretMarker).orElse(""));
+                oneBot.put("privateTempGroupId",
+                        account.oneBot().privateTempGroupId().orElse(""));
+                oneBot.put("suppressSelfMessages",
+                        account.oneBot().suppressSelfMessages());
+                oneBot.put("requestTimeoutSeconds",
+                        account.oneBot().requestTimeoutSeconds());
+                oneBot.put("maxTextLength", account.oneBot().maxTextLength());
+            }
+            if (account.bilibili() != null) {
+                ObjectNode bili = node.putObject("bilibili");
+                bili.put("credentialFileEnv",
+                        secretMarker(account.bilibili().credentialFileEnv()));
+                bili.put("pollIntervalSeconds",
+                        account.bilibili().pollIntervalSeconds());
+                bili.put("receivePrivateMessages",
+                        account.bilibili().receivePrivateMessages());
+                bili.put("receiveCommentReplies",
+                        account.bilibili().receiveCommentReplies());
+                bili.put("writeEnabled", account.bilibili().writeEnabled());
+                bili.put("maxWritesPerDay", account.bilibili().maxWritesPerDay());
+            }
         }
 
         BotConfig.Control control = config.control();

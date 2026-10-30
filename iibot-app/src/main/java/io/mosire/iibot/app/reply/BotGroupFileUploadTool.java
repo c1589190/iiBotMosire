@@ -11,7 +11,7 @@ import io.mosire.iibot.app.media.BotMediaStore;
 import io.mosire.iibot.bot.chat.ChatMessage;
 import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.chat.DeliveryState;
-import io.mosire.iibot.bot.chat.MessageSourceAddress;
+import io.mosire.iibot.connect.core.MessageSourceAddress;
 import io.mosire.iibot.bot.store.MessageAppendResult;
 import io.mosire.iibot.bot.store.MessageBoardStore;
 import io.mosire.iibot.connect.core.GroupFileUploadCapability;

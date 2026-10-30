@@ -1,7 +1,7 @@
 package io.mosire.iibot.bot.inbox;
 
 import io.mosire.iibot.bot.chat.ChatSourceKey;
-import io.mosire.iibot.bot.chat.MessageSourceAddress;
+import io.mosire.iibot.connect.core.MessageSourceAddress;
 
 import java.util.Objects;
 

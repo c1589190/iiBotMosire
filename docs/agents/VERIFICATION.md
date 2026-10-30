@@ -31,10 +31,10 @@ tools/gate.sh full
   **150 tests / 147 pass / 3 live-skipped / 0 fail**；`iiBotMosire-DSH`
   wake-profile 2/2、persona 24/24 PASS。真实 DSH reload/rebind 与 generic
   view-ack live wake 仍为 `NOT_RUN`。
-- 2026-10-29 P8.7 基线：`tools/gate.sh full` PASS，**240 tests / 0 failures / 0 errors /
-  0 skipped**（connect 61、bot 109、app 70）；`tools/gate.sh docs` PASS
-  （modules=3 files=41 links=103）；`tools/gate.sh selftest` PASS
-  （check-docs 11/11、skills-lint 6/6）。
+- 2026-10-31 D-034 基线：`tools/gate.sh full` PASS，**300 tests / 0 failures / 0 errors /
+  0 skipped**（connect 84、bot 127、app 89）；`tools/gate.sh docs` PASS
+  （modules=3 files=47 links=142）。B 站匿名 `bili_video_read` 公开元数据/热评
+  smoke PASS；登录态字幕、真实私信/评论轮询与发送 `NOT_RUN`。
 - 依赖：Jackson 2.22.4、SLF4J 2.0.20、JUnit 6.1.3、Java-WebSocket 1.6.0；
   `iibot-app` shaded jar 构建成功。
 - Inbox 依赖刷新后 `./mvnw -B -ntp clean verify` PASS：37 tests / 0 failures / 0 errors。
@@ -59,6 +59,8 @@ tools/gate.sh full
 | 领域单测 | 消息板、thread、备注、好友申请、来源权重、consumer 游标 | 已有 |
 | 契约测试 | OneBot 事件/动作 JSON、MCP schema、SQLite 迁移与重开 | 已有 |
 | 应用集成 | BotRuntime + fake Adapter + embedded loopback Inbox/MCP | 已有 |
+| B 站公开读取 | 元数据/热评/字幕/短链 | 元数据+热评 smoke PASS；字幕/短链 `NOT_RUN` |
+| B 站账号会话 | Cookie 登录、WBI、私信轮询、评论通知、私信/评论发送 | fake HTTP 单测 PASS；真实 `NOT_RUN` |
 | 真实 NapCat E2E | 真实私聊/群聊入站与发送 | `NOT_RUN` |
 | 真实 DSH/OpenCode wake | 真实 wake/ack 闭环 | `NOT_RUN` |
 | 长跑/崩溃恢复 | 多账号、日志轮转、进程崩溃与重启 | `NOT_RUN` |
@@ -77,6 +79,10 @@ tools/gate.sh full
 10. 日志/MCP 结果不得出现 raw token、Authorization、完整协议 JSON 或聊天正文。
 11. 非回环监听、错误 Bearer、未知工具/参数 ⇒ fail-closed。
 12. 配置 JSON 错误必须给来源文件与 JSON pointer；`--print-effective-config` 必须脱敏。
+13. B 站 Cookie 文件非 0600、登录态 UID 与 accountId 后缀不一致、评论 root/parent
+    缺失或跨 thread 时必须 fail-closed。
+14. B 站私信/评论发送超时或响应不可解析 ⇒ `UNKNOWN`，不得自动重发。
+15. 通用 source 的 `bili_dm/...`、`bili_comment/...` 不能落回 QQ private/group 分支。
 13. read 窗口只按入站消息计数；OUT 不能占用窗口或造成 `more=false` 假阴性。
 14. replay 已投递批次时，若批次之后仍有未读入站，`more` 必须为 true。
 15. `replyToSeq` 只能解析同一 thread 内消息；与 `replyToMessageId` 同时出现必须拒绝；

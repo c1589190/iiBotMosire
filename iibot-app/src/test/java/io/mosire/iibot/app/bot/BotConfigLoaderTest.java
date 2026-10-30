@@ -90,6 +90,47 @@ class BotConfigLoaderTest {
     }
 
     @Test
+    void loadsBilibiliAccountWithDiscriminatedConfig() throws Exception {
+        Path config = write("bilibili.json", """
+                {
+                  "dataDir": "./data",
+                  "accounts": {
+                    "bili-main": {
+                      "enabled": true,
+                      "adapter": "bilibili",
+                      "accountId": "bili-123456",
+                      "bilibili": {
+                        "credentialFileEnv": "IIBOT_BILI_CREDENTIAL_FILE",
+                        "pollIntervalSeconds": 90,
+                        "receivePrivateMessages": true,
+                        "receiveCommentReplies": false,
+                        "writeEnabled": false,
+                        "maxWritesPerDay": 2
+                      }
+                    }
+                  },
+                  "control": {"bearerTokenEnv": "IIBOT_CONTROL_TOKEN"},
+                  "inbox": {}
+                }
+                """);
+        SecretProvider secrets = SecretProvider.of(Map.of(
+                "IIBOT_CONTROL_TOKEN", "control-secret-value",
+                "IIBOT_BILI_CREDENTIAL_FILE", "/tmp/bili-cookie.json"));
+
+        BotConfig loaded = BotConfigLoader.load(config, secrets);
+
+        BotConfig.Account account = loaded.accounts().get("bili-main");
+        assertThat(account.adapter()).isEqualTo("bilibili");
+        assertThat(account.oneBot()).isNull();
+        assertThat(account.bilibili().credentialFileEnv())
+                .isEqualTo("IIBOT_BILI_CREDENTIAL_FILE");
+        assertThat(account.bilibili().pollIntervalSeconds()).isEqualTo(90);
+        assertThat(account.bilibili().receivePrivateMessages()).isTrue();
+        assertThat(account.bilibili().receiveCommentReplies()).isFalse();
+        assertThat(account.bilibili().maxWritesPerDay()).isEqualTo(2);
+    }
+
+    @Test
     void disabledAccountsDoNotRequireTheirOptionalTokenEnv() throws Exception {
         String configText = validConfig("main", "10001", true)
                 .replace("\"accounts\": {", """

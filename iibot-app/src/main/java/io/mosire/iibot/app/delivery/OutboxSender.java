@@ -1,5 +1,6 @@
 package io.mosire.iibot.app.delivery;
 
+import io.mosire.iibot.connect.core.MessageSourceAddress;
 import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.connect.core.OutboundSegment;
@@ -126,6 +127,28 @@ public final class OutboxSender {
                     List.of(), "OUTBOX_BLANK_TEXT", "空白正文被拒绝（未发送）"));
         }
         OutboundMessage outbound = OutboundMessage.richGroupMessage(groupId, normalized, key);
+        return List.of(send(0, key, outbound));
+    }
+
+    /**
+     * 按统一 external source 发送；目标解析和平台映射由对应 Adapter 负责。
+     */
+    public List<SendOutcome> sendToSource(MessageSourceAddress sourceAddress,
+                                          List<OutboundSegment> segments,
+                                          String correlationKey) {
+        Objects.requireNonNull(sourceAddress, "sourceAddress");
+        Objects.requireNonNull(segments, "segments");
+        if (correlationKey == null || correlationKey.isBlank()) {
+            throw new IllegalArgumentException("correlationKey 不能为空");
+        }
+        String key = "external:" + correlationKey + ":reply:0";
+        List<OutboundSegment> normalized = normalizeRichSegments(segments);
+        if (normalized.isEmpty()) {
+            return List.of(new SendOutcome(0, key, SendReceipt.State.FAILED_BEFORE_SEND,
+                    List.of(), "OUTBOX_BLANK_TEXT", "空白正文被拒绝（未发送）"));
+        }
+        OutboundMessage outbound = OutboundMessage.richExternalMessage(
+                sourceAddress, normalized, key);
         return List.of(send(0, key, outbound));
     }
 

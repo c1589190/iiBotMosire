@@ -4,7 +4,12 @@
   "title": "iiBotMosire bot config v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["dataDir", "accounts", "control", "inbox"],
+  "required": [
+    "dataDir",
+    "accounts",
+    "control",
+    "inbox"
+  ],
   "properties": {
     "$schema": {
       "type": "string"
@@ -47,18 +52,32 @@
     },
     "level": {
       "type": "string",
-      "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "OFF"]
+      "enum": [
+        "TRACE",
+        "DEBUG",
+        "INFO",
+        "WARN",
+        "ERROR",
+        "OFF"
+      ]
     },
     "account": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "adapter", "accountId", "oneBot"],
+      "required": [
+        "enabled",
+        "adapter",
+        "accountId"
+      ],
       "properties": {
         "enabled": {
           "type": "boolean"
         },
         "adapter": {
-          "const": "onebot11"
+          "enum": [
+            "onebot11",
+            "bilibili"
+          ]
         },
         "accountId": {
           "type": "string",
@@ -68,13 +87,65 @@
         },
         "oneBot": {
           "$ref": "#/$defs/oneBot"
+        },
+        "bilibili": {
+          "$ref": "#/$defs/bilibili"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "adapter": {
+                "const": "onebot11"
+              }
+            },
+            "required": [
+              "adapter"
+            ]
+          },
+          "then": {
+            "required": [
+              "oneBot"
+            ],
+            "not": {
+              "required": [
+                "bilibili"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "adapter": {
+                "const": "bilibili"
+              }
+            },
+            "required": [
+              "adapter"
+            ]
+          },
+          "then": {
+            "required": [
+              "bilibili"
+            ],
+            "not": {
+              "required": [
+                "oneBot"
+              ]
+            }
+          }
+        }
+      ]
     },
     "oneBot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["eventWebSocketUri", "httpBaseUri"],
+      "required": [
+        "eventWebSocketUri",
+        "httpBaseUri"
+      ],
       "properties": {
         "eventWebSocketUri": {
           "type": "string",
@@ -115,7 +186,9 @@
     "control": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["bearerTokenEnv"],
+      "required": [
+        "bearerTokenEnv"
+      ],
       "properties": {
         "host": {
           "type": "string",
@@ -162,7 +235,9 @@
             "type": "string",
             "minLength": 1
           },
-          "default": ["qq"]
+          "default": [
+            "qq"
+          ]
         },
         "bindingTtlHours": {
           "type": "integer",
@@ -275,7 +350,13 @@
             "signalWeights": {
               "type": "object",
               "propertyNames": {
-                "enum": ["DM", "MENTION", "REPLY_TO_BOT", "NAME", "COMMAND"]
+                "enum": [
+                  "DM",
+                  "MENTION",
+                  "REPLY_TO_BOT",
+                  "NAME",
+                  "COMMAND"
+                ]
               },
               "additionalProperties": {
                 "type": "integer",
@@ -366,6 +447,42 @@
           "minimum": 1,
           "maximum": 10000,
           "default": 30
+        }
+      }
+    },
+    "bilibili": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "credentialFileEnv"
+      ],
+      "properties": {
+        "credentialFileEnv": {
+          "$ref": "#/$defs/envName"
+        },
+        "pollIntervalSeconds": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 3600,
+          "default": 60
+        },
+        "receivePrivateMessages": {
+          "type": "boolean",
+          "default": true
+        },
+        "receiveCommentReplies": {
+          "type": "boolean",
+          "default": true
+        },
+        "writeEnabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "maxWritesPerDay": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 3
         }
       }
     }
