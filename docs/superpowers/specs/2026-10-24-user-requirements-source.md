@@ -20,7 +20,7 @@
 | D-027 | debug/info 日志与易用配置 | 已实现 P2/P3；后续只维护 |
 | D-028 | 依赖最新且可复现、文档一致 | 已完成 P6/P7a 主要依赖刷新；AgentLib 0.2.4 公开发布仍待上游 |
 | D-034 | B 站通用视频阅读 + 账号/私信/评论 Inbox 会话 | 第一批已实施（code-level）；视频工具与 B 站 Adapter 分离，统一走 source/conversation |
-| D-035 | 视频站 Connect 独立模块、无头浏览器与配置/日志 | 设计已确认；实施未开始；目标 reactor 4 模块 |
+| D-035 | 视频站 Connect 独立模块、无头浏览器与配置/日志 | V1 已完成；V2 待开始；当前 reactor 4 模块 |
 
 ## 二、当前用户原话
 
@@ -227,12 +227,12 @@
      明确启动/热更新矩阵；新增 `io.mosire.iibot.video(.bilibili/.browser)` 包级
      logger，只记录 ID/状态/计数/耗时/结果码，正文、Cookie、token、URL、HTML
      不得入日志；浏览器 stdout/stderr 有界脱敏。
-  7. 交互范围 A（评论/私信/登录）或 B（再加点赞/投币/收藏/关注）尚未确认；
-     确认前不实现额外交互写接口，已有写入仍默认关闭、单次显式、可审计。
+  7. 交互范围已选 **B**（评论/私信/登录 + 点赞/投币/收藏/关注）；V6 才实现，
+     仍默认关闭、单次显式、可审计，禁止自动循环。
   8. 实施按 V0 文档冻结 → V1 新模块抽取 → V2 app 单一工具目录 → V3 精确时间/
      分辨率/评论查询 → V4 Playwright embedded → V5 remote-cdp/服务器 →
-     V6 交互写入（待 A/B 确认）→ V7 真实 B 站/服务器验收；每阶段独立门禁，
-     不得跨失败阶段继续。
+     V6 交互写入（范围 B）→ V7 真实 B 站/服务器验收；每阶段独立门禁，
+     不得跨失败阶段继续。V0/V1 已完成，下一步 V2。
 
 - **设计正本**：
   [`2026-10-31-video-site-connect-and-browser-backend.md`](2026-10-31-video-site-connect-and-browser-backend.md)
@@ -241,8 +241,9 @@
 
 ## 三、当前验收判据
 
-- 当前 reactor 为 `iibot-connect` / `iibot-bot` / `iibot-app` 3 模块；D-035 实施后
-  目标为 4 模块（增加 `iibot-video-connect`），未创建前不得写成已存在；
+- 当前 reactor 为 `iibot-connect` / `iibot-video-connect` / `iibot-bot` / `iibot-app`
+  4 模块；D-035 V1 已创建 `iibot-video-connect` 并完成 B 站领域迁移；
+  V2 起收敛 app 单一 MCP 工具目录，未实现前不得写成已完成；
 - QQ 业务工具继续使用 `qq_*`；平台无关收发使用 `conversation_*` 别名；
   B 站内容读取当前使用 `bili_video_read`，D-035 V3 后标准名为 `video_read` 并保留
   `bili_*` 别名；不出现 `bot_*` / `tf_*` 业务工具；
@@ -258,7 +259,6 @@
 2. 是否提供宿主/运维侧的 `qq_account_use` 动态默认账号工具；
 3. `qq_inbox_binding_descriptor` 是否完全移出 Agent MCP，改由宿主专用 handoff；
 4. 回复成功后是否自动 ack（当前第一版统一要求显式 ack）；
-5. D-035 视频站交互范围 A 或 B；确认前不实现额外交互写接口；
-6. `video_*` 标准工具名与 `bili_*` 兼容别名的保留周期。
+5. `video_*` 标准工具名与 `bili_*` 兼容别名的保留周期。
 
 历史 D-001..D-024 的详细正文与所有旧原话见归档原稿。

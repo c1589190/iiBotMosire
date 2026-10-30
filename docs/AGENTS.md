@@ -127,7 +127,7 @@ python3 tools/skills-lint.py --selftest
 tools/gate.sh docs
 ```
 
-CI：`.github/workflows/docs-skills.yml`。当前已有 3 个 Maven 模块 `iibot-connect` / `iibot-bot` / `iibot-app`；检查脚本同时校验模块 `AGENTS.md`。
+CI：`.github/workflows/docs-skills.yml`。当前已有 4 个 Maven 模块 `iibot-connect` / `iibot-video-connect` / `iibot-bot` / `iibot-app`；检查脚本同时校验模块 `AGENTS.md`。
 历史文游文档归档在 `docs/archive/legacy-game/`，不进入当前链接门禁和导航。
 
 检查目标包括：根入口是薄索引、当前文档相对链接存在、`STATUS.md` 存在且有关键字段、设计/维护分账标志存在、

@@ -1,6 +1,6 @@
 # 视频站 Connect 模块、无头浏览器与配置/日志设计
 
-> **状态**：有效（2026-10-31；用户已确认模块拆分与无头浏览器兼容；实施未开始）
+> **状态**：有效（2026-10-31；用户已确认模块拆分与无头浏览器兼容；V1 已完成，V2 待开始）
 > **用户原话**：
 > - 「首先我建议把视频网站的视频抽取、评论区查询和整合，以及视屏网站的交互全都集中到一个统一的connect包里面方便管理，然后做标准MCP工具，统一在APP做注册，而不是分散在各个模块」
 > - 「此外还有易用性，允许选择分辨率吗？」
@@ -41,15 +41,21 @@
 
 ### 2.1 模块与注册
 
-- 根 reactor 当前 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app`，见 `pom.xml:13-17`。
-- `iibot-connect` 当前同时包含 QQ/NapCat 与 Bilibili 实现：
-  `iibot-connect/src/main/java/io/mosire/iibot/connect/{core,napcat,bilibili,ops}`。
-- `BiliVideoReadTool`、`BiliVideoFramesTool`、`BiliLoginService`、登录 MCP 工具在
-  `iibot-app/src/main/java/io/mosire/iibot/app/bilibili/`。
-- `BotMain.java:174-180` 直接注册 `bili_video_read` 和登录工具；
-- `BotRuntime.java:265-270` 直接构造 QQ 工具、媒体工具并注册 `BiliVideoFramesTool`；
-- `BotMcpTools.java:208-224` 在 bot 模块内装配部分 `qq_*`/`conversation_*` 工具。
-- 结果是：视频领域、MCP 适配和注册点分散在 connect/bot/app 三处。
+- V1 后 reactor 为 4 模块：`iibot-connect` / `iibot-video-connect` / `iibot-bot` /
+  `iibot-app`，见 `pom.xml` 的 `<modules>`。
+- `iibot-connect` 已退出 B 站实现，只保留 `core`、`napcat`、`ops`：
+  `iibot-connect/src/main/java/io/mosire/iibot/connect/{core,napcat,ops}`。
+- B 站领域、登录、抽帧与 Adapter 在
+  `iibot-video-connect/src/main/java/io/mosire/iibot/connect/video/{core,bilibili,frame}`；
+  V1 实际类名保留 `BiliFrameExtractor` / `FfmpegBiliFrameExtractor`，`browser/` 尚未创建。
+- `BiliVideoReadTool`、`BiliVideoFramesTool`、登录 MCP 工具仍在
+  `iibot-app/src/main/java/io/mosire/iibot/app/bilibili/`；`BiliLoginService` 已迁入
+  `iibot-video-connect/.../bilibili/`，app 只做 MCP 适配。
+- `BotMain.java` 直接注册 `bili_video_read` 和登录工具；
+- `BotRuntime.java` 直接构造 QQ 工具、媒体工具并注册 `BiliVideoFramesTool`；
+- `BotMcpTools.java` 在 bot 模块内装配部分 `qq_*`/`conversation_*` 工具。
+- V1 已把视频领域收拢到独立模块；MCP 注册点仍分散，V2 才收敛到 app
+  `BotToolCatalog`。
 
 ### 2.2 视频能力
 
@@ -77,7 +83,7 @@
 
 ### 3.1 Maven 模块
 
-目标 reactor 为 4 模块：
+V1 已实现 4 模块：
 
 ```text
 iibot-connect          外部消息连接（QQ/OneBot + core SPI）
@@ -158,9 +164,12 @@ iibot-video-connect/src/main/java/io/mosire/iibot/connect/video/
     PlaywrightBrowserBackend
 ```
 
-现有 `iibot-connect/.../bilibili` 的类迁移到 `iibot-video-connect` 的
-`connect.video.bilibili`。迁移期可以保留 deprecation 转发类，但最终
-`iibot-connect` 不再包含 B 站类。
+V1 已把原 `iibot-connect/.../bilibili` 的类迁移到 `iibot-video-connect` 的
+`connect.video.bilibili`，并把 `BiliLoginService`、抽帧接口/ffmpeg 实现迁入。
+`iibot-connect` 不再包含 B 站类；V1 没有保留 deprecated 转发类。V1 实际落地
+`core/VideoAccountRef`、`bilibili/*`、`frame/BiliFrameExtractor` 与
+`frame/FfmpegBiliFrameExtractor`；`browser/*` 及下文 `VideoFrameExtractor` 等
+未来命名尚待后续阶段创建或统一。
 
 ### 3.3 领域接口
 
@@ -506,8 +515,8 @@ io.mosire.iibot.video.browser
 - `iibot-connect` 的 main 依赖树中没有 Playwright、Chromium、ffmpeg、B 站视频类；
 - `iibot-video-connect` 不依赖 AgentLib/MCP；
 - `iibot-bot` 不依赖 `iibot-video-connect`；
-- `iibot-app` 是唯一 MCP 工具注册点；
-- `BotRuntime`/`BotMain` 无 Bili/Video import；
+- V2 完成后 `iibot-app` 是唯一 MCP 工具注册点；V1 仍在 BotMain/BotRuntime 注册；
+- V2 完成后 `BotRuntime`/`BotMain` 无 Bili/Video import；V1 当前仍直接注册；
 - 工具名无重复，兼容别名可同时调用；
 - 旧 B 站私信/评论通知、conversation_* 和 QQ 工具行为不回归。
 
@@ -550,7 +559,7 @@ V2 app 单一工具目录（行为不变）
 V3 精确时间 + 分辨率 + 评论查询
 V4 Playwright embedded 浏览器 backend
 V5 remote-cdp + 服务器部署
-V6 交互写入（在用户确认 A/B 范围后）
+V6 交互写入（已选范围 B）
 V7 真实 B 站/服务器验收
 ```
 
@@ -558,7 +567,7 @@ V7 真实 B 站/服务器验收
 
 ## 12. 未定项
 
-1. 视频站交互范围：A（评论/私信/登录）或 B（再加点赞/投币/收藏/关注）；
+1. 视频站交互范围：用户已选 **B**（A + 点赞/投币/收藏/关注），V6 实现，默认关闭、单次显式、禁止自动循环；
 2. `video_*` 标准名与 `bili_*` 兼容别名的最终保留周期；
 3. 服务器默认采用 `remote-cdp` 还是 `embedded`（建议 remote-cdp）；
 4. 浏览器是否参与评论查询 fallback，还是只做页面/帧 fallback；

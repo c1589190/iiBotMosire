@@ -9,6 +9,8 @@
 ## 边界
 
 - 根路由与常驻红线见 [../AGENTS.md](../AGENTS.md)。
+- 项目设计见 [../../docs/superpowers/AGENTS.md](../docs/superpowers/AGENTS.md)。
+- 当前状态见 [../../docs/agents/STATUS.md](../docs/agents/STATUS.md)。
 - 本模块不注册 MCP 工具；MCP 工具统一在 `iibot-app` 组合根注册。
 - 不实现 QQ/OneBot 协议；QQ 协议仍在 `iibot-connect`。
 - 不实现业务工作流、消息板或 Inbox 路由；这些属于 `iibot-bot` / `iibot-app`。

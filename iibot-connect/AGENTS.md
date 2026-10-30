@@ -2,7 +2,7 @@
 
 ## 职责
 
-独立外部接入 Lib：统一消息/连接 SPI、标准 OneBot 11 与 LLBot/NapCat 扩展能力。不依赖 AgentLib，不实现业务域。当前实现包名暂保留 `napcat` 以兼容历史，新增能力按标准 OneBot 11 设计。
+独立外部接入 Lib：统一消息/连接 SPI、标准 OneBot 11 与 LLBot/NapCat 扩展能力。不依赖 AgentLib，不实现业务域。B 站领域已迁至 `iibot-video-connect`，本模块只保留外部消息连接与 core 契约。当前实现包名暂保留 `napcat` 以兼容历史，新增能力按标准 OneBot 11 设计。
 
 ## 边界
 

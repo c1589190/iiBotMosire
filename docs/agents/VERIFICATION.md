@@ -23,6 +23,13 @@ tools/gate.sh full
 
 ## 二、当前基线
 
+- 2026-10-31 D-035 V1 基线：`iibot-video-connect` 第 4 模块已创建并完成 B 站领域/
+  登录/抽帧迁移；`tools/gate.sh full` PASS，**304 tests / 0 failures / 0 errors /
+  0 skipped**（connect 73、video 14、bot 127、app 90）；`tools/gate.sh docs`
+  PASS（modules=4 files=50 links=162）。工具名、参数、返回形状未改。
+  模块边界：`iibot-connect` 无 B 站 main 类；`iibot-video-connect` 不依赖 AgentLib/MCP；
+  `iibot-bot` 不依赖 video；`iibot-app` 依赖 video 并承载 MCP 工具。
+  真实 B 站登录/私信/评论发送、Playwright/B 站页面、服务器部署 `NOT_RUN`。
 - 2026-10-30 D-033 第一阶段基线：`tools/gate.sh full` PASS，
   **282 tests / 0 failures / 0 errors / 0 skipped**（connect 73、bot 124、app 85）；
   `tools/gate.sh docs` PASS（modules=3 files=46 links=132）。本机 loopback/fake
@@ -35,11 +42,10 @@ tools/gate.sh full
   0 skipped**（connect 86、bot 127、app 91）；`tools/gate.sh docs` PASS
   （modules=3 files=47 links=142）。B 站匿名 `bili_video_read` 公开元数据/热评
   smoke PASS；登录态字幕、真实私信/评论轮询与发送 `NOT_RUN`。
-- 2026-10-31 D-035 V0 基线（docs-only）：`tools/gate.sh docs` PASS
-  （modules=3 files=49 links=159）；代码/配置未改，full 沿用 D-034 的 304 tests。
-  `iibot-video-connect`、Playwright、`quality/time/times`、`video_comments`
-  与 `video.*` 配置均未实现；snap Chromium 156 已安装，headless `about:blank`
-  PASS；B 站页面/Playwright/服务器验收 `NOT_RUN`。
+- 2026-10-31 D-035 V0 基线（docs-only，已被 V1 接续）：`tools/gate.sh docs` PASS
+  （modules=3 files=49 links=159）；当时代码/配置未改，full 沿用 D-034 的 304 tests。
+  snap Chromium 156 已安装，headless `about:blank` PASS；B 站页面/Playwright/
+  服务器验收 `NOT_RUN`。
 - 依赖：Jackson 2.22.4、SLF4J 2.0.20、JUnit 6.1.3、Java-WebSocket 1.6.0；
   `iibot-app` shaded jar 构建成功。
 - Inbox 依赖刷新后 `./mvnw -B -ntp clean verify` PASS：37 tests / 0 failures / 0 errors。
@@ -66,7 +72,7 @@ tools/gate.sh full
 | 应用集成 | BotRuntime + fake Adapter + embedded loopback Inbox/MCP | 已有 |
 | B 站公开读取 | 元数据/热评/字幕/短链 | 元数据+热评 smoke PASS；ffmpeg 3 帧看图 smoke PASS；字幕/短链 `NOT_RUN` |
 | B 站账号会话 | Cookie 登录、WBI、私信轮询、评论通知、私信/评论发送 | fake HTTP 单测 PASS；真实 `NOT_RUN` |
-| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询 | 设计已确认；实施 `NOT_RUN` |
+| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询 | V1 模块已创建（14 tests）；app catalog、quality/time、评论查询 `NOT_RUN` |
 | 无头浏览器（D-035） | Playwright embedded/remote-cdp、headless Linux、codec/超时/清理 | snap Chromium 156 headless `about:blank` PASS；Playwright/B 站页面/remote-cdp `NOT_RUN` |
 | 真实 NapCat E2E | 真实私聊/群聊入站与发送 | `NOT_RUN` |
 | 真实 DSH/OpenCode wake | 真实 wake/ack 闭环 | `NOT_RUN` |

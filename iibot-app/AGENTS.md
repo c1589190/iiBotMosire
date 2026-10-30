@@ -1,9 +1,10 @@
-# iibot-app —— QQ 客户端组合根
+# iibot-app —— QQ / B 站客户端组合根
 
 ## 职责
 
-- 加载配置并创建 QQ Adapter；
+- 加载配置并创建 QQ / B 站 Adapter；
 - 装配 SQLite 消息板、embedded Inbox 与 Bot MCP；
+- 注册 B 站视频/抽帧/登录 MCP 工具；V2 起收敛到 app 的单一 `BotToolCatalog`；
 - 管理进程生命周期、日志和安全创建；
 - 提供唯一可运行入口 `io.mosire.iibot.app.Main`。
 
@@ -14,7 +15,7 @@
 
 ## 边界
 
-- 默认产品只做统一 QQ Agent 客户端，不包含文游服务。
+- 默认产品只做统一 QQ / B 站 Agent 客户端，不包含文游服务。
 - 不承载玩家、秘书、回合、Ticket、Publication、世界等业务。
 - 不直接实现 OneBot 协议；协议在 `iibot-connect`。
 - 不绕过 `iibot-bot` 的消息板直接向 Adapter 发送业务消息。

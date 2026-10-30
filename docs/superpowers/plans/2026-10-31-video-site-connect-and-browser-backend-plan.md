@@ -1,8 +1,8 @@
 # 视频站 Connect 与无头浏览器实施计划
 
-> **状态**：设计已确认；实施未开始（2026-10-31）
+> **状态**：V1 已完成（2026-10-31）；V2 待开始
 > **设计**：[`../specs/2026-10-31-video-site-connect-and-browser-backend.md`](../specs/2026-10-31-video-site-connect-and-browser-backend.md)
-> **当前基线**：`9865924`；304 tests；真实 B 站登录/私信/评论联调 `NOT_RUN`；无浏览器依赖。
+> **当前基线**：`84fd1a8`；**304 tests**（connect 73 / video 14 / bot 127 / app 90）；真实 B 站登录/私信/评论联调 `NOT_RUN`；Playwright 未接入。
 > **用户要求**：视频站能力集中到 connect；MCP 统一在 app 注册；分辨率/精确时间；
 > 无头浏览器必须兼容；配置项、易维护性和日志同步做好。
 
@@ -46,9 +46,9 @@
    - `BilibiliAdapter`、`BilibiliAdapterConfig`（依赖 connect core 的 MessagingAdapter）；
    - `BiliLoginService`、凭据原子落盘；
 4. 迁移视频帧：
-   - `VideoFrameExtractor`、`FfmpegVideoFrameExtractor`；
-5. `iibot-connect` 删除 B 站 main 类；保留必要的兼容转发只用 deprecated 包装，
-   最终删除；
+   - V1 实际保留旧名 `BiliFrameExtractor`、`FfmpegBiliFrameExtractor`；
+     计划中的 `VideoFrameExtractor` 命名统一留到后续阶段；
+5. `iibot-connect` 删除 B 站 main 类；V1 未保留 deprecated 转发类；
 6. `iibot-app` 依赖新模块，MCP 工具暂时保持现有行为；
 7. `BotConfig.Bilibili` 保持在 app 配置层，connect 只接收 `BilibiliAdapterConfig`。
 
@@ -59,6 +59,16 @@
 - 现有 B 站、QQ、Inbox 全量测试 PASS；
 - 工具名和返回形状不变；
 - `tools/gate.sh full` + docs PASS。
+
+**V1 实际结果（2026-10-31，提交 `84fd1a8`）**：
+
+- 新增 `iibot-video-connect`，迁移 8 个 B 站类、4 个 B 站测试、`BiliLoginService`
+  与 `BiliFrameExtractor`/ffmpeg 实现；新增共享 `VideoAccountRef`。
+- `iibot-connect` 不再包含 B 站 main 类；`iibot-bot` 未新增 video 依赖；
+  `iibot-app` 新增 `iibot-video-connect` 依赖并更新 MCP 工具 import/类型。
+- `tools/gate.sh full` PASS：**304 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 73、video 14、bot 127、app 90）；docs PASS（modules=4 files=50 links=162）。
+- 工具名、参数、返回形状未改；真实 B 站/浏览器验收仍 `NOT_RUN`。
 
 回滚：只回滚根 POM、模块目录和 import；不改数据库/配置。
 
@@ -164,9 +174,9 @@
 - 资源限制下不拖垮 Java；
 - 真实服务器部署证据；未跑写 `NOT_RUN`。
 
-## V6 交互写入（待用户确认范围）
+## V6 交互写入（范围 B）
 
-**前置**：用户确认 A（评论/私信/登录）或 B（再加点赞/投币/收藏/关注）。
+**前置**：已确认范围 B（评论/私信/登录 + 点赞/投币/收藏/关注）；仍默认关闭、单次显式、禁止自动循环。
 
 工作项：
 

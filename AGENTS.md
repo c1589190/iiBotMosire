@@ -1,6 +1,6 @@
 # AGENTS.md —— iiBotMosire 常驻索引
 
-> **更新时间**：2026-10-31（D-035 视频站模块/无头浏览器/配置日志设计确认）
+> **更新时间**：2026-10-31（D-035 V1 视频站模块抽取完成）
 > **本文件只做三件事**：项目边界、常驻红线、文档与模块路由。
 > **规则正文不在本文件**：项目设计看 `docs/superpowers/`，项目维护看 `docs/agents/`。
 > **禁止用 `@` 导入长文**；按需打开链接。
@@ -25,7 +25,7 @@
 - 一个或多个 B 站账号的凭据校验、私信/评论回复通知轮询与显式发送；
 - QQ / B 站统一消息板、thread、历史、用户备注和媒体；
 - 通用只读 `bili_video_read` / `bili_video_frames`（任意来源 B 站链接/BV/av/b23）；
-- D-035 目标：视频站抽取/评论/交互集中到 `iibot-video-connect`，标准 `video_*`
+- D-035 V1：视频站抽取/评论/交互已集中到 `iibot-video-connect`；后续 V2 把标准 `video_*`
   MCP 工具统一在 app 注册，并兼容无头浏览器；
 - 发送三态与 Inbox 唤醒；
 - 统一 MCP 工具面，供外部 Agent 读取、回复和管理 QQ/B 站会话。
@@ -52,15 +52,14 @@
 9. **真实联调不冒充通过。** Mock/fake/回环测试不能写成真实 QQ/DSH 验收；没跑写 `NOT_RUN`。
 10. **不擅自 commit/push/合并。** 遵循用户当次指令与 M-005；不 `git add -A`，不强制推送。
 
-## 3. 当前模块（D-035 前；目标 4 模块）
+## 3. 当前模块（4 模块）
 
-根 `pom.xml` 当前 3 个模块；D-035 V1 计划新增第 4 个 `iibot-video-connect`，
-尚未创建，不得写成已存在：
+根 `pom.xml` 当前 4 个模块；D-035 V1 已创建第 4 个 `iibot-video-connect`：
 
 | 模块 | 职责 | 依赖 |
 |---|---|---|
-| `iibot-connect` | OneBot 11 接入、事件/发送 SPI、三态回执；D-034 B 站 Adapter 暂留，D-035 目标迁出 | Jackson、SLF4J |
-| `iibot-video-connect`（D-035 计划） | 视频站元数据/播放/评论/抽帧/浏览器；不依赖 AgentLib/MCP | connect core + Jackson + Playwright（后续） |
+| `iibot-connect` | OneBot 11 接入、事件/发送 SPI、三态回执；只保留外部消息连接与 core 契约，B 站已迁出 | Jackson、SLF4J |
+| `iibot-video-connect` | B 站视频元数据/播放/评论/登录/抽帧与 B 站会话 Adapter；不依赖 AgentLib/MCP | connect + Jackson |
 | `iibot-bot` | 统一消息板、thread、用户备注、摘要、Inbox digest、conversation/QQ MCP 工具 | connect + AgentLib + SQLite |
 | `iibot-app` | 可运行组合根：配置、Adapter、embedded Inbox、唯一 MCP 工具目录、B 站视频工具、日志 | bot + video-connect + Inbox artifacts |
 
@@ -71,7 +70,7 @@ iibot-connect
       │
       ├──────────────┐
       ▼              ▼
-iibot-bot     iibot-video-connect（D-035 目标，尚未创建）
+iibot-bot     iibot-video-connect
       │              │
       └──────┬───────┘
              ▼
@@ -79,8 +78,8 @@ iibot-bot     iibot-video-connect（D-035 目标，尚未创建）
 ```
 
 账号工具已进入 `iibot-bot` 的统一 MCP 工具包；独立 `iibot-connect-agent` 模块已删除。
-D-035 后 `BotRuntime`/`BotMain` 不再直接注册 B 站工具，所有 MCP 工具由 app 的
-`BotToolCatalog` 统一装配。
+D-035 V1 已完成模块抽取，当前 `BotMain`/`BotRuntime` 仍按原路径注册 B 站工具；
+V2 才把注册收敛到 app 的 `BotToolCatalog`，迁移前保持工具行为不变。
 
 ## 4. 当前有效设计与计划
 
@@ -109,7 +108,7 @@ D-035 后 `BotRuntime`/`BotMain` 不再直接注册 B 站工具，所有 MCP 工
 
 - JDK 21；仓库内 `./mvnw`。
 - 门禁：`tools/gate.sh docs|selftest|pre|focused|full`。
-- D-035 当前仅文档冻结（V0），代码/配置未改；下一步 V1 新模块抽取。
+- D-035 V1 新模块抽取已完成（第 4 模块 `iibot-video-connect`），下一步 V2 app 单一工具目录；真实 B 站/浏览器联调仍 `NOT_RUN`。
 - 当前产品分支：`refactor/bot-first-main-agent`；按责任区提交并推送，全量验证后再合并（M-005）。
 - worktree 统一放 `<仓库根>/worktree/<name>/`。
 - 同一 checkout 不并发跑 Maven；不覆盖正在运行的 jar；不提交 `.work/`、`target/`、数据库、日志和 secret。
