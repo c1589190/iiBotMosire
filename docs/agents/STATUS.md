@@ -6,7 +6,7 @@
 
 ## 0. 最新更新：P1a/P1b 清理与统一 QQ 客户端重构
 
-- **2026-10-31 D-035 V3 分辨率/精确时间/评论查询已完成（code-level）**，代码与文档提交待本轮收口：
+- **2026-10-31 D-035 V3 分辨率/精确时间/评论查询已完成（code-level）**，提交 `494294b`：
   - 新增 `VideoQuality`/`VideoStreamInfo`；`BilibiliHttpClient` 支持
     `playStreamSelection(...)`、可用清晰度/requested/actual/fallback 与 strict
     `QUALITY_UNAVAILABLE`；`commentPage(...)` 支持顶层/楼中楼分页。
@@ -299,7 +299,7 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 当前进行中：
 
 - D-035 V1 `iibot-video-connect` 抽取、V2 app 单一 `BotToolCatalog`/tool packs、
-  V3 分辨率/精确时间/评论查询已完成（code-level，提交 `84fd1a8` / `7d24f9b`）；
+  V3 分辨率/精确时间/评论查询已完成（code-level，提交 `84fd1a8` / `7d24f9b` / `494294b`）；
   下一步 V4 Playwright embedded；
 - P1b–P8.7 已完成并合并；
 - **Bot 试运行摩擦第一批（2026-10-29）已完成（code-level）**：按
@@ -323,10 +323,10 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.7）；feature/fix 分支保留 |
-| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e`；D-035 设计 `5e901b3`；D-035 环境补充 `059de6f`；D-035 V1 `84fd1a8`；D-035 V2 `7d24f9b`；D-035 V3 代码/文档本轮提交 |
+| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e`；D-035 设计 `5e901b3`；D-035 环境补充 `059de6f`；D-035 V1 `84fd1a8`；D-035 V2 `7d24f9b`；D-035 V3 `494294b` |
 | Maven reactor | **4 模块**：`iibot-connect` / `iibot-video-connect` / `iibot-bot` / `iibot-app`；V1 已创建并迁移 |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | V1/V2 代码已提交；V3 代码/配置/测试待本轮提交；D-034 代码在 `a3ddf32`/`6967a28`/`7214a2e` |
+| 工作树 | V1/V2/V3 代码已提交（V3 `494294b`）；D-034 代码在 `a3ddf32`/`6967a28`/`7214a2e` |
 | 模块目标 | **当前 4 模块**；`iibot-connect` 已退出 B 站/视频职责，`iibot-video-connect` 为视频站边界 |
 
 ## 3. 最近功能门禁

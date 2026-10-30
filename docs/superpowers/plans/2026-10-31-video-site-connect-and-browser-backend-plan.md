@@ -2,7 +2,7 @@
 
 > **状态**：V1/V2/V3 已完成（2026-10-31）；V4 待开始
 > **设计**：[`../specs/2026-10-31-video-site-connect-and-browser-backend.md`](../specs/2026-10-31-video-site-connect-and-browser-backend.md)
-> **当前基线**：V3 代码/文档待提交；**317 tests**（connect 73 / video 16 / bot 127 / app 101）；真实 B 站 quality/time/comments 联调 `NOT_RUN`；Playwright 未接入。
+> **当前基线**：`494294b`；**317 tests**（connect 73 / video 16 / bot 127 / app 101）；真实 B 站 quality/time/comments 联调 `NOT_RUN`；Playwright 未接入。
 > **用户要求**：视频站能力集中到 connect；MCP 统一在 app 注册；分辨率/精确时间；
 > 无头浏览器必须兼容；配置项、易维护性和日志同步做好。
 
