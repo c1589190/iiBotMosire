@@ -5,6 +5,7 @@ import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.chat.DeliveryState;
 import io.mosire.iibot.bot.store.InMemoryMessageBoardStore;
 import io.mosire.iibot.connect.core.MessageSegment;
+import io.mosire.iibot.connect.core.OutboundSegment;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -41,13 +42,46 @@ class BotReplyServiceTest {
         });
     }
 
+    @Test
+    void richImageOnlyReplyPersistsSegmentAndAllowsEmptyText() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, "原消息", "", ""));
+        CapturingPort port = new CapturingPort();
+        BotReplyService service = new BotReplyService(board, port, CLOCK);
+
+        BotReplyResult result = service.replyRich(GROUP.threadId(), "", null,
+                false, false, List.of(new OutboundSegment.Image(
+                        "asset-1", "image.png", "image/png")), "image-only");
+
+        assertThat(result.deliveryState()).isEqualTo(DeliveryState.SENT);
+        assertThat(result.message().text()).isEmpty();
+        assertThat(result.message().nonTextSummary()).contains("[图片×1]");
+        assertThat(board.segments(result.message().messageKey()))
+                .extracting(MessageSegment::type)
+                .containsExactly(MessageSegment.Type.IMAGE);
+        assertThat(port.sentAttachments).hasSize(1);
+    }
+
     private static final class CapturingPort implements BotReplyPort {
         private String sentText;
+        private List<OutboundSegment> sentAttachments = List.of();
 
         @Override
         public BotReplySendResult send(ChatSourceKey source, String text,
                                        String replyToMessageId, String idempotencyKey) {
             sentText = text;
+            return new BotReplySendResult(DeliveryState.SENT, List.of("qq-1"), "");
+        }
+
+        @Override
+        public BotReplySendResult sendRich(ChatSourceKey source, String text,
+                                           String replyToMessageId, String mentionQqId,
+                                           boolean mentionAll,
+                                           List<OutboundSegment> attachments,
+                                           String idempotencyKey) {
+            sentText = text;
+            sentAttachments = attachments;
             return new BotReplySendResult(DeliveryState.SENT, List.of("qq-1"), "");
         }
     }

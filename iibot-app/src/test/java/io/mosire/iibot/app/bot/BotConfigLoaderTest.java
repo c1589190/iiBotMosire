@@ -40,6 +40,7 @@ class BotConfigLoaderTest {
         assertThat(loaded.inbox().channels()).isEqualTo(Set.of("qq"));
         assertThat(loaded.messageBoard().summaryDebounceMillis()).isEqualTo(2_000L);
         assertThat(loaded.messageBoard().maxPreviewMessages()).isEqualTo(20);
+        assertThat(loaded.messageBoard().inlineMaxChars()).isEqualTo(512);
         assertThat(loaded.messageBoard().outbox().minSendIntervalMillis()).isEqualTo(150);
         assertThat(loaded.messageBoard().weighting().toSettings(20)
                 .defaultPrivateSourceWeight()).isEqualTo(300);

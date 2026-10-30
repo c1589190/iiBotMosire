@@ -226,6 +226,12 @@
           "maximum": 1000,
           "default": 20
         },
+        "inlineMaxChars": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 512,
+          "description": "digest 完整短文本内联目标长度；0 关闭。实际仍受 Inbox summary 512 字符存储边界约束"
+        },
         "outbox": {
           "type": "object",
           "additionalProperties": false,

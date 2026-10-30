@@ -1,20 +1,28 @@
 package io.mosire.iibot.app.reply;
 
 import io.mosire.iibot.app.delivery.OutboxSender;
+import io.mosire.iibot.app.media.BotMediaStore;
 import io.mosire.iibot.app.support.FakeMessagingAdapter;
 import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.chat.DeliveryState;
 import io.mosire.iibot.bot.reply.BotReplySendResult;
+import io.mosire.iibot.connect.core.MediaAsset;
 import io.mosire.iibot.connect.core.OutboundMessage;
 import io.mosire.iibot.connect.core.OutboundSegment;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class BotOutboxReplyPortTest {
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void sendsReplyAndMentionSegmentsInRichGroupReply() {
@@ -32,6 +40,49 @@ class BotOutboxReplyPortTest {
                 new OutboundSegment.Reply("m-1"),
                 new OutboundSegment.Mention("qq-1"),
                 new OutboundSegment.Text("群回复"));
+    }
+
+    @Test
+    void sendsExplicitMentionAllSegmentInGroupReply() {
+        FakeMessagingAdapter adapter = new FakeMessagingAdapter();
+        BotOutboxReplyPort port = new BotOutboxReplyPort(
+                new OutboxSender(adapter, Duration.ofSeconds(2), null, Duration.ZERO));
+
+        BotReplySendResult result = port.sendWithMentions(
+                ChatSourceKey.groupChat("bot-1", "group-9"),
+                "全员通知", null, "", true, "r-all");
+
+        assertThat(result.state()).isEqualTo(DeliveryState.SENT);
+        assertThat(adapter.sent().getFirst().richSegments()).containsExactly(
+                new OutboundSegment.MentionAll(),
+                new OutboundSegment.Text("全员通知"));
+    }
+
+    @Test
+    void resolvesUploadedImageAndMapsStickerIntoRichGroupMessage() {
+        FakeMessagingAdapter adapter = new FakeMessagingAdapter();
+        BotMediaStore store = new BotMediaStore(tempDir);
+        String assetRef = store.storeUpload(new MediaAsset(
+                "image.png", "image/png", new byte[]{1, 2, 3}));
+        BotOutboxReplyPort port = new BotOutboxReplyPort(
+                new OutboxSender(adapter, Duration.ofSeconds(2), null, Duration.ZERO),
+                store);
+
+        BotReplySendResult result = port.sendRich(
+                ChatSourceKey.groupChat("bot-1", "group-9"),
+                "看图", null, "", false,
+                List.of(new OutboundSegment.Image(assetRef, "image.png", "image/png"),
+                        new OutboundSegment.Sticker("1")),
+                "rich-image-1");
+
+        assertThat(result.state()).isEqualTo(DeliveryState.SENT);
+        List<OutboundSegment> segments = adapter.sent().getFirst().richSegments();
+        assertThat(segments).hasSize(3);
+        assertThat(segments.get(0)).isEqualTo(new OutboundSegment.Text("看图"));
+        OutboundSegment.Image image = (OutboundSegment.Image) segments.get(1);
+        assertThat(image.assetRef()).isEqualTo(assetRef);
+        assertThat(image.bytes()).containsExactly(1, 2, 3);
+        assertThat(segments.get(2)).isEqualTo(new OutboundSegment.Sticker("1"));
     }
 
     @Test

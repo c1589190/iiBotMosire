@@ -14,6 +14,9 @@ import java.util.Objects;
  * 完整正文和历史始终由消息板工具读取，不复制进 Inbox。</p>
  *
  * <p>{@code context} 是当前未读范围之前的少量上下文，只帮助理解指代，不参与游标推进。</p>
+ *
+ * <p>{@code summaryComplete=true} 表示 {@code summary} 已包含当前未读范围的全部可读
+ * 文本；仍由 Bot 内部映射为 Inbox {@code kind=digest_complete}，Inbox core 不解释该字段。</p>
  */
 public record InboxDigest(
         String threadId,
@@ -28,14 +31,15 @@ public record InboxDigest(
         InboxSource source,
         InboxTrigger trigger,
         int unreadCount,
-        boolean hasMoreUnread) {
+        boolean hasMoreUnread,
+        boolean summaryComplete) {
 
     /** 兼容无 context 的 6 参构造。 */
     public InboxDigest(String threadId, long fromSeq, long toSeq,
                        List<MessageSummary> messages, String summary, int priority) {
         this(threadId, fromSeq, toSeq, messages, summary, priority, List.of(),
                 "SOURCE_WEIGHT", InboxWeight.none(priority), null, null,
-                messages == null ? 0 : messages.size(), false);
+                messages == null ? 0 : messages.size(), false, false);
     }
 
     /** 兼容无权重解释的 7 参构造。 */
@@ -44,7 +48,7 @@ public record InboxDigest(
                        List<MessageSummary> context) {
         this(threadId, fromSeq, toSeq, messages, summary, priority, context,
                 "SOURCE_WEIGHT", InboxWeight.none(priority), null, null,
-                messages == null ? 0 : messages.size(), false);
+                messages == null ? 0 : messages.size(), false, false);
     }
 
     /** 兼容旧 9 参构造。 */
@@ -54,7 +58,7 @@ public record InboxDigest(
                        InboxWeight weight) {
         this(threadId, fromSeq, toSeq, messages, summary, priority, context,
                 wakeReason, weight, null, null,
-                messages == null ? 0 : messages.size(), false);
+                messages == null ? 0 : messages.size(), false, false);
     }
 
     public InboxDigest {
@@ -116,6 +120,10 @@ public record InboxDigest(
         }
         unreadCount = Math.max(unreadCount, messages.size());
         hasMoreUnread = hasMoreUnread || unreadCount > messages.size();
+        if (summaryComplete && (hasMoreUnread || unreadCount > messages.size())) {
+            throw new IllegalArgumentException(
+                    "summaryComplete 不能与更多未读同时为 true");
+        }
         if (source != null && !threadId.equals(source.threadId())) {
             throw new IllegalArgumentException("source 不属于该 thread");
         }
@@ -151,6 +159,7 @@ public record InboxDigest(
                 null,
                 null,
                 copy.size(),
+                false,
                 false);
     }
 
@@ -176,6 +185,7 @@ public record InboxDigest(
                 null,
                 null,
                 copy.size(),
+                false,
                 false);
     }
 
@@ -206,7 +216,8 @@ public record InboxDigest(
                 source,
                 trigger,
                 unreadCount,
-                hasMoreUnread);
+                hasMoreUnread,
+                false);
     }
 
     /** 带显式未读范围与预览的构造。 */
@@ -226,7 +237,28 @@ public record InboxDigest(
         }
         return new InboxDigest(copy.getFirst().threadId(), fromSeq, toSeq,
                 copy, summary, weight.totalScore(), context, wakeReason, weight,
-                source, trigger, unreadCount, hasMoreUnread);
+                source, trigger, unreadCount, hasMoreUnread, false);
+    }
+
+    /** 带显式未读范围、摘要完整性标记的构造。 */
+    public static InboxDigest of(long fromSeq, long toSeq,
+                                 List<MessageSummary> messages,
+                                 List<MessageSummary> context,
+                                 String summary,
+                                 String wakeReason,
+                                 InboxWeight weight,
+                                 InboxSource source,
+                                 InboxTrigger trigger,
+                                 int unreadCount,
+                                 boolean hasMoreUnread,
+                                 boolean summaryComplete) {
+        List<MessageSummary> copy = List.copyOf(messages);
+        if (copy.isEmpty()) {
+            throw new IllegalArgumentException("messages 不能为空");
+        }
+        return new InboxDigest(copy.getFirst().threadId(), fromSeq, toSeq,
+                copy, summary, weight.totalScore(), context, wakeReason, weight,
+                source, trigger, unreadCount, hasMoreUnread, summaryComplete);
     }
 
     private static String requireText(String value, String name) {

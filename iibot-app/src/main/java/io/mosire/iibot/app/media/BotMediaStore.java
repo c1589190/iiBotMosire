@@ -37,10 +37,21 @@ public final class BotMediaStore implements ToolAssetResolver {
         }
     }
 
+    /** 落库 inbound 图片资产。 */
     public String store(MediaAsset asset) {
+        return storeWithPrefix(asset, "img_");
+    }
+
+    /** 落库 Agent 上传的任意出站资产；调用方拿 assetRef，不拿路径/URL。 */
+    public String storeUpload(MediaAsset asset) {
+        return storeWithPrefix(asset, "asset_");
+    }
+
+    private String storeWithPrefix(MediaAsset asset, String prefix) {
         Objects.requireNonNull(asset, "asset");
+        Objects.requireNonNull(prefix, "prefix");
         String hash = sha256(asset.bytes());
-        String assetId = "img_" + hash;
+        String assetId = prefix + hash;
         Path target = directory.resolve(assetId + extension(asset.fileName(), asset.mediaType()));
         try {
             if (!Files.exists(target)) {
@@ -112,6 +123,11 @@ public final class BotMediaStore implements ToolAssetResolver {
             case "image/gif" -> ".gif";
             case "image/webp" -> ".webp";
             case "image/bmp" -> ".bmp";
+            case "audio/mpeg", "audio/mp3" -> ".mp3";
+            case "audio/wav" -> ".wav";
+            case "audio/ogg", "audio/opus" -> ".ogg";
+            case "audio/amr" -> ".amr";
+            case "audio/silk" -> ".silk";
             default -> ".jpg";
         };
     }

@@ -43,8 +43,8 @@
 1. 一个 iibot 进程必须支持多个已配置 OneBot/账号，入站按账号隔离，出站按 thread.accountId 路由；
 2. 消息板是正文、历史、未读、幂等和发送状态唯一事实源；Inbox 只做唤醒/预览；
 3. Agent 不维护 revision、snapshot、itemId、内部 seq 或必填幂等键；
-4. 读取语义：`qq_conversation_read(threadId)` 只预览并记录服务端 deliveredSeq；
-   Agent 处理完成后调用 `qq_conversation_ack(threadId)`，ack 不接受内部标记；
+4. 读取语义：`qq_conversation_read(source)` 只预览并记录服务端 deliveredSeq；
+   Agent 处理完成后调用 `qq_conversation_ack(source)`，ack 不接受内部标记；
 5. 默认 MCP 统一为 `qq_*` 业务工具；`iibot-connect-agent` 整合删除。
 
 ### D-027 debug/info 日志与配置系统
@@ -77,6 +77,8 @@
 
 ### D-030 ack 不依赖 read、支持消息序号
 
+> **状态**：部分由 D-032 取代；当前默认 ack 只接受 source、返回 `more`，不再公开 seq。
+
 > 「发现优化项，为啥必须要先read才能ack？inbox面板已经包含了agent需要的大部分消息信息，不管怎么样，应当允许agent直接ack处理掉消息」
 
 > 「哦对了，还要允许agent直接用序号来ack，不要让agent必须传一串繁琐的hash」
@@ -101,6 +103,70 @@
 2. 上游 0.2.4 未公开 tag/Pages 属于 `PUBLICATION_GAP`，干净仓库可复现前必须补发布；
 3. 其他依赖按最新稳定版收口；JUnit 6 单独迁移；
 4. 文档必须与统一 QQ 客户端目标一致，旧文游文档归档，不进入当前导航。
+
+### D-031 Bot 试运行高风险能力授权
+
+- **日期**：2026-10-30
+- **来源**：Bot 试运行摩擦 F-006/F-007/F-012/F-017/F-018/F-019 的拍板。
+- **用户选择（逐字保留）**：
+  > 「允许 Agent 常规使用」
+  > 「普通 Agent 随时可用」
+  > 「允许主动私聊任意人」
+  > 「先做一个音频提取，后续写模型识别配置等，主要是现在我手头上没有」
+  > 「宿主或系统调度器负责（推荐）」
+  > 「不用禁止绕过MCP，但是MCP层面的发图片/表情/文件必须做」
+  > 「实现，并且Agent想撤啥撤啥」
+
+- **裁定**：
+  1. **Raw LLBot 兜底**：允许 Agent 在日常生活中直接调用 LLBot HTTP，不要求所有动作先有 MCP
+     封装。仍须遵守账号路由、回环默认、外发副作用不自动重试和 token 零泄露；
+     raw token 不得进入模型上下文、日志、仓库或最终答复。
+  2. **@全体成员**：允许普通 Agent 在需要时调用；不增加主人逐次确认门槛。MCP 应提供
+     `mentionAll` 语义，不允许通过拼接任意 CQ Code 实现。
+  3. **主动私聊**：允许 Bot 主动向任意 QQ 发起私聊，不设白名单。仍保留账号级技术限速、
+     `UNKNOWN` 不自动重发和稳定错误码；每次外发必须写消息板并带幂等键。
+  4. **语音**：第一阶段只做音频提取/落库和稳定媒体引用；ASR 模型识别配置后补。
+     当前不宣称语音可直接转写成文字。
+  5. **定时/延迟动作**：由宿主或系统调度器负责，iibot 不自建持久化调度器。
+  6. **外发富消息**：不禁止 Agent 使用 Raw LLBot 兜底，但 MCP 层面必须实现图片、表情、
+     文件发送；富消息走消息板、幂等、三态和审计，不允许只加一个裸 URL/path 参数。
+  7. **撤回**：实现 `qq_message_recall` 语义工具；Agent 可自行决定撤回目标，不要求逐次
+     主人确认。必须按消息所属账号路由、记录结果，不得伪造成功。
+
+- **安全不变量（未被 D-031 取消）**：
+  1. 默认监听仍只允许回环；
+  2. raw token/Bearer/claim token/QQ 凭据不得进入日志、模型上下文、仓库或最终答复；
+  3. `UNKNOWN` 外发不得自动重试；
+  4. 多账号出站必须按来源 thread/account 路由，不能串号；
+  5. 外部动作结果必须可审计，不能把 Raw HTTP 的结果写成 MCP 成功。
+
+- **设计/计划正本**：
+  [`2026-10-30-qq-outbound-actions-and-media-rulings.md`](2026-10-30-qq-outbound-actions-and-media-rulings.md)
+
+### D-032 Inbox 短正文内联与 compact 工具结果
+
+- **日期**：2026-10-30
+- **用户原话**：
+  > 「不要定上限，默认就上512，为啥要改inbox包？」
+  > 「InboxMosire-DSH还需要改吗？iibotDSH具体要改啥，模块边界要确认好」
+  > 「记文档，开始改吧」
+
+- **裁定**：
+  1. `InboxMosire` core 不改；继续把 item `kind` 作为 opaque 分类字段。
+  2. Bot 生成的 digest 使用 `kind=digest_complete` 表示短正文已完整内联，
+     `kind=digest` 表示仍需 read。
+  3. `messageBoard.inlineMaxChars` 默认 `512`；不采用 200 默认值。
+  4. `InboxMosire-DSH` 只增加通用 profile 能力：`completeKinds` 和
+     `compactViewAckItems`；不得写 QQ 业务名、不得读 `content`。
+  5. `iiBotMosire-DSH` 只提供 profile 数据、短文案和声明，不接管 SSE、binding、
+     cursor、claim 或业务工具调用。
+  6. `qq_conversation_read(source)` / `qq_conversation_ack(source)` 只接受 source
+     作为定位参数；ack 结果只保留 `more`；显式 ack 仍保留。
+  7. Inbox 内联正文仍是不可信用户内容，不能被执行成指令；权威正文仍在 Bot 消息板。
+  8. `content` 的存储瘦身不属于本轮上下文收益，单独处理。
+
+- **设计正本**：
+  [`2026-10-30-inbox-inline-and-compact-tool-results.md`](2026-10-30-inbox-inline-and-compact-tool-results.md)
 
 ## 三、当前验收判据
 

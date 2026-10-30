@@ -45,6 +45,46 @@ class InboxClientDigestPortTest {
     Path tempDir;
 
     @Test
+    void completeInlineDigestUsesDigestCompleteKind() throws Exception {
+        try (EmbeddedInboxServer inbox = EmbeddedInboxServer.start(
+                EmbeddedInboxOptions.builder()
+                        .dataDir(tempDir.resolve("inbox-inline"))
+                        .inboxId("app-inline")
+                        .deleteDataOnClose(true)
+                        .build())) {
+            InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+            InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+            InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+            InboxDigestService service = new InboxDigestService(
+                    board, notes, states,
+                    new InboxClientDigestPort(inbox.client(), "app-inline"),
+                    new io.mosire.iibot.bot.summary.MessageSummaryBuilder(),
+                    100, null, CLOCK, null, 512);
+            board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice", T0, T0,
+                    "第一条", "", ""));
+            board.append(ChatMessage.inbound(GROUP, "m-2", "qq-2", "Bob", T0, T0,
+                    "第二条", "", ""));
+
+            service.flushThread(GROUP.threadId());
+
+            InboxModels.ItemSummary item = inbox.client()
+                    .list("app-inline", Set.of("qq"), 10).items().getFirst();
+            assertThat(item.kind()).isEqualTo(InboxClientDigestPort.DIGEST_COMPLETE_KIND);
+            assertThat(item.summary()).isEqualTo("Alice: 第一条 | Bob: 第二条");
+            JsonNode content = (JsonNode) inbox.client().view("app-inline", item.itemId()).content();
+            assertThat(content.path("summaryComplete").asBoolean()).isTrue();
+
+            board.append(ChatMessage.inbound(GROUP, "m-3", "qq-1", "Alice", T0, T0,
+                    "长".repeat(513), "", ""));
+            service.flushThread(GROUP.threadId());
+
+            InboxModels.ItemSummary updated = inbox.client()
+                    .list("app-inline", Set.of("qq"), 10).items().getFirst();
+            assertThat(updated.kind()).isEqualTo(InboxClientDigestPort.DIGEST_KIND);
+        }
+    }
+
+    @Test
     void inboxContentCarriesRecentContext() throws Exception {
         try (EmbeddedInboxServer inbox = EmbeddedInboxServer.start(
                 EmbeddedInboxOptions.builder()
@@ -259,7 +299,8 @@ class InboxClientDigestPortTest {
             InboxDigestService.FlushResult current = service.flushThread(GROUP.threadId());
             ObjectNode legacy = (ObjectNode) ((JsonNode) inbox.client()
                     .view("app-legacy", current.itemId()).content()).deepCopy();
-            legacy.remove(List.of("source", "trigger", "unreadCount", "hasMoreUnread"));
+            legacy.remove(List.of("source", "trigger", "unreadCount", "hasMoreUnread",
+                    "summaryComplete"));
             InboxModels.PushResult pushed = inbox.client().push("app-legacy",
                     InboxModels.PushItem.builder("qq")
                             .kind("digest")
@@ -275,6 +316,7 @@ class InboxClientDigestPortTest {
             assertThat(viewed.digest()).isNotNull();
             assertThat(viewed.digest().unreadCount()).isEqualTo(2);
             assertThat(viewed.digest().hasMoreUnread()).isFalse();
+            assertThat(viewed.digest().summaryComplete()).isFalse();
             assertThat(viewed.digest().source()).isNull();
             assertThat(viewed.digest().trigger()).isNull();
         }

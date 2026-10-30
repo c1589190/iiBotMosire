@@ -29,6 +29,7 @@ public final class InboxClientDigestPort implements InboxDigestPort {
 
     public static final String DEFAULT_CHANNEL = "qq";
     public static final String DIGEST_KIND = "digest";
+    public static final String DIGEST_COMPLETE_KIND = "digest_complete";
 
     private static final ObjectMapper JSON = new ObjectMapper()
             .registerModule(new JavaTimeModule())
@@ -54,7 +55,7 @@ public final class InboxClientDigestPort implements InboxDigestPort {
         try {
             InboxModels.PushResult result = client.push(inboxId, InboxModels.PushItem
                     .builder(channel)
-                    .kind(DIGEST_KIND)
+                    .kind(digestKind(digest))
                     .summary(digest.summary())
                     .content(contentJson(digest))
                     .contentRef(contentRef(digest))
@@ -112,7 +113,7 @@ public final class InboxClientDigestPort implements InboxDigestPort {
                             digest.summary(),
                             contentJson(digest),
                             contentRef(digest),
-                            DIGEST_KIND,
+                            digestKind(digest),
                             digest.priority(),
                             expectedRevision));
             OpsLog.debug("event=inbox_client_call action=update threadId={} itemId={} "
@@ -168,6 +169,10 @@ public final class InboxClientDigestPort implements InboxDigestPort {
                             + "code={}", itemId, errorCode(mapped));
             throw mapped;
         }
+    }
+
+    private static String digestKind(InboxDigest digest) {
+        return digest.summaryComplete() ? DIGEST_COMPLETE_KIND : DIGEST_KIND;
     }
 
     private static String contentJson(InboxDigest digest) {

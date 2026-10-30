@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.mosire.iibot.connect.core.AccountInfo;
+import io.mosire.iibot.connect.core.AudioCapability;
 import io.mosire.iibot.connect.core.AccountInfoProvider;
 import io.mosire.iibot.connect.core.ChatHistoryMessage;
 import io.mosire.iibot.connect.core.ChatHistoryPage;
@@ -19,7 +20,11 @@ import io.mosire.iibot.connect.core.FriendRequestHandler;
 import io.mosire.iibot.connect.core.ForwardCapability;
 import io.mosire.iibot.connect.core.ForwardMessage;
 import io.mosire.iibot.connect.core.ForwardPage;
+import io.mosire.iibot.connect.core.GroupFileCapability;
+import io.mosire.iibot.connect.core.GroupFileUploadCapability;
 import io.mosire.iibot.connect.core.GroupMember;
+import io.mosire.iibot.connect.core.QqGroupFile;
+import io.mosire.iibot.connect.core.RecallCapability;
 import io.mosire.iibot.connect.core.QqPlatformCapability;
 import io.mosire.iibot.connect.core.RecentQqMessage;
 import io.mosire.iibot.connect.core.RecentQqProvider;
@@ -44,7 +49,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -79,6 +87,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvider,
         ChatHistoryProvider, QqPlatformCapability, ForwardCapability, MediaCapability,
+        GroupFileCapability, GroupFileUploadCapability, RecallCapability, AudioCapability,
         RecentQqProvider, FriendRequestCapability {
 
     private static final Logger LOG = LoggerFactory.getLogger(NapCatAdapter.class);
@@ -425,6 +434,333 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
             }
             return downloadImage(url, segment.fileId());
         });
+    }
+
+    @Override
+    public CompletionStage<SendReceipt> uploadGroupFile(String groupId, String fileName,
+                                                        String mediaType, byte[] bytes,
+                                                        String idempotencyKey) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (groupId == null || groupId.isBlank()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("groupId 不能为空"));
+        }
+        if (fileName == null || fileName.isBlank()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("fileName 不能为空"));
+        }
+        if (bytes == null || bytes.length == 0 || bytes.length > MAX_MEDIA_BYTES) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("群文件字节为空或超过 10 MiB"));
+        }
+        final Path temporary;
+        try {
+            String suffix = fileSuffix(fileName);
+            temporary = Files.createTempFile("iibot-upload-", suffix);
+            Files.write(temporary, bytes);
+        } catch (Exception failure) {
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException("创建群文件临时文件失败", failure));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("group_id", groupId.trim());
+        payload.put("file", temporary.toAbsolutePath().toString());
+        payload.put("name", fileName.trim());
+        payload.put("folder", "/");
+        CompletionStage<SendReceipt> stage;
+        try {
+            stage = postAction("upload_group_file", payload).thenApply(root -> {
+                JsonNode data = root.path("data");
+                String receiptId = scalarText(data.path("message_id").isMissingNode()
+                        ? data.get("file_id") : data.get("message_id"));
+                return SendReceipt.sent(List.of(receiptId == null
+                        ? "group-file:" + fileName.trim() : receiptId));
+            });
+        } catch (RuntimeException failure) {
+            deleteQuietly(temporary);
+            return CompletableFuture.failedFuture(failure);
+        }
+        return stage.whenComplete((ignored, failure) -> deleteQuietly(temporary));
+    }
+
+    private static String fileSuffix(String fileName) {
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0 || dot == fileName.length() - 1 || fileName.length() - dot > 16) {
+            return ".bin";
+        }
+        String suffix = fileName.substring(dot);
+        return suffix.matches("\\.[A-Za-z0-9]{1,15}") ? suffix : ".bin";
+    }
+
+    private static void deleteQuietly(Path path) {
+        try {
+            Files.deleteIfExists(path);
+        } catch (Exception ignored) {
+            // best effort; path is local temp and never logged
+        }
+    }
+
+    @Override
+    public CompletionStage<MediaAsset> audio(MessageSegment segment) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (segment == null || segment.type() != MessageSegment.Type.AUDIO) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("segment 必须是 audio 段"));
+        }
+        if (!segment.url().isBlank()) {
+            return downloadAudio(segment.url(), segment.fileId());
+        }
+        if (segment.fileId().isBlank()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("语音缺少 file/url"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("file", segment.fileId());
+        return postAction("get_record", payload).thenCompose(root -> {
+            JsonNode data = root.path("data");
+            String url = data.isTextual() ? data.asText()
+                    : firstScalar(data, "url", "file", "path");
+            if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "AUDIO_URL_MISSING",
+                        "get_record 未返回可下载 URL"));
+            }
+            return downloadAudio(url, segment.fileId());
+        });
+    }
+
+    private CompletionStage<MediaAsset> downloadAudio(String rawUrl, String fileName) {
+        final URI uri;
+        try {
+            uri = URI.create(rawUrl.trim());
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("音频 URL 非法"));
+        }
+        String scheme = uri.getScheme();
+        if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("音频 URL scheme 不允许"));
+        }
+        HttpRequest request;
+        try {
+            request = HttpRequest.newBuilder(uri)
+                    .GET()
+                    .timeout(config.requestTimeout())
+                    .build();
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("音频 URL 非法"));
+        }
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
+                .thenApply(response -> {
+                    int status = response.statusCode();
+                    if (status < 200 || status >= 300) {
+                        throw new CompletionException(new OneBotActionException(
+                                FailureKind.HTTP_STATUS, "AUDIO_HTTP_" + status,
+                                "语音下载失败"));
+                    }
+                    byte[] bytes = response.body();
+                    if (bytes.length == 0 || bytes.length > MAX_MEDIA_BYTES) {
+                        throw new CompletionException(new OneBotActionException(
+                                FailureKind.INVALID_RESPONSE, "AUDIO_SIZE_INVALID",
+                                "语音大小超出限制"));
+                    }
+                    String type = response.headers().firstValue("content-type")
+                            .orElseGet(() -> mediaTypeFromFileName(fileName));
+                    int semi = type.indexOf(';');
+                    if (semi >= 0) {
+                        type = type.substring(0, semi);
+                    }
+                    return new MediaAsset(
+                            fileName == null || fileName.isBlank() ? "voice" : fileName,
+                            type, bytes);
+                });
+    }
+
+    @Override
+    public CompletionStage<SendReceipt> recall(String messageId) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (messageId == null || messageId.isBlank()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("messageId 不能为空"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("message_id", messageId.trim());
+        return postAction("delete_msg", payload)
+                .thenApply(root -> SendReceipt.sent(List.of(messageId.trim())));
+    }
+
+    @Override
+    public CompletionStage<List<QqGroupFile>> groupFiles(String groupId, String folderId) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (groupId == null || groupId.isBlank()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("groupId 不能为空"));
+        }
+        String normalizedFolder = folderId == null || folderId.isBlank()
+                ? "/" : folderId.trim();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("group_id", groupId.trim());
+        payload.put("folder_id", normalizedFolder);
+        return postAction("get_group_files_by_folder", payload).thenApply(root -> {
+            JsonNode data = root.path("data");
+            JsonNode files = data.isArray() ? data : data.path("files");
+            if (!files.isArray()) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "INVALID_GROUP_FILE_RESPONSE",
+                        "群文件目录响应缺少 data/files 数组"));
+            }
+            List<QqGroupFile> result = new ArrayList<>();
+            for (JsonNode item : files) {
+                if (item == null || !item.isObject()) {
+                    continue;
+                }
+                String fileId = firstScalar(item, "file_id", "fileId", "id");
+                if (fileId == null) {
+                    continue;
+                }
+                String name = firstScalar(item, "file_name", "fileName", "name");
+                long size = firstLong(item, "file_size", "fileSize", "size");
+                JsonNode uploader = item.path("uploader");
+                String uploaderId = firstScalar(uploader, "user_id", "userId", "id");
+                if (uploaderId == null) {
+                    uploaderId = firstScalar(item, "uploader_id", "uploaderId");
+                }
+                String uploaderName = firstScalar(uploader,
+                        "nickname", "card", "name");
+                if (uploaderName == null) {
+                    uploaderName = firstScalar(item, "uploader_name", "uploaderName");
+                }
+                Instant uploadedAt = parseTimestamp(firstScalar(item,
+                        "upload_time", "uploadTime", "modify_time", "create_time"));
+                String busid = firstScalar(item, "busid", "bus_id", "busId");
+                result.add(new QqGroupFile(fileId, name, size, uploaderId,
+                        uploaderName, uploadedAt, busid));
+            }
+            return List.copyOf(result);
+        });
+    }
+
+    @Override
+    public CompletionStage<MediaAsset> downloadGroupFile(String groupId, QqGroupFile file) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (groupId == null || groupId.isBlank()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("groupId 不能为空"));
+        }
+        if (file == null) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("file 不能为空"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("group_id", groupId.trim());
+        payload.put("file_id", file.fileId());
+        payload.put("busid", parseBusid(file.busid()));
+        return postAction("get_group_file_url", payload).thenCompose(root -> {
+            JsonNode data = root.path("data");
+            String url = data.isTextual() ? data.asText()
+                    : firstScalar(data, "url", "file_url", "download_url");
+            if (url == null || url.isBlank()) {
+                throw new CompletionException(new OneBotActionException(
+                        FailureKind.INVALID_RESPONSE, "GROUP_FILE_URL_MISSING",
+                        "get_group_file_url 未返回下载地址"));
+            }
+            return downloadGroupFileBytes(url, file);
+        });
+    }
+
+    private CompletionStage<MediaAsset> downloadGroupFileBytes(String rawUrl,
+                                                               QqGroupFile file) {
+        final URI uri;
+        try {
+            uri = URI.create(rawUrl.trim());
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("群文件 URL 非法"));
+        }
+        String scheme = uri.getScheme();
+        if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("群文件 URL scheme 不允许"));
+        }
+        HttpRequest request;
+        try {
+            request = HttpRequest.newBuilder(uri)
+                    .GET()
+                    .timeout(config.requestTimeout())
+                    .build();
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("群文件 URL 非法"));
+        }
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
+                .thenApply(response -> {
+                    int status = response.statusCode();
+                    if (status < 200 || status >= 300) {
+                        throw new CompletionException(new OneBotActionException(
+                                FailureKind.HTTP_STATUS, "GROUP_FILE_HTTP_" + status,
+                                "群文件下载失败"));
+                    }
+                    byte[] bytes = response.body();
+                    if (bytes.length == 0 || bytes.length > MAX_MEDIA_BYTES) {
+                        throw new CompletionException(new OneBotActionException(
+                                FailureKind.INVALID_RESPONSE, "GROUP_FILE_SIZE_INVALID",
+                                "群文件大小超出限制"));
+                    }
+                    String type = response.headers().firstValue("content-type")
+                            .orElseGet(() -> mediaTypeFromFileName(file.name()));
+                    int semi = type.indexOf(';');
+                    if (semi >= 0) {
+                        type = type.substring(0, semi);
+                    }
+                    return new MediaAsset(file.name(), type, bytes);
+                });
+    }
+
+    private static int parseBusid(String value) {
+        try {
+            int busid = Integer.parseInt(value);
+            return busid > 0 ? busid : 102;
+        } catch (RuntimeException ignored) {
+            return 102;
+        }
+    }
+
+    private static String mediaTypeFromFileName(String fileName) {
+        String lower = fileName == null ? "" : fileName.toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".json")) return "application/json";
+        if (lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".log")
+                || lower.endsWith(".csv")) {
+            return "text/plain";
+        }
+        if (lower.endsWith(".xml")) return "application/xml";
+        if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "application/yaml";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".bmp")) return "image/bmp";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        if (lower.endsWith(".wav")) return "audio/wav";
+        if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg";
+        if (lower.endsWith(".amr")) return "audio/amr";
+        if (lower.endsWith(".silk")) return "audio/silk";
+        if (lower.endsWith(".pdf")) return "application/pdf";
+        return "application/octet-stream";
     }
 
     private CompletionStage<MediaAsset> downloadImage(String rawUrl, String fileName) {
@@ -815,6 +1151,43 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
         }
     }
 
+    private static Instant parseTimestamp(String raw) {
+        Instant epoch = parseEpoch(raw);
+        if (epoch != null || raw == null || raw.isBlank()) {
+            return epoch;
+        }
+        try {
+            return Instant.parse(raw.trim());
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static String firstScalar(JsonNode node, String... fields) {
+        if (node == null || fields == null) {
+            return null;
+        }
+        for (String field : fields) {
+            String value = scalarText(node.get(field));
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static long firstLong(JsonNode node, String... fields) {
+        String value = firstScalar(node, fields);
+        if (value == null) {
+            return 0L;
+        }
+        try {
+            return Math.max(0L, Long.parseLong(value.trim()));
+        } catch (RuntimeException ignored) {
+            return 0L;
+        }
+    }
+
     private static int countNonTextSegments(JsonNode message) {
         if (message == null || !message.isArray()) {
             return 0;
@@ -1087,6 +1460,19 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
             } else if (source instanceof OutboundSegment.Mention mention) {
                 segment.put("type", "at");
                 segment.putObject("data").put("qq", mention.qqId());
+            } else if (source instanceof OutboundSegment.MentionAll) {
+                segment.put("type", "at");
+                segment.putObject("data").put("qq", "all");
+            } else if (source instanceof OutboundSegment.Image image) {
+                if (image.bytes().length == 0) {
+                    throw new IllegalStateException("出站图片字节未解析");
+                }
+                segment.put("type", "image");
+                segment.putObject("data").put("file", "base64://"
+                        + Base64.getEncoder().encodeToString(image.bytes()));
+            } else if (source instanceof OutboundSegment.Sticker sticker) {
+                segment.put("type", "face");
+                segment.putObject("data").put("id", sticker.faceId());
             } else if (source instanceof OutboundSegment.Reply reply) {
                 segment.put("type", "reply");
                 segment.putObject("data").put("id", reply.messageId());

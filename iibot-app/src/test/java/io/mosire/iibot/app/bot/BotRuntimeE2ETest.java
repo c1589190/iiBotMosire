@@ -93,21 +93,23 @@ class BotRuntimeE2ETest {
                     || (name.startsWith("inbox_") && !"inbox_rest".equals(name)));
             JsonNode threads = call(client, "qq_conversation_list", Map.of());
             assertThat(threads.path("data").path("threads")).hasSize(1);
+            String source = threads.path("data").path("threads").get(0)
+                    .path("source").asText();
             String threadId = threads.path("data").path("threads").get(0)
                     .path("threadId").asText();
 
             JsonNode read = call(client, "qq_conversation_read",
-                    Map.of("threadId", threadId, "limit", 10));
-            assertThat(read.path("data").path("messages").get(0).path("text").asText())
+                    Map.of("source", source));
+            assertThat(read.path("messages").get(0).path("text").asText())
                     .isEqualTo("你好");
-            assertThat(read.path("data").path("deliveredSeq").asLong()).isPositive();
+            assertThat(read.path("messages").get(0).path("seq").asLong()).isPositive();
+            assertThat(read.path("more").asBoolean()).isFalse();
             // read 只预览，Inbox 未读仍保留；显式 ack 后才归档。
             assertThat(runtime.inboxRuntime().programClient()
                     .list("bot-inbox", java.util.Set.of("qq"), 10).items()).hasSize(1);
             JsonNode ack = call(client, "qq_conversation_ack",
-                    Map.of("threadId", threadId));
-            assertThat(ack.path("data").path("acked").asBoolean()).isTrue();
-            assertThat(ack.path("data").path("inboxArchived").asBoolean()).isTrue();
+                    Map.of("source", source));
+            assertThat(ack.path("more").asBoolean()).isFalse();
             assertThat(runtime.inboxRuntime().programClient()
                     .list("bot-inbox", java.util.Set.of("qq"), 10).items()).isEmpty();
 
@@ -356,13 +358,13 @@ class BotRuntimeE2ETest {
             var firstDetail = runtime.inboxRuntime().programClient()
                     .view("bot-inbox", firstItem);
             JsonNode firstContent = (JsonNode) firstDetail.content();
-            String threadId = firstContent.path("threadId").asText();
+            String source = firstContent.path("source").path("source").asText();
             assertThat(firstContent.path("wakeReason").asText()).isEqualTo("FIRST_CONTACT");
             assertThat(firstContent.path("priority").asInt()).isEqualTo(100);
 
             client = mcpClient(runtime);
-            call(client, "qq_conversation_read", Map.of("threadId", threadId));
-            call(client, "qq_conversation_ack", Map.of("threadId", threadId));
+            call(client, "qq_conversation_read", Map.of("source", source));
+            call(client, "qq_conversation_ack", Map.of("source", source));
 
             adapter.deliver(groupMessage("m-ambient", "普通群聊", false));
             String ambientItem = awaitInboxItem(runtime);
@@ -372,8 +374,8 @@ class BotRuntimeE2ETest {
             assertThat(ambientContent.path("wakeReason").asText())
                     .isEqualTo("BELOW_THRESHOLD");
             assertThat(ambientContent.path("priority").asInt()).isZero();
-            call(client, "qq_conversation_read", Map.of("threadId", threadId));
-            call(client, "qq_conversation_ack", Map.of("threadId", threadId));
+            call(client, "qq_conversation_read", Map.of("source", source));
+            call(client, "qq_conversation_ack", Map.of("source", source));
 
             adapter.deliver(groupMessage("m-mention", "你看这个", true));
             String mentionItem = awaitInboxItem(runtime);

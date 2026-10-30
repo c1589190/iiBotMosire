@@ -55,7 +55,7 @@ LLBot/NapCat 可选扩展
 ```text
 MessageSegment
   index
-  type: TEXT | MENTION | REPLY | IMAGE | FORWARD | FILE | FACE | OTHER
+  type: TEXT | MENTION | REPLY | IMAGE | AUDIO | FORWARD | FILE | FACE | OTHER
   text
   qqId
   targetMessageId
@@ -432,3 +432,158 @@ Bot 把 `totalScore` 写入 `InboxDigest.priority`，DSH summary 读取 `/items`
    `bot_message_get` / `bot_message_thread` / `bot_forward_read` 仍能读取完整历史，
    不得被 Inbox item 范围限制。
 6. 低权重消息仍进入未读桶，只影响 priority/wakeReason/排序。
+
+## 13. 2026-10-29 入站卡片/文件保真修复（F-001/F-002）
+
+> **来源**：Bot 试运行摩擦报告的 F-001、F-002；调查见
+> [`../reports/2026-10-29-bot-trial-friction-investigation.md`](../reports/2026-10-29-bot-trial-friction-investigation.md)。
+> **状态**：已实现（code-level，2026-10-29）；无需新增用户设计裁定，属于 §3.1
+> 消息段契约的缺口修复。真实 QQ/LLBot 回归仍为 `NOT_RUN`。
+
+### 13.1 现状缺口
+
+- `OneBot11Codec` 对 `json/xml`、`file` 等未显式支持的段只调用 `addOther()`，
+  `MessageSegment` 仅保留 `rawType`，可读正文和文件元数据丢失。
+- `MessageSegment.Type.FILE` 与 `fileId/byteSize` 字段已经存在，但 codec 从未生产
+  `FILE` 段。
+
+### 13.2 目标形状
+
+```text
+json/xml 卡片
+  → MessageSegment(type=OTHER, rawType=json|xml, text=有界可读摘要)
+  → nonTextSummary 含 [卡片×N] 与有界可读摘要
+
+file 群文件
+  → MessageSegment(type=FILE, text=文件名, fileId=内部标识, byteSize=大小,
+                   rawType=file)
+  → nonTextSummary 含 [文件×N] 与文件名
+```
+
+可读摘要只允许以下来源：
+
+- 卡片 JSON 顶层的 `prompt`；
+- `meta.detail_1.title`、`meta.detail_1.desc`、`meta.detail_1.qqdocurl`；
+- 同类 meta 对象中的 `title`、`desc`、`qqdocurl`/`jumpUrl`/`url`。
+
+必须做空白折叠、去重和字符上限；解析失败时退回 `[卡片]`，不得把整个原始 JSON
+写入 `text`、摘要或日志。
+
+### 13.3 MCP 可见性
+
+- `qq_conversation_read` / history / message get 返回 segment 的 `text`、
+  `rawType`、`mediaType`、`byteSize`、`hasMedia`；
+- 不返回 `fileId`、媒体 `url`、本地路径或原始 OneBot `data`；
+- 文件名称通过 `text` 返回；未来文件下载工具使用服务端保存的 `fileId`，
+  不要求 Agent 提供或保存内部标识；
+- CQ 字符串与数组消息段生成相同的安全输出。
+- D-032 后 `qq_conversation_read` 使用 compact 结果：只保留 source、seq、发送者、
+  文本、必要 reply/segment 信息、媒体消息的短期 key 和 `more`；完整诊断形状只在
+  `qq_message_get` / history 等详情工具中返回。安全字段约束不因 compact 放宽。
+
+### 13.4 验收锚点
+
+- 卡片：数组与 CQ 字符串均能读出标题/链接，且 MCP 结果无完整原始 JSON；
+- 文件：数组与 CQ 字符串均映射为 `FILE`，文件名/大小可读，file id 内部保存；
+- 现有图片、表情、引用、@、转发摘要行为不变；
+- 不新增真实 QQ 外发或任意 OneBot action。
+
+## 14. 2026-10-29 转发媒体与群文件工具（F-003/F-016）
+
+> **来源**：Bot 试运行摩擦报告 F-003、F-016；调查见
+> [`../reports/2026-10-29-bot-trial-friction-investigation.md`](../reports/2026-10-29-bot-trial-friction-investigation.md)。
+> **状态**：已实现（code-level，2026-10-30）；不增加任意 OneBot action、任意 URL、
+> 任意文件路径或原始 file id 暴露面。真实 QQ/LLBot 回归仍为 `NOT_RUN`。
+
+### 14.1 F-003 转发内图片
+
+新增 MCP 工具：
+
+```text
+qq_forward_media_get(
+  messageKey,
+  segmentIndex?,
+  nodeIndex?,
+  limit=4
+)
+```
+
+- `messageKey` 指向消息板中包含 `FORWARD` 段的消息；
+- `segmentIndex` 省略时取第一个可展开的 forward 段；
+- `nodeIndex` 是顶层转发页中的 0-based 节点号；省略时按页顺序扫描；
+- 最多返回 4 张图片，图片经受控 `MediaCapability` 下载，存入 `BotMediaStore`，
+  以 MCP `ImageContent` 交给模型；
+- 文本结果只返回 `messageKey`、转发段下标、节点下标、数量、MIME、字节数、
+  截断标记和稳定错误；不返回 URL、file id、媒体路径；
+- v1 不支持递归转发页中的媒体；遇到嵌套文件时返回 `nestedUnsupported=true`，
+  不假装读取。
+
+### 14.2 F-016 群文件列表与读取
+
+connect 层新增 typed capability：
+
+```text
+GroupFileCapability
+  list(groupId, folderId="/") -> List<GroupFile>
+  download(groupId, GroupFile) -> MediaAsset
+
+GroupFile（只供服务内部）
+  fileId
+  name
+  byteSize
+  uploaderId / uploaderName
+  uploadedAt
+  busid
+```
+
+NapCat/LLBot 动作：
+
+```text
+get_group_files_by_folder(group_id, folder_id="/")
+get_group_file_url(group_id, file_id, busid=102)
+GET <provider-returned url>（只由适配器执行，带 scheme/超时/大小限制）
+```
+
+MCP 工具：
+
+```text
+qq_group_files(groupId, folderId="/", limit=50)
+qq_group_file_get(fileRef)
+```
+
+- `qq_group_files` 每次列目录时为文件生成一个**服务端临时 fileRef**；fileRef
+  是账号、群、fileId、busid 的不可逆短哈希，不包含原始 file id；
+- fileRef 只在当前进程内有效，有容量上限，进程重启/过期后重新 `qq_group_files`；
+- `qq_group_file_get` 使用受控下载：
+  - 文本类文件（`text/*` 或常见 `.json/.md/.txt/.csv/.xml/.yaml/.yml/.log`）
+    返回 UTF-8 文本，最多 64 KiB，并标 `truncated`；
+  - 图片文件存 `BotMediaStore`，以 MCP `ImageContent` 返回；
+  - 其他二进制只返回文件名、大小、MIME、`contentOmitted=true`，不返回字节/base64；
+- 适配器单文件下载上限 10 MiB；超限/空文件稳定失败；
+- 不向模型返回 `file_id`、`busid`、下载 URL、本地路径或原始 action payload。
+
+### 14.3 验收锚点
+
+- 转发图片测试证明返回 asset、节点/段下标正确，且文本不含 URL/file id；
+- 群文件列表测试证明输出 fileRef、名称、大小、上传者，不含 fileId/busid；
+- 群文件读取测试覆盖 JSON 文本、图片 asset、二进制省略三条路径；
+- NapCatAdapter 测试覆盖 `get_group_files_by_folder` 与 `get_group_file_url` 的
+  payload 形状和下载大小限制；
+- 多账号时缺省 `accountId` 必须 `ACCOUNT_REQUIRED`，不能串号；
+- 真实 QQ/LLBot 联调仍单独标记；未跑写 `NOT_RUN`。
+
+## 15. 2026-10-30 语音提取（D-031 / F-006 降级）
+
+> **状态**：已实现 code-level；ASR `NOT_RUN`，无转写宣称。
+> **来源**：[D-031](2026-10-30-qq-outbound-actions-and-media-rulings.md)。
+
+- `OneBot11Codec` 将 `record` 数组/CQ 段映射为 `MessageSegment.Type.AUDIO`，
+  保留内部 fileId/url/byteSize；
+- 新增 `AudioCapability`，NapCat 实现 `get_record` 或录段 URL 的受控下载；
+- 新增 `qq_audio_get(messageKey, segmentIndex?, limit?)`：
+  - 返回 `audioRef/MIME/size`；
+  - 不返回 URL、路径、base64；
+  - 返回 `asrConfigured=false`、`transcriptAvailable=false`；
+  - 没有 provider 或提取失败返回 `AUDIO_UNAVAILABLE`；
+- 音频字节存入 `BotMediaStore`，后续 ASR 配置可复用同一 `audioRef`；
+- 目前语音仍不能被转写成文字，Bot 不得假装听懂。

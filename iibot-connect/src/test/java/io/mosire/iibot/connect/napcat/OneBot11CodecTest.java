@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.mosire.iibot.connect.core.InboundMessage;
 import io.mosire.iibot.connect.core.InboundMessage.SessionType;
+import io.mosire.iibot.connect.core.MessageSegment;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
@@ -202,6 +203,138 @@ class OneBot11CodecTest {
         assertThat(request.nickname()).isEqualTo("Alice");
         assertThat(request.comment()).isEqualTo("想加好友");
         assertThat(request.receivedAt()).isEqualTo(Instant.ofEpochSecond(1_700_000_002L));
+    }
+
+    @Test
+    void extractsReadableCardTextWithoutPersistingRawJson() throws Exception {
+        String card = """
+                {"prompt":"套餐卡片","meta":{"detail_1":{
+                  "title":"三国资料包","desc":"包含完整表格",
+                  "qqdocurl":"https://example.invalid/card/42"}}}
+                """;
+        JsonNode event = mapper.readTree("""
+                {"post_type":"message","message_type":"group","self_id":"10001",
+                 "message_id":"g-20","user_id":"20002","group_id":"30003",
+                 "message":[{"type":"json","data":{"data":%s}}]}
+                """.formatted(mapper.writeValueAsString(card)));
+
+        InboundMessage message = codec.decodeMessage("napcat", event, Instant.EPOCH)
+                .orElseThrow();
+
+        assertThat(message.text()).isEmpty();
+        assertThat(message.nonTextSummary())
+                .contains("[卡片×1]", "套餐卡片", "三国资料包", "https://example.invalid/card/42");
+        MessageSegment cardSegment = message.segments().getFirst();
+        assertThat(cardSegment.type()).isEqualTo(MessageSegment.Type.OTHER);
+        assertThat(cardSegment.rawType()).isEqualTo("json");
+        assertThat(cardSegment.text())
+                .contains("套餐卡片", "三国资料包", "https://example.invalid/card/42")
+                .doesNotContain("\"meta\"", "\"prompt\"");
+    }
+
+    @Test
+    void extractsCardTextFromCqStringWithEscapedCommas() throws Exception {
+        String card = """
+                {"prompt":"群公告卡片","meta":{"detail_1":{
+                  "title":"周末活动","qqdocurl":"https://example.invalid/event"}}}
+                """.replace("\n", "");
+        String cq = "[CQ:json,data=" + card.replace(",", "&#44;") + "]";
+        JsonNode event = mapper.readTree("""
+                {"post_type":"message","message_type":"private","self_id":1,
+                 "message_id":21,"user_id":2,"message":%s}
+                """.formatted(mapper.writeValueAsString(cq)));
+
+        InboundMessage message = codec.decodeMessage("napcat", event, Instant.EPOCH)
+                .orElseThrow();
+
+        assertThat(message.nonTextSummary())
+                .contains("[卡片×1]", "群公告卡片", "周末活动",
+                        "https://example.invalid/event");
+        assertThat(message.segments().getFirst().rawType()).isEqualTo("json");
+    }
+
+    @Test
+    void extractsReadableTextFromXmlCard() throws Exception {
+        String xml = "<msg><item><title>XML 活动</title><summary>周末见</summary>"
+                + "<url>https://example.invalid/xml-card</url></item></msg>";
+        JsonNode event = mapper.readTree("""
+                {"post_type":"message","message_type":"private","self_id":1,
+                 "message_id":22,"user_id":2,
+                 "message":[{"type":"xml","data":{"data":%s}}]}
+                """.formatted(mapper.writeValueAsString(xml)));
+
+        InboundMessage message = codec.decodeMessage("napcat", event, Instant.EPOCH)
+                .orElseThrow();
+
+        assertThat(message.nonTextSummary())
+                .contains("[卡片×1]", "XML 活动", "周末见",
+                        "https://example.invalid/xml-card");
+        assertThat(message.segments().getFirst().rawType()).isEqualTo("xml");
+    }
+
+    @Test
+    void mapsVoiceRecordToAudioMetadataWithoutTranscription() throws Exception {
+        JsonNode event = mapper.readTree("""
+                {"post_type":"message","message_type":"group","self_id":"10001",
+                 "message_id":"g-voice","user_id":"20002","group_id":"30003",
+                 "message":[{"type":"record","data":{
+                   "file":"voice.silk","url":"https://example.invalid/voice.silk",
+                   "file_size":"1234"}}]}
+                """);
+
+        InboundMessage message = codec.decodeMessage("napcat", event, Instant.EPOCH)
+                .orElseThrow();
+
+        assertThat(message.text()).isEmpty();
+        assertThat(message.nonTextSummary()).isEqualTo("[语音×1]");
+        MessageSegment audio = message.segments().getFirst();
+        assertThat(audio.type()).isEqualTo(MessageSegment.Type.AUDIO);
+        assertThat(audio.fileId()).isEqualTo("voice.silk");
+        assertThat(audio.url()).isEqualTo("https://example.invalid/voice.silk");
+        assertThat(audio.byteSize()).isEqualTo(1234L);
+        assertThat(audio.media()).isTrue();
+    }
+
+    @Test
+    void mapsGroupFileSegmentsToFileMetadata() throws Exception {
+        JsonNode event = mapper.readTree("""
+                {"post_type":"message","message_type":"group","self_id":"10001",
+                 "message_id":"g-22","user_id":"20002","group_id":"30003",
+                 "message":[{"type":"file","data":{
+                   "file_name":"三国.json","file_id":"file-secret","file_size":"401546"}}]}
+                """);
+
+        InboundMessage message = codec.decodeMessage("napcat", event, Instant.EPOCH)
+                .orElseThrow();
+
+        assertThat(message.text()).isEmpty();
+        assertThat(message.nonTextSummary()).isEqualTo("[文件×1] 三国.json");
+        MessageSegment file = message.segments().getFirst();
+        assertThat(file.type()).isEqualTo(MessageSegment.Type.FILE);
+        assertThat(file.text()).isEqualTo("三国.json");
+        assertThat(file.fileId()).isEqualTo("file-secret");
+        assertThat(file.byteSize()).isEqualTo(401_546L);
+        assertThat(file.media()).isTrue();
+        assertThat(file.rawType()).isEqualTo("file");
+    }
+
+    @Test
+    void mapsCqFileSegmentsToFileMetadata() throws Exception {
+        JsonNode event = mapper.readTree("""
+                {"post_type":"message","message_type":"group","self_id":"10001",
+                 "message_id":"g-23","user_id":"20002","group_id":"30003",
+                 "message":"[CQ:file,file_name=三国.json,file_id=file-secret,file_size=401546]"}
+                """);
+
+        InboundMessage message = codec.decodeMessage("napcat", event, Instant.EPOCH)
+                .orElseThrow();
+
+        MessageSegment file = message.segments().getFirst();
+        assertThat(file.type()).isEqualTo(MessageSegment.Type.FILE);
+        assertThat(file.text()).isEqualTo("三国.json");
+        assertThat(file.fileId()).isEqualTo("file-secret");
+        assertThat(file.byteSize()).isEqualTo(401_546L);
+        assertThat(message.nonTextSummary()).isEqualTo("[文件×1] 三国.json");
     }
 
 }

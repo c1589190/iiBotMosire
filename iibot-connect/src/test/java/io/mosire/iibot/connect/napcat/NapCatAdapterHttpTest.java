@@ -286,6 +286,54 @@ class NapCatAdapterHttpTest {
     }
 
     @Test
+    void sendsMentionAllAsStandardAtAllSegment() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(
+                     config(server, Duration.ofSeconds(2), 100))) {
+            SendReceipt receipt = adapter.send(OutboundMessage.richGroupMessage(
+                            "30003",
+                            List.of(new OutboundSegment.MentionAll(),
+                                    new OutboundSegment.Text("全员通知")),
+                            "idem-all"))
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(receipt.state()).isEqualTo(SendReceipt.State.SENT);
+            JsonNode message = server.sendPayloads.getFirst().path("message");
+            assertThat(message).hasSize(2);
+            assertThat(message.get(0).path("type").asText()).isEqualTo("at");
+            assertThat(message.get(0).path("data").path("qq").asText()).isEqualTo("all");
+            assertThat(message.get(1).path("type").asText()).isEqualTo("text");
+        }
+    }
+
+    @Test
+    void sendsImageAndStickerAsStandardSegments() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(
+                     config(server, Duration.ofSeconds(2), 100))) {
+            SendReceipt receipt = adapter.send(OutboundMessage.richGroupMessage(
+                            "30003",
+                            List.of(new OutboundSegment.Image(
+                                            "asset-1", "image.png", "image/png",
+                                            new byte[]{1, 2, 3}),
+                                    new OutboundSegment.Sticker("1"),
+                                    new OutboundSegment.Text("看图")),
+                            "idem-image-sticker"))
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(receipt.state()).isEqualTo(SendReceipt.State.SENT);
+            JsonNode message = server.sendPayloads.getFirst().path("message");
+            assertThat(message).hasSize(3);
+            assertThat(message.get(0).path("type").asText()).isEqualTo("image");
+            assertThat(message.get(0).path("data").path("file").asText())
+                    .isEqualTo("base64://AQID");
+            assertThat(message.get(1).path("type").asText()).isEqualTo("face");
+            assertThat(message.get(1).path("data").path("id").asText()).isEqualTo("1");
+            assertThat(message.get(2).path("type").asText()).isEqualTo("text");
+        }
+    }
+
+    @Test
     void dedicatedActionModeUsesPrivateAndGroupEndpoints() throws Exception {
         try (MockHttpServer server = new MockHttpServer();
              NapCatAdapter adapter = new NapCatAdapter(

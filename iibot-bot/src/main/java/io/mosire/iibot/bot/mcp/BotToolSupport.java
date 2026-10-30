@@ -186,10 +186,71 @@ final class BotToolSupport {
         value.put("targetMessageId", segment.targetMessageId());
         value.put("mediaType", segment.mediaType());
         value.put("byteSize", segment.byteSize());
+        value.put("rawType", segment.rawType());
         value.put("hasMedia", segment.media());
         value.put("hasForward", segment.type() == MessageSegment.Type.FORWARD
                 && !segment.forwardId().isEmpty());
         return value;
+    }
+
+    /** compact read/history 视图：只保留 Agent 处理所需的业务字段。 */
+    static Map<String, Object> compactMessageMap(ChatMessage message,
+                                                 List<MessageSegment> segments) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("seq", message.localSeq());
+        value.put("from", message.senderName() == null
+                || message.senderName().isBlank()
+                ? message.senderId() : message.senderName());
+        value.put("uid", message.senderId());
+        value.put("text", message.text());
+        if (!message.replyToMessageId().isBlank()) {
+            value.put("replyTo", message.replyToMessageId());
+        }
+        List<Map<String, Object>> compactSegments = compactSegments(segments);
+        if (!compactSegments.isEmpty()) {
+            value.put("segments", compactSegments);
+        } else if (!message.nonTextSummary().isBlank()) {
+            value.put("summary", message.nonTextSummary());
+        }
+        if (needsMessageKey(segments)) {
+            value.put("key", message.messageKey());
+        }
+        return value;
+    }
+
+    private static List<Map<String, Object>> compactSegments(List<MessageSegment> segments) {
+        if (segments == null || segments.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> values = new ArrayList<>();
+        for (MessageSegment segment : segments) {
+            if (segment.type() == MessageSegment.Type.TEXT) {
+                continue;
+            }
+            Map<String, Object> value = new LinkedHashMap<>();
+            value.put("type", segment.type().name());
+            if (!segment.text().isBlank()) value.put("text", segment.text());
+            if (!segment.qqId().isBlank()) value.put("qqId", segment.qqId());
+            if (!segment.targetMessageId().isBlank()) {
+                value.put("target", segment.targetMessageId());
+            }
+            if (!segment.mediaType().isBlank()) value.put("mediaType", segment.mediaType());
+            if (segment.byteSize() > 0L) value.put("size", segment.byteSize());
+            if (segment.type() == MessageSegment.Type.OTHER
+                    && !segment.rawType().isBlank()) {
+                value.put("raw", segment.rawType());
+            }
+            values.add(value);
+        }
+        return List.copyOf(values);
+    }
+
+    private static boolean needsMessageKey(List<MessageSegment> segments) {
+        if (segments == null) return false;
+        return segments.stream().anyMatch(segment -> switch (segment.type()) {
+            case IMAGE, AUDIO, FILE, FORWARD, OTHER -> true;
+            default -> false;
+        });
     }
 
     static Map<String, Object> threadMap(ChatThread thread) {

@@ -99,13 +99,20 @@ class SqliteMessageBoardStoreTest {
             store.append(first, java.util.List.of(
                     MessageSegment.text(0, "第一句"),
                     MessageSegment.image(1, "file-1", "https://example.invalid/x.png",
-                            "image/png", 3L)));
+                            "image/png", 3L),
+                    MessageSegment.file(2, "三国.json", "file-secret", 401_546L)));
             store.append(inbound("m-2", "alice", "Alice", "第二句"));
             store.append(inbound("m-3", "alice", "Alice", "第三句"));
 
             assertThat(store.segments(first.messageKey()))
                     .extracting(MessageSegment::type)
-                    .containsExactly(MessageSegment.Type.TEXT, MessageSegment.Type.IMAGE);
+                    .containsExactly(MessageSegment.Type.TEXT, MessageSegment.Type.IMAGE,
+                            MessageSegment.Type.FILE);
+            MessageSegment file = store.segments(first.messageKey()).get(2);
+            assertThat(file.text()).isEqualTo("三国.json");
+            assertThat(file.fileId()).isEqualTo("file-secret");
+            assertThat(file.byteSize()).isEqualTo(401_546L);
+            assertThat(file.media()).isTrue();
             assertThat(store.findByMessageId(GROUP.threadId(), "m-1")).isPresent();
             assertThat(store.readThreadBefore(GROUP.threadId(), 4L, 2))
                     .extracting(ChatMessage::localSeq)

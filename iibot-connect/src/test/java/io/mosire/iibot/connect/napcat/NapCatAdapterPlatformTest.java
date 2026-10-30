@@ -11,6 +11,7 @@ import io.mosire.iibot.connect.core.ChatMessageDetail;
 import io.mosire.iibot.connect.core.GroupMember;
 import io.mosire.iibot.connect.core.MediaAsset;
 import io.mosire.iibot.connect.core.MessageSegment;
+import io.mosire.iibot.connect.core.QqGroupFile;
 import io.mosire.iibot.connect.core.SendReceipt;
 import io.mosire.iibot.connect.core.ForwardPage;
 import io.mosire.iibot.connect.core.InboundMessage.SessionType;
@@ -21,6 +22,8 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -173,6 +176,84 @@ class NapCatAdapterPlatformTest {
     }
 
     @Test
+    void listsAndDownloadsGroupFilesThroughTypedCapability() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(config(server))) {
+            List<QqGroupFile> files = adapter.groupFiles("30003", "/")
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(files).singleElement().satisfies(file -> {
+                assertThat(file.name()).isEqualTo("三国.json");
+                assertThat(file.byteSize()).isEqualTo(401_546L);
+                assertThat(file.uploaderName()).isEqualTo("上传者");
+                assertThat(file.busid()).isEqualTo("102");
+                assertThat(file.toString()).doesNotContain("file-secret");
+            });
+            JsonNode listPayload = server.lastPayload("/get_group_files_by_folder");
+            assertThat(listPayload.path("group_id").asText()).isEqualTo("30003");
+            assertThat(listPayload.path("folder_id").asText()).isEqualTo("/");
+
+            MediaAsset asset = adapter.downloadGroupFile("30003", files.getFirst())
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+            assertThat(asset.fileName()).isEqualTo("三国.json");
+            assertThat(asset.mediaType()).isEqualTo("application/json");
+            assertThat(new String(asset.bytes(), StandardCharsets.UTF_8))
+                    .isEqualTo("{\"ok\":true}");
+            JsonNode urlPayload = server.lastPayload("/get_group_file_url");
+            assertThat(urlPayload.path("group_id").asText()).isEqualTo("30003");
+            assertThat(urlPayload.path("file_id").asText()).isEqualTo("file-secret");
+            assertThat(urlPayload.path("busid").asInt()).isEqualTo(102);
+        }
+    }
+
+    @Test
+    void recallsMessageThroughStandardDeleteAction() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(config(server))) {
+            SendReceipt receipt = adapter.recall("777")
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(receipt.state()).isEqualTo(SendReceipt.State.SENT);
+            assertThat(receipt.adapterMessageIds()).containsExactly("777");
+            assertThat(server.lastPayload("/delete_msg").path("message_id").asText())
+                    .isEqualTo("777");
+        }
+    }
+
+    @Test
+    void uploadsGroupFileThroughTemporaryLocalPathAndCleansUp() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(config(server))) {
+            SendReceipt receipt = adapter.uploadGroupFile("30003", "三国.json",
+                            "application/json", new byte[]{1, 2, 3}, "upload-1")
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(receipt.state()).isEqualTo(SendReceipt.State.SENT);
+            JsonNode payload = server.lastPayload("/upload_group_file");
+            assertThat(payload.path("group_id").asText()).isEqualTo("30003");
+            assertThat(payload.path("name").asText()).isEqualTo("三国.json");
+            assertThat(payload.path("folder").asText()).isEqualTo("/");
+            Path temporary = Path.of(payload.path("file").asText());
+            assertThat(Files.exists(temporary)).isFalse();
+        }
+    }
+
+    @Test
+    void downloadsVoiceRecordBytesWithoutExposingUrl() throws Exception {
+        try (MockHttpServer server = new MockHttpServer();
+             NapCatAdapter adapter = new NapCatAdapter(config(server))) {
+            MessageSegment audio = MessageSegment.audio(0, "voice.amr",
+                    server.baseUri().resolve("audio").toString(), "", 3L);
+
+            MediaAsset asset = adapter.audio(audio)
+                    .toCompletableFuture().get(2, TimeUnit.SECONDS);
+
+            assertThat(asset.mediaType()).isEqualTo("audio/mpeg");
+            assertThat(asset.bytes()).containsExactly(4, 5, 6);
+        }
+    }
+
+    @Test
     void decidesIncomingFriendRequestThroughStandardAction() throws Exception {
         try (MockHttpServer server = new MockHttpServer();
              NapCatAdapter adapter = new NapCatAdapter(config(server))) {
@@ -267,8 +348,14 @@ class NapCatAdapterPlatformTest {
             server.createContext("/get_msg", this::message);
             server.createContext("/get_friend_msg_history", this::history);
             server.createContext("/get_forward_msg", this::forward);
+            server.createContext("/get_group_files_by_folder", this::groupFiles);
+            server.createContext("/get_group_file_url", this::groupFileUrl);
+            server.createContext("/download/group.json", this::groupFileData);
+            server.createContext("/delete_msg", this::deleteMessage);
+            server.createContext("/upload_group_file", this::uploadGroupFile);
             server.createContext("/set_friend_add_request", this::friendDecision);
             server.createContext("/image", this::imageData);
+            server.createContext("/audio", this::audioData);
             server.createContext("/send_private_msg", exchange ->
                     send(exchange, "/send_private_msg", "1"));
             server.createContext("/send_group_msg", exchange ->
@@ -390,6 +477,62 @@ class NapCatAdapterPlatformTest {
                        ]}
                     ]}}
                     """);
+        }
+
+        private void groupFiles(HttpExchange exchange) throws IOException {
+            paths.add(exchange.getRequestURI().getPath());
+            payloads.put(exchange.getRequestURI().getPath(), read(exchange));
+            respond(exchange, """
+                    {"status":"ok","retcode":0,"data":{"files":[
+                      {"file_id":"file-secret","file_name":"三国.json",
+                       "file_size":"401546","busid":102,"upload_time":"1700000000",
+                       "uploader":{"user_id":"20002","nickname":"上传者"}}
+                    ]}}
+                    """);
+        }
+
+        private void groupFileUrl(HttpExchange exchange) throws IOException {
+            paths.add(exchange.getRequestURI().getPath());
+            payloads.put(exchange.getRequestURI().getPath(), read(exchange));
+            respond(exchange, """
+                    {"status":"ok","retcode":0,"data":{
+                      "url":"%s"
+                    }}
+                    """.formatted(baseUri().resolve("download/group.json")));
+        }
+
+        private void uploadGroupFile(HttpExchange exchange) throws IOException {
+            paths.add(exchange.getRequestURI().getPath());
+            payloads.put(exchange.getRequestURI().getPath(), read(exchange));
+            respond(exchange, """
+                    {"status":"ok","retcode":0,"data":{"message_id":"file-msg-1"}}
+                    """);
+        }
+
+        private void deleteMessage(HttpExchange exchange) throws IOException {
+            paths.add(exchange.getRequestURI().getPath());
+            payloads.put(exchange.getRequestURI().getPath(), read(exchange));
+            respond(exchange, "{\"status\":\"ok\",\"retcode\":0,\"data\":null}");
+        }
+
+        private void groupFileData(HttpExchange exchange) throws IOException {
+            paths.add(exchange.getRequestURI().getPath());
+            byte[] bytes = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(bytes);
+            }
+        }
+
+        private void audioData(HttpExchange exchange) throws IOException {
+            paths.add(exchange.getRequestURI().getPath());
+            byte[] bytes = new byte[]{4, 5, 6};
+            exchange.getResponseHeaders().set("Content-Type", "audio/mpeg");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(bytes);
+            }
         }
 
         private void imageData(HttpExchange exchange) throws IOException {

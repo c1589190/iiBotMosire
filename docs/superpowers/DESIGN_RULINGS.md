@@ -21,6 +21,9 @@
 | D-027 | debug/info 日志与易用配置系统 | 已实施 P2/P3 | [需求原稿](specs/2026-10-24-user-requirements-source.md)；[日志](specs/2026-10-28-logging-levels-and-diagnostics.md)；[配置](specs/2026-10-28-configuration-system.md) |
 | D-028 | 依赖最新且可复现、文档一致 | P7a 已升级；AgentLib 0.2.4 发布待补 | [需求原稿](specs/2026-10-24-user-requirements-source.md)；[计划](plans/2026-10-28-unified-qq-agent-client-refactor-plan.md) |
 | D-029 | 全唤醒 + 统一来源地址（qq_group/qq_private/qq_system/app_system） | P8 已实施（外部联调 NOT_RUN） | [来源地址设计](specs/2026-10-28-unified-message-source-address.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
+| D-030 | ack 不依赖 read、支持消息序号 | 已实施 P8.7 | [需求原稿](specs/2026-10-24-user-requirements-source.md) |
+| D-031 | Raw LLBot 常规兜底、@全体、主动私聊、撤回、富媒体、音频提取与宿主调度 | 已拍板；实施待分批 | [专题设计](specs/2026-10-30-qq-outbound-actions-and-media-rulings.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
+| D-032 | Inbox 短正文内联与 compact qq read/ack；Inbox core 不改，DSH 通用 profile 能力 | 已实施（code-level，2026-10-30） | [专题设计](specs/2026-10-30-inbox-inline-and-compact-tool-results.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
 
 ## 二、当前专题入口
 
@@ -30,6 +33,8 @@
 | 配置文件系统 v2 | [`specs/2026-10-28-configuration-system.md`](specs/2026-10-28-configuration-system.md) | accounts schema、来源追踪、`--check-config`、单文件 bootstrap |
 | 日志分级与诊断 | [`specs/2026-10-28-logging-levels-and-diagnostics.md`](specs/2026-10-28-logging-levels-and-diagnostics.md) | INFO/DEBUG、MDC 关联、配置化轮转、脱敏 |
 | OneBot 11 富消息与历史 | [`specs/2026-10-27-onebot11-rich-messaging-history-media-and-requests.md`](specs/2026-10-27-onebot11-rich-messaging-history-media-and-requests.md) | 消息段、历史、媒体、好友申请契约 |
+| QQ 出站动作与富媒体（D-031） | [`specs/2026-10-30-qq-outbound-actions-and-media-rulings.md`](specs/2026-10-30-qq-outbound-actions-and-media-rulings.md) | Raw 兜底、mentionAll、主动私聊、撤回、image/sticker/file、音频提取、宿主调度 |
+| Inbox 短正文内联与 compact 工具结果（D-032） | [`specs/2026-10-30-inbox-inline-and-compact-tool-results.md`](specs/2026-10-30-inbox-inline-and-compact-tool-results.md) | Inbox core 不改；`digest_complete` kind、DSH profile 紧凑注入、source-only read/ack |
 | Inbox Mode A 接入 | [`specs/2026-10-25-inbox-mode-a-notification-workflow.md`](specs/2026-10-25-inbox-mode-a-notification-workflow.md) | 程序嵌入 Inbox 的通知/唤醒接线 |
 | 当前实施计划 | [`plans/2026-10-28-unified-qq-agent-client-refactor-plan.md`](plans/2026-10-28-unified-qq-agent-client-refactor-plan.md) | P0–P7 责任区、验收、风险 |
 | P8 来源地址与 wake | [`plans/2026-10-28-p8-source-address-and-wake-contract.md`](plans/2026-10-28-p8-source-address-and-wake-contract.md)；[`specs/2026-10-28-unified-message-source-address.md`](specs/2026-10-28-unified-message-source-address.md) | 全唤醒、source 地址、wake 契约 |

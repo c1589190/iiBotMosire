@@ -142,9 +142,11 @@ public final class OutboxSender {
                 normalized.add(segment);
             }
         }
-        boolean hasText = normalized.stream()
-                .anyMatch(segment -> segment instanceof OutboundSegment.Text);
-        return hasText ? List.copyOf(normalized) : List.of();
+        boolean hasContent = normalized.stream().anyMatch(segment ->
+                segment instanceof OutboundSegment.Text
+                        || segment instanceof OutboundSegment.Image
+                        || segment instanceof OutboundSegment.Sticker);
+        return hasContent ? List.copyOf(normalized) : List.of();
     }
 
     /**

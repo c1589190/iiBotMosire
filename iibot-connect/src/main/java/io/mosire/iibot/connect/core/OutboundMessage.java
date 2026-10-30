@@ -57,13 +57,17 @@ public record OutboundMessage(
                         .toList();
             }
             boolean hasContent = richSegments.stream().anyMatch(segment ->
-                    segment instanceof OutboundSegment.Text text && !text.text().isBlank());
+                    (segment instanceof OutboundSegment.Text text && !text.text().isBlank())
+                            || segment instanceof OutboundSegment.Image
+                            || segment instanceof OutboundSegment.Sticker);
             if (!hasContent) {
-                throw new IllegalArgumentException("richSegments 至少需要一个非空 Text 段");
+                throw new IllegalArgumentException(
+                        "richSegments 至少需要一个非空 Text/Image/Sticker 段");
             }
             if (targetType != TargetType.GROUP && richSegments.stream()
-                    .anyMatch(OutboundSegment.Mention.class::isInstance)) {
-                throw new IllegalArgumentException("Mention 段只适用于群聊");
+                    .anyMatch(segment -> segment instanceof OutboundSegment.Mention
+                            || segment instanceof OutboundSegment.MentionAll)) {
+                throw new IllegalArgumentException("Mention/MentionAll 段只适用于群聊");
             }
         }
         idempotencyKey = requireText(idempotencyKey, "idempotencyKey");

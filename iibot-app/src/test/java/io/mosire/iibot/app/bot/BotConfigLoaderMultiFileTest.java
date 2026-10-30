@@ -67,6 +67,7 @@ class BotConfigLoaderMultiFileTest {
                   "messageBoard": {
                     "summaryDebounceMillis": 3000,
                     "maxPreviewMessages": 12,
+                    "inlineMaxChars": 300,
                     "weighting": {
                       "signalWeights": {"MENTION": 220},
                       "keywordWeights": {"上线": 120}
@@ -84,6 +85,7 @@ class BotConfigLoaderMultiFileTest {
         assertThat(loaded.inbox().mcpPath()).isEqualTo("/custom/mcp");
         assertThat(loaded.messageBoard().summaryDebounceMillis()).isEqualTo(3000L);
         assertThat(loaded.messageBoard().maxPreviewMessages()).isEqualTo(12);
+        assertThat(loaded.messageBoard().inlineMaxChars()).isEqualTo(300);
         assertThat(loaded.messageBoard().weighting().toSettings(12).signalWeights()
                 .get(io.mosire.iibot.bot.weight.WeightSignal.MENTION)).isEqualTo(220);
         assertThat(loaded.messageBoard().weighting().toSettings(12)

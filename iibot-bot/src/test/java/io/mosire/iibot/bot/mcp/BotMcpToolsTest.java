@@ -25,6 +25,7 @@ import io.mosire.iibot.bot.store.ConsumerConversationStore;
 import io.mosire.iibot.bot.store.InMemoryConsumerConversationStore;
 import io.mosire.iibot.bot.store.InMemoryMessageBoardStore;
 import io.mosire.iibot.connect.core.MessageSegment;
+import io.mosire.iibot.connect.core.OutboundSegment;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -60,7 +61,8 @@ class BotMcpToolsTest {
                 "qq_conversation_list", "qq_conversation_history",
                 "qq_message_get", "qq_message_thread", "qq_conversation_send",
                 "qq_conversation_read", "qq_conversation_ack",
-                "qq_user_note_get", "qq_user_note_list", "qq_user_note_upsert");
+                "qq_user_note_get", "qq_user_note_list", "qq_user_note_upsert",
+                "qq_private_send");
         assertThat(tools).extracting(AgentTool::name).allMatch(name -> name.startsWith("qq_"));
         assertThat(tools).extracting(AgentTool::name)
                 .doesNotContain("bot_thread_read", "bot_thread_ack");
@@ -73,15 +75,17 @@ class BotMcpToolsTest {
 
         JsonNode read = call(tool(tools, "qq_conversation_read"),
                 Map.of("source", "qq_group/bot-1/group-9", "limit", 10));
-        assertThat(read.path("data").path("source").asText())
-                .isEqualTo("qq_group/bot-1/group-9");
-        assertThat(read.path("data").path("messages")).hasSize(1);
-        assertThat(read.path("data").path("messages").get(0).path("source").asText())
-                .isEqualTo("qq_group/bot-1/group-9");
-        assertThat(read.path("data").path("messages").get(0).path("text").asText())
-                .isEqualTo("第一句");
-        assertThat(read.path("data").path("messages").get(0).path("nonTextSummary").asText())
+        assertThat(read.path("source").asText()).isEqualTo("qq_group/bot-1/group-9");
+        assertThat(read.path("messages")).hasSize(1);
+        assertThat(read.path("messages").get(0).path("from").asText()).isEqualTo("Alice");
+        assertThat(read.path("messages").get(0).path("uid").asText()).isEqualTo("qq-1");
+        assertThat(read.path("messages").get(0).path("text").asText()).isEqualTo("第一句");
+        assertThat(read.path("messages").get(0).path("summary").asText())
                 .isEqualTo("[图片×1]");
+        assertThat(read.path("more").asBoolean()).isFalse();
+        assertThat(read.has("data")).isFalse();
+        assertThat(read.toString()).doesNotContain(
+                "messageKey", "threadId", "readSeq", "deliveredSeq", "tool\":");
 
         JsonNode message = call(tool(tools, "qq_message_get"),
                 Map.of("messageKey", ChatMessage.inboundKey(GROUP, "m-1")));
@@ -154,6 +158,73 @@ class BotMcpToolsTest {
     }
 
     @Test
+    void mentionAllPersistsAtAllSegmentAndRejectsCombinedMentionModes() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, "原消息", "", ""));
+        FakeReplyPort replyPort = new FakeReplyPort();
+        AgentTool reply = new BotReplyTool(
+                new BotReplyService(board, replyPort, CLOCK));
+
+        JsonNode result = call(reply, Map.of(
+                "threadId", GROUP.threadId(),
+                "text", "全员通知",
+                "mentionAll", true,
+                "idempotencyKey", "mention-all-1"));
+
+        assertThat(result.path("data").path("deliveryState").asText()).isEqualTo("SENT");
+        assertThat(replyPort.mentionAll).isTrue();
+        ChatMessage stored = board.find(ChatMessage.outboundKey(GROUP, "mention-all-1"))
+                .orElseThrow();
+        assertThat(stored.nonTextSummary()).contains("[@全体×1]");
+        assertThat(board.segments(stored.messageKey()))
+                .extracting(MessageSegment::type)
+                .containsExactly(MessageSegment.Type.MENTION, MessageSegment.Type.TEXT);
+        assertThat(board.segments(stored.messageKey()).getFirst().qqId()).isEqualTo("all");
+
+        AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
+                .allow(reply.name())
+                .build();
+        ToolResult invalid = reply.execute(new ToolContext(AccessToken.DEFAULT,
+                permissions, Map.of(), Map.of(
+                        "threadId", GROUP.threadId(),
+                        "text", "冲突",
+                        "replyToMessageId", "m-1",
+                        "mentionSender", true,
+                        "mentionAll", true,
+                        "idempotencyKey", "mention-all-conflict")));
+        assertThat(invalid.code()).isEqualTo("INVALID_ARGUMENTS");
+    }
+
+    @Test
+    void imageAndStickerAttachmentsAreParsedAndPersistedWithoutText() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, "原消息", "", ""));
+        FakeReplyPort replyPort = new FakeReplyPort();
+        AgentTool reply = new BotReplyTool(
+                new BotReplyService(board, replyPort, CLOCK));
+
+        JsonNode result = call(reply, Map.of(
+                "threadId", GROUP.threadId(),
+                "attachments", List.of(
+                        Map.of("type", "image", "assetRef", "asset-1",
+                                "fileName", "image.png", "mediaType", "image/png"),
+                        Map.of("type", "sticker", "faceId", "1")),
+                "idempotencyKey", "rich-1"));
+
+        assertThat(result.path("data").path("deliveryState").asText()).isEqualTo("SENT");
+        assertThat(replyPort.richAttachments).hasSize(2);
+        ChatMessage stored = board.find(ChatMessage.outboundKey(GROUP, "rich-1"))
+                .orElseThrow();
+        assertThat(stored.text()).isEmpty();
+        assertThat(stored.nonTextSummary()).contains("[图片×1]", "[表情×1]");
+        assertThat(board.segments(stored.messageKey()))
+                .extracting(MessageSegment::type)
+                .containsExactly(MessageSegment.Type.IMAGE, MessageSegment.Type.FACE);
+    }
+
+    @Test
     void readIsPreviewOnlyRepeatableAndAckConsumesOnlyDeliveredBatch() throws Exception {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice", T0, T0,
@@ -174,11 +245,12 @@ class BotMcpToolsTest {
 
         JsonNode firstRead = call(tool(tools, "qq_conversation_read"),
                 Map.of("threadId", GROUP.threadId(), "limit", 1));
-        assertThat(firstRead.path("data").path("accountId").asText()).isEqualTo("bot-1");
-        assertThat(firstRead.path("data").path("count").asInt()).isEqualTo(1);
-        assertThat(firstRead.path("data").path("messages").get(0).path("text").asText())
+        assertThat(firstRead.path("source").asText())
+                .isEqualTo("qq_group/bot-1/group-9");
+        assertThat(firstRead.path("messages")).hasSize(1);
+        assertThat(firstRead.path("messages").get(0).path("text").asText())
                 .isEqualTo("第一条");
-        assertThat(firstRead.path("data").path("deliveredSeq").asLong()).isEqualTo(1L);
+        assertThat(firstRead.path("more").asBoolean()).isTrue();
         assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
                 GROUP.threadId())).get()
                 .extracting(ConsumerConversationState::readSeq,
@@ -191,10 +263,9 @@ class BotMcpToolsTest {
 
         JsonNode repeatedRead = call(tool(tools, "qq_conversation_read"),
                 Map.of("threadId", GROUP.threadId(), "limit", 1));
-        assertThat(repeatedRead.path("data").path("messages")).hasSize(1);
-        assertThat(repeatedRead.path("data").path("messages").get(0)
-                .path("messageId").asText()).isEqualTo("m-1");
-        assertThat(repeatedRead.path("data").path("deliveredSeq").asLong()).isEqualTo(1L);
+        assertThat(repeatedRead.path("messages")).hasSize(1);
+        assertThat(repeatedRead.path("messages").get(0).path("seq").asLong()).isEqualTo(1L);
+        assertThat(repeatedRead.path("more").asBoolean()).isFalse();
         assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
                 GROUP.threadId()).orElseThrow().readSeq()).isZero();
 
@@ -203,10 +274,10 @@ class BotMcpToolsTest {
                 "第三条", "", ""));
         JsonNode ack = call(tool(tools, "qq_conversation_ack"),
                 Map.of("source", "qq_group/bot-1/group-9"));
-        assertThat(ack.path("data").path("acked").asBoolean()).isTrue();
-        assertThat(ack.path("data").path("readSeq").asLong()).isEqualTo(1L);
-        assertThat(ack.path("data").path("inboxArchived").asBoolean()).isFalse();
-        assertThat(ack.path("data").path("remaining").asBoolean()).isTrue();
+        assertThat(ack.size()).isEqualTo(1);
+        assertThat(ack.path("more").asBoolean()).isTrue();
+        assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
+                GROUP.threadId()).orElseThrow().readSeq()).isEqualTo(1L);
         assertThat(board.readThread(GROUP.threadId(), 0L, 10))
                 .extracting(ChatMessage::localSeq)
                 .containsExactly(1L, 2L, 3L);
@@ -216,28 +287,48 @@ class BotMcpToolsTest {
 
         JsonNode secondRead = call(tool(tools, "qq_conversation_read"),
                 Map.of("threadId", GROUP.threadId(), "limit", 10));
-        assertThat(secondRead.path("data").path("messages"))
-                .extracting(value -> value.path("localSeq").asLong())
+        assertThat(secondRead.path("messages"))
+                .extracting(value -> value.path("seq").asLong())
                 .containsExactly(2L, 3L);
-        assertThat(secondRead.path("data").path("deliveredSeq").asLong()).isEqualTo(3L);
+        assertThat(secondRead.path("more").asBoolean()).isFalse();
 
         JsonNode secondAck = call(tool(tools, "qq_conversation_ack"),
                 Map.of("threadId", GROUP.threadId()));
-        assertThat(secondAck.path("data").path("acked").asBoolean()).isTrue();
-        assertThat(secondAck.path("data").path("readSeq").asLong()).isEqualTo(3L);
-        assertThat(secondAck.path("data").path("inboxArchived").asBoolean()).isTrue();
+        assertThat(secondAck.path("more").asBoolean()).isFalse();
+        assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
+                GROUP.threadId()).orElseThrow().readSeq()).isEqualTo(3L);
         assertThat(digestStates.find(GROUP.threadId()).orElseThrow().hasActiveItem())
                 .isFalse();
 
         JsonNode noOp = call(tool(tools, "qq_conversation_ack"),
                 Map.of("threadId", GROUP.threadId()));
-        assertThat(noOp.path("data").path("acked").asBoolean()).isFalse();
-        assertThat(noOp.path("data").path("reason").asText())
-                .isEqualTo("NO_ACTIVE_ITEM");
+        assertThat(noOp.path("more").asBoolean()).isFalse();
     }
 
     @Test
-    void ackWithoutReadCanArchiveCurrentItemOrExplicitSeq() throws Exception {
+    void compactReadKeepsSafeMediaMetadataButNoFileIdOrUrl() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        ChatMessage message = board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1",
+                "Alice", T0, T0, "", "[图片×1]", ""),
+                List.of(MessageSegment.image(0, "secret-file-id", "https://secret/url",
+                        "image/png", 123L))).message();
+        BotQqConversationReadTool read = new BotQqConversationReadTool(
+                board, new InMemoryConsumerConversationStore(), CLOCK);
+
+        JsonNode result = call(read, Map.of(
+                "source", "qq_group/bot-1/group-9"));
+
+        JsonNode segment = result.path("messages").get(0).path("segments").get(0);
+        assertThat(segment.path("type").asText()).isEqualTo("IMAGE");
+        assertThat(segment.path("mediaType").asText()).isEqualTo("image/png");
+        assertThat(segment.path("size").asLong()).isEqualTo(123L);
+        assertThat(result.toString()).doesNotContain("secret-file-id", "secret/url");
+        assertThat(result.path("messages").get(0).path("key").asText())
+                .isEqualTo(message.messageKey());
+    }
+
+    @Test
+    void ackWithoutReadArchivesCurrentItem() throws Exception {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
                 T0, T0, "第一条", "", ""));
@@ -255,10 +346,7 @@ class BotMcpToolsTest {
         AgentTool ack = tool(tools, "qq_conversation_ack");
 
         JsonNode direct = call(ack, Map.of("source", "qq_group/bot-1/group-9"));
-        assertThat(direct.path("data").path("acked").asBoolean()).isTrue();
-        assertThat(direct.path("data").path("mode").asText()).isEqualTo("ACTIVE_ITEM");
-        assertThat(direct.path("data").path("inboxArchived").asBoolean()).isTrue();
-        assertThat(direct.path("data").path("readSeq").asLong()).isEqualTo(2L);
+        assertThat(direct.path("more").asBoolean()).isFalse();
         assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
                 GROUP.threadId()).orElseThrow().readSeq()).isEqualTo(2L);
 
@@ -267,17 +355,14 @@ class BotMcpToolsTest {
         board.append(ChatMessage.inbound(GROUP, "m-4", "qq-1", "Alice",
                 T0, T0, "第四条", "", ""));
         digestService.flushThread(GROUP.threadId());
-        JsonNode explicit = call(ack, Map.of(
-                "source", "qq_group/bot-1/group-9", "seq", 3));
-        assertThat(explicit.path("data").path("acked").asBoolean()).isTrue();
-        assertThat(explicit.path("data").path("mode").asText()).isEqualTo("EXPLICIT_SEQ");
-        assertThat(explicit.path("data").path("remaining").asBoolean()).isTrue();
+        JsonNode second = call(ack, Map.of("source", "qq_group/bot-1/group-9"));
+        assertThat(second.path("more").asBoolean()).isFalse();
         assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
-                GROUP.threadId()).orElseThrow().readSeq()).isEqualTo(3L);
+                GROUP.threadId()).orElseThrow().readSeq()).isEqualTo(4L);
     }
 
     @Test
-    void readReturnsInboundOnlyAndSeparatesOutbound() throws Exception {
+    void readReturnsInboundOnly() throws Exception {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         board.append(ChatMessage.outbound(GROUP, "out-1", T0, "自己先发的", "", ""));
         board.append(ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
@@ -288,18 +373,11 @@ class BotMcpToolsTest {
 
         JsonNode normal = call(read, Map.of(
                 "source", "qq_group/bot-1/group-9", "limit", 10));
-        assertThat(normal.path("data").path("count").asInt()).isEqualTo(1);
-        assertThat(normal.path("data").path("messages").get(0).path("direction").asText())
-                .isEqualTo("IN");
-        assertThat(normal.path("data").path("outboundCount").asInt()).isZero();
-        assertThat(normal.path("data").path("deliveredSeq").asLong()).isEqualTo(2L);
-
-        JsonNode withOutbound = call(read, Map.of(
-                "source", "qq_group/bot-1/group-9", "includeOutbound", true));
-        assertThat(withOutbound.path("data").path("count").asInt()).isEqualTo(1);
-        assertThat(withOutbound.path("data").path("outboundCount").asInt()).isEqualTo(1);
-        assertThat(withOutbound.path("data").path("outbound").get(0)
-                .path("direction").asText()).isEqualTo("OUT");
+        assertThat(normal.path("messages")).hasSize(1);
+        assertThat(normal.path("messages").get(0).path("text").asText()).isEqualTo("入站消息");
+        assertThat(normal.path("more").asBoolean()).isFalse();
+        assertThat(normal.has("outbound")).isFalse();
+        assertThat(normal.has("outboundCount")).isFalse();
     }
 
     @Test
@@ -316,12 +394,12 @@ class BotMcpToolsTest {
         JsonNode first = call(read, Map.of("threadId", GROUP.threadId(), "limit", 3));
         JsonNode replay = call(read, Map.of("threadId", GROUP.threadId(), "limit", 1));
 
-        assertThat(first.path("data").path("count").asInt()).isEqualTo(3);
-        assertThat(first.path("data").path("deliveredSeq").asLong()).isEqualTo(3L);
-        assertThat(replay.path("data").path("count").asInt()).isEqualTo(3);
-        assertThat(replay.path("data").path("deliveredSeq").asLong()).isEqualTo(3L);
-        assertThat(replay.path("data").path("messages"))
-                .extracting(value -> value.path("localSeq").asLong())
+        assertThat(first.path("messages")).hasSize(3);
+        assertThat(first.path("more").asBoolean()).isFalse();
+        assertThat(replay.path("messages")).hasSize(3);
+        assertThat(replay.path("more").asBoolean()).isFalse();
+        assertThat(replay.path("messages"))
+                .extracting(value -> value.path("seq").asLong())
                 .containsExactly(1L, 2L, 3L);
     }
 
@@ -377,10 +455,13 @@ class BotMcpToolsTest {
         JsonNode readRequired = JSON.valueToTree(read.jsonSchema()).path("required");
         JsonNode ackRequired = JSON.valueToTree(ack.jsonSchema()).path("required");
         JsonNode sendRequired = JSON.valueToTree(send.jsonSchema()).path("required");
-        assertThat(readRequired.size()).isZero();
-        assertThat(ackRequired.size()).isZero();
-        assertThat(sendRequired).extracting(JsonNode::asText)
-                .containsExactly("text");
+        assertThat(readRequired.size()).isEqualTo(1);
+        assertThat(readRequired.get(0).asText()).isEqualTo("source");
+        assertThat(ackRequired.size()).isEqualTo(1);
+        assertThat(ackRequired.get(0).asText()).isEqualTo("source");
+        assertThat(sendRequired.size()).isZero();
+        assertThat(JSON.valueToTree(send.jsonSchema()).path("properties")
+                .has("attachments")).isTrue();
         assertThat(JSON.valueToTree(read.jsonSchema()).path("properties")
                 .has("source")).isTrue();
         assertThat(JSON.valueToTree(ack.jsonSchema()).path("properties")
@@ -388,7 +469,7 @@ class BotMcpToolsTest {
         assertThat(JSON.valueToTree(send.jsonSchema()).path("properties")
                 .has("source")).isTrue();
         assertThat(JSON.valueToTree(read.jsonSchema()).path("properties")
-                .path("limit").path("maximum").asInt()).isEqualTo(100);
+                .has("limit")).isFalse();
         assertThat(schema).doesNotContain("expectedRevision", "snapshotToSeq", "itemId",
                 "localSeq", "afterSeq");
     }
@@ -428,6 +509,28 @@ class BotMcpToolsTest {
                 .doesNotContain("qq_recent_messages", "qq_remote_history");
     }
 
+    @Test
+    void exposesCardAndFileMetadataWithoutInternalLocators() throws Exception {
+        MessageSegment card = new MessageSegment(0, MessageSegment.Type.OTHER,
+                "三国资料 | https://example.invalid/card", "", "", "", "", "", 0L,
+                "", "json");
+        MessageSegment file = new MessageSegment(1, MessageSegment.Type.FILE,
+                "三国.json", "", "", "file-secret", "https://internal.invalid/raw",
+                "application/octet-stream", 401_546L, "", "file");
+
+        String cardJson = JSON.writeValueAsString(BotToolSupport.segmentMap(card));
+        String fileJson = JSON.writeValueAsString(BotToolSupport.segmentMap(file));
+
+        assertThat(cardJson)
+                .contains("三国资料", "https://example.invalid/card", "\"rawType\":\"json\"")
+                .doesNotContain("\"fileId\"", "\"url\"");
+        assertThat(fileJson)
+                .contains("三国.json", "\"rawType\":\"file\"", "\"byteSize\":401546",
+                        "\"hasMedia\":true")
+                .doesNotContain("file-secret", "https://internal.invalid/raw",
+                        "\"fileId\"", "\"url\"");
+    }
+
     private static ToolContext context(AgentTool tool, Map<String, Object> args) {
         AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
                 .allow(tool.name())
@@ -450,6 +553,8 @@ class BotMcpToolsTest {
 
     private static final class FakeReplyPort implements BotReplyPort {
         private String mentionQqId = "";
+        private boolean mentionAll;
+        private List<OutboundSegment> richAttachments = List.of();
 
         @Override
         public BotReplySendResult send(ChatSourceKey source, String text,
@@ -462,6 +567,26 @@ class BotMcpToolsTest {
                 ChatSourceKey source, String text, String replyToMessageId,
                 String mentionQqId, String idempotencyKey) {
             this.mentionQqId = mentionQqId;
+            return send(source, text, replyToMessageId, idempotencyKey);
+        }
+
+        @Override
+        public BotReplySendResult sendWithMentions(
+                ChatSourceKey source, String text, String replyToMessageId,
+                String mentionQqId, boolean mentionAll, String idempotencyKey) {
+            this.mentionQqId = mentionQqId;
+            this.mentionAll = mentionAll;
+            return send(source, text, replyToMessageId, idempotencyKey);
+        }
+
+        @Override
+        public BotReplySendResult sendRich(
+                ChatSourceKey source, String text, String replyToMessageId,
+                String mentionQqId, boolean mentionAll,
+                List<OutboundSegment> attachments, String idempotencyKey) {
+            this.mentionQqId = mentionQqId;
+            this.mentionAll = mentionAll;
+            this.richAttachments = attachments;
             return send(source, text, replyToMessageId, idempotencyKey);
         }
     }

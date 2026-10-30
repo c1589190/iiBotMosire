@@ -1,12 +1,15 @@
 package io.mosire.iibot.connect.napcat;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.mosire.iibot.connect.core.FriendRequestEvent;
 import io.mosire.iibot.connect.core.InboundMessage;
 import io.mosire.iibot.connect.core.InboundMessage.SessionType;
 import io.mosire.iibot.connect.core.MessageSegment;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +28,16 @@ final class OneBot11Codec {
 
     private static final Pattern CQ_CODE =
             Pattern.compile("\\[CQ:([A-Za-z0-9_.-]+)((?:,[^\\]]*)?)]");
+    private static final Pattern XML_TITLE = xmlTag("title");
+    private static final Pattern XML_SUMMARY = xmlTag("summary");
+    private static final Pattern XML_URL = xmlTag("url");
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final int MAX_CARD_PAYLOAD_CHARS = 16_384;
+    private static final int MAX_CARD_PART_CHARS = 300;
+    private static final int MAX_NON_TEXT_DETAIL_CHARS = 300;
+    private static final int MAX_NON_TEXT_SUMMARY_CHARS = 900;
+    private static final int MAX_FILE_NAME_CHARS = 256;
+    private static final int MAX_FILE_ID_CHARS = 2_048;
 
     OneBot11Codec() {
     }
@@ -169,6 +182,17 @@ final class OneBot11Codec {
                 builder.addReply(params.get("id"));
             } else if ("image".equals(type)) {
                 builder.addImage(params.get("file"), params.get("url"), params.get("file_size"));
+            } else if ("record".equals(type)) {
+                builder.addAudio(params.get("file"), params.get("url"),
+                        params.get("file_size"));
+            } else if ("file".equals(type)) {
+                builder.addFile(firstNonBlank(params.get("file_name"), params.get("name"),
+                                params.get("file")),
+                        firstNonBlank(params.get("file_id"), params.get("id"),
+                                params.get("file")),
+                        params.get("file_size"));
+            } else if ("json".equals(type) || "xml".equals(type)) {
+                builder.addCard(type, params.get("data"));
             } else if ("forward".equals(type)) {
                 builder.addForward(params.get("id"));
             } else {
@@ -195,6 +219,15 @@ final class OneBot11Codec {
         } else if ("image".equals(type)) {
             builder.addImage(text(data, "file"), text(data, "url"),
                     text(data, "file_size"));
+        } else if ("record".equals(type)) {
+            builder.addAudio(text(data, "file"), text(data, "url"),
+                    text(data, "file_size"));
+        } else if ("file".equals(type)) {
+            builder.addFile(firstText(data, "file_name", "name", "file"),
+                    firstText(data, "file_id", "id", "file"),
+                    text(data, "file_size"));
+        } else if ("json".equals(type) || "xml".equals(type)) {
+            builder.addCard(type, data);
         } else if ("forward".equals(type)) {
             builder.addForward(text(data, "id"));
         } else {
@@ -220,6 +253,165 @@ final class OneBot11Codec {
             }
         }
         return result;
+    }
+
+    private static String cardDisplay(JsonNode data, String rawType) {
+        if (data == null || data.isNull()) {
+            return "";
+        }
+        if ("json".equals(rawType)) {
+            if (data.isTextual()) {
+                return cardDisplayFromJson(data.asText());
+            }
+            JsonNode embedded = parseCardJson(text(data, "data"));
+            return embedded == null ? cardDisplayFromJsonNode(data)
+                    : cardDisplayFromJsonNode(embedded);
+        }
+        if ("xml".equals(rawType)) {
+            String xml = data.isTextual() ? data.asText() : text(data, "data");
+            return cardDisplayFromXml(xml);
+        }
+        return "";
+    }
+
+    private static String cardDisplay(String rawType, String payload) {
+        if ("json".equals(rawType)) {
+            return cardDisplayFromJson(payload);
+        }
+        if ("xml".equals(rawType)) {
+            return cardDisplayFromXml(payload);
+        }
+        return "";
+    }
+
+    private static String cardDisplayFromJson(String payload) {
+        JsonNode card = parseCardJson(payload);
+        return card == null ? "" : cardDisplayFromJsonNode(card);
+    }
+
+    private static JsonNode parseCardJson(String payload) {
+        if (payload == null || payload.isBlank()
+                || payload.length() > MAX_CARD_PAYLOAD_CHARS) {
+            return null;
+        }
+        try {
+            JsonNode parsed = JSON.readTree(payload);
+            return parsed == null || parsed.isNull() ? null : parsed;
+        } catch (JsonProcessingException | RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static String cardDisplayFromJsonNode(JsonNode card) {
+        if (card == null || !card.isObject()) {
+            return "";
+        }
+        LinkedHashSet<String> parts = new LinkedHashSet<>();
+        addCardDisplayPart(parts, text(card, "prompt"), false);
+        addCardDisplayPart(parts, text(card, "title"), false);
+        addCardDisplayPart(parts, text(card, "desc"), false);
+        addCardDisplayPart(parts, text(card, "summary"), false);
+        addCardDisplayPart(parts, text(card, "qqdocurl"), true);
+        addCardDisplayPart(parts, text(card, "jumpUrl"), true);
+        addCardDisplayPart(parts, text(card, "url"), true);
+
+        JsonNode meta = card.path("meta");
+        if (meta.isObject()) {
+            for (Map.Entry<String, JsonNode> field : meta.properties()) {
+                JsonNode value = field.getValue();
+                if (value == null || !value.isObject()) {
+                    continue;
+                }
+                addCardDisplayPart(parts, text(value, "title"), false);
+                addCardDisplayPart(parts, text(value, "desc"), false);
+                addCardDisplayPart(parts, text(value, "summary"), false);
+                addCardDisplayPart(parts, text(value, "qqdocurl"), true);
+                addCardDisplayPart(parts, text(value, "jumpUrl"), true);
+                addCardDisplayPart(parts, text(value, "url"), true);
+            }
+        }
+        return joinDisplayParts(parts);
+    }
+
+    private static String cardDisplayFromXml(String xml) {
+        if (xml == null || xml.isBlank() || xml.length() > MAX_CARD_PAYLOAD_CHARS) {
+            return "";
+        }
+        LinkedHashSet<String> parts = new LinkedHashSet<>();
+        addCardDisplayPart(parts, xmlTagValue(XML_TITLE, xml), false);
+        addCardDisplayPart(parts, xmlTagValue(XML_SUMMARY, xml), false);
+        addCardDisplayPart(parts, xmlTagValue(XML_URL, xml), true);
+        return joinDisplayParts(parts);
+    }
+
+    private static String xmlTagValue(Pattern pattern, String xml) {
+        Matcher matcher = pattern.matcher(xml);
+        if (!matcher.find()) {
+            return "";
+        }
+        return matcher.group(1)
+                .replace("<![CDATA[", "")
+                .replace("]]>", "")
+                .replaceAll("(?s)<[^>]+>", " ");
+    }
+
+    private static void addCardDisplayPart(LinkedHashSet<String> parts, String raw,
+                                           boolean url) {
+        String normalized = normalizeInline(decodeEntities(raw));
+        if (normalized.isEmpty()) {
+            return;
+        }
+        if (url && !(normalized.startsWith("https://")
+                || normalized.startsWith("http://"))) {
+            return;
+        }
+        parts.add(truncate(normalized, MAX_CARD_PART_CHARS));
+    }
+
+    private static String joinDisplayParts(LinkedHashSet<String> parts) {
+        return truncate(String.join(" | ", parts), MAX_NON_TEXT_SUMMARY_CHARS);
+    }
+
+    private static Pattern xmlTag(String tag) {
+        String quoted = Pattern.quote(tag);
+        return Pattern.compile("<" + quoted + "(?:\\s[^>]*)?>(.*?)</" + quoted + ">",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    }
+
+    private static String firstText(JsonNode node, String... fields) {
+        if (node == null || fields == null) {
+            return null;
+        }
+        for (String field : fields) {
+            String value = text(node, field);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static String normalizeInline(String raw) {
+        return raw == null ? "" : raw.replaceAll("\\s+", " ").trim();
+    }
+
+    private static String truncate(String value, int maxChars) {
+        if (value == null || value.length() <= maxChars) {
+            return value == null ? "" : value;
+        }
+        return value.substring(0, Math.max(0, maxChars - 1)) + "…";
     }
 
     private static String senderName(JsonNode sender, String fallback) {
@@ -253,11 +445,18 @@ final class OneBot11Codec {
     }
 
     private static String decodeEntities(String raw) {
-        return raw
+        return raw == null ? "" : raw
                 .replace("&#91;", "[")
                 .replace("&#93;", "]")
                 .replace("&#44;", ",")
                 .replace("&#39;", "'")
+                .replace("&#x2F;", "/")
+                .replace("&#x27;", "'")
+                .replace("&#x3D;", "=")
+                .replace("&quot;", "\"")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&nbsp;", " ")
                 .replace("&amp;", "&");
     }
 
@@ -309,6 +508,7 @@ final class OneBot11Codec {
     private static final class DecodedContentBuilder {
         private final StringBuilder text = new StringBuilder();
         private final Map<String, Integer> nonTextCounts = new LinkedHashMap<>();
+        private final LinkedHashSet<String> nonTextDetails = new LinkedHashSet<>();
         private final List<MessageSegment> segments = new ArrayList<>();
         private String replyToMessageId = "";
         private boolean mentionedSelf;
@@ -338,19 +538,55 @@ final class OneBot11Codec {
                     parseSize(fileSize)));
         }
 
+        void addAudio(String file, String url, String fileSize) {
+            addNonText("语音");
+            segments.add(MessageSegment.audio(segments.size(), file, url, "",
+                    parseSize(fileSize)));
+        }
+
         void addForward(String id) {
             addNonText("转发");
             segments.add(MessageSegment.forward(segments.size(), id));
         }
 
+        void addFile(String fileName, String fileId, String fileSize) {
+            String safeName = truncate(normalizeInline(fileName), MAX_FILE_NAME_CHARS);
+            String safeId = truncate(fileId == null ? "" : fileId.trim(), MAX_FILE_ID_CHARS);
+            addNonText("文件");
+            addNonTextDetail(safeName);
+            segments.add(MessageSegment.file(segments.size(),
+                    safeName.isEmpty() ? "文件" : safeName, safeId, parseSize(fileSize)));
+        }
+
+        void addCard(String rawType, JsonNode data) {
+            addRichOther(rawType, cardDisplay(data, rawType));
+        }
+
+        void addCard(String rawType, String payload) {
+            addRichOther(rawType, cardDisplay(rawType, payload));
+        }
+
         void addOther(String type) {
-            addNonText(nonTextLabel(type));
+            addRichOther(type, "");
+        }
+
+        private void addRichOther(String rawType, String display) {
+            addNonText(nonTextLabel(rawType));
+            addNonTextDetail(display);
             segments.add(new MessageSegment(segments.size(), MessageSegment.Type.OTHER,
-                    "", "", "", "", "", "", 0L, "", type));
+                    truncate(normalizeInline(display), MAX_NON_TEXT_DETAIL_CHARS),
+                    "", "", "", "", "", 0L, "", rawType));
         }
 
         void addNonText(String label) {
             nonTextCounts.merge(label, 1, Integer::sum);
+        }
+
+        private void addNonTextDetail(String value) {
+            String normalized = truncate(normalizeInline(value), MAX_NON_TEXT_DETAIL_CHARS);
+            if (!normalized.isEmpty()) {
+                nonTextDetails.add(normalized);
+            }
         }
 
         void markReply(String messageId) {
@@ -369,8 +605,15 @@ final class OneBot11Codec {
             StringBuilder summary = new StringBuilder();
             nonTextCounts.forEach((label, count) -> summary
                     .append('[').append(label).append('×').append(count).append(']'));
-            return new DecodedContent(text.toString(), summary.toString(), replyToMessageId,
-                    mentionedSelf, segments);
+            if (!nonTextDetails.isEmpty()) {
+                if (!summary.isEmpty()) {
+                    summary.append(' ');
+                }
+                summary.append(String.join(" | ", nonTextDetails));
+            }
+            return new DecodedContent(text.toString(),
+                    truncate(summary.toString(), MAX_NON_TEXT_SUMMARY_CHARS),
+                    replyToMessageId, mentionedSelf, segments);
         }
 
         private static long parseSize(String value) {

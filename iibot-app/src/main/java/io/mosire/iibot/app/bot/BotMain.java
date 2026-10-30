@@ -125,6 +125,7 @@ public final class BotMain {
                     inboxOptions,
                     board.summaryDebounceMillis(),
                     board.maxPreviewMessages(),
+                    board.inlineMaxChars(),
                     Duration.ofSeconds(board.outbox().sendTimeoutSeconds()),
                     activeAccount.oneBot().privateTempGroupId().orElse(null),
                     Duration.ofMillis(board.outbox().minSendIntervalMillis()),
@@ -133,12 +134,12 @@ public final class BotMain {
             OpsLog.info("event=config_loaded sources={} enabledAccounts={} activeAlias={} "
                             + "accountId={} dataDir={} controlHost={} controlPort={} "
                             + "controlPath={} inboxId={} digestDebounceMs={} "
-                            + "maxPreviewMessages={}",
+                            + "maxPreviewMessages={} inlineMaxChars={}",
                     configSources.size(), enabledAccounts.size(), activeAlias,
                     activeAccount.accountId(), config.dataDir(), config.control().host(),
                     config.control().port(), config.control().path(),
                     config.inbox().inboxId(), board.summaryDebounceMillis(),
-                    board.maxPreviewMessages());
+                    board.maxPreviewMessages(), board.inlineMaxChars());
             runtime = BotRuntime.start(accountRegistry, options);
             BotRuntime shutdownTarget = runtime;
             Runtime.getRuntime().addShutdownHook(

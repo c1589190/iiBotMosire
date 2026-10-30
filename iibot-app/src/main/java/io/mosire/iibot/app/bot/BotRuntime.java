@@ -4,8 +4,16 @@ import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.iibot.app.delivery.OutboxSender;
 import io.mosire.iibot.app.inbox.BotInboxRuntime;
 import io.mosire.iibot.app.inbox.InboxBindingDescriptorTool;
+import io.mosire.iibot.app.media.BotAudioGetTool;
+import io.mosire.iibot.app.media.BotForwardMediaGetTool;
+import io.mosire.iibot.app.media.BotGroupFileGetTool;
+import io.mosire.iibot.app.media.BotGroupFileHandles;
+import io.mosire.iibot.app.media.BotGroupFilesTool;
 import io.mosire.iibot.app.media.BotMediaGetTool;
+import io.mosire.iibot.app.media.BotMediaUploadTool;
 import io.mosire.iibot.app.media.BotMediaStore;
+import io.mosire.iibot.app.reply.BotGroupFileUploadTool;
+import io.mosire.iibot.app.reply.BotMessageRecallTool;
 import io.mosire.iibot.app.reply.BotOutboxReplyPort;
 import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.chat.ChatType;
@@ -29,10 +37,14 @@ import io.mosire.iibot.bot.summary.MessageSummaryBuilder;
 import io.mosire.iibot.connect.core.AccountInfo;
 import io.mosire.iibot.connect.core.AccountInfoProvider;
 import io.mosire.iibot.connect.core.AccountRegistry;
+import io.mosire.iibot.connect.core.AudioCapability;
 import io.mosire.iibot.connect.core.ChatConversation;
 import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.connect.core.FriendRequestCapability;
 import io.mosire.iibot.connect.core.ForwardCapability;
+import io.mosire.iibot.connect.core.GroupFileCapability;
+import io.mosire.iibot.connect.core.GroupFileUploadCapability;
+import io.mosire.iibot.connect.core.RecallCapability;
 import io.mosire.iibot.connect.core.MediaCapability;
 import io.mosire.iibot.connect.core.QqPlatformCapability;
 import io.mosire.iibot.connect.core.RecentQqProvider;
@@ -193,7 +205,7 @@ public final class BotRuntime implements AutoCloseable {
             InboxDigestService digestService = new InboxDigestService(
                     board, notes, digestStates, inboxRuntime.digestPort(),
                     new MessageSummaryBuilder(), digestLimit,
-                    inboxAudit, clock, weightService);
+                    inboxAudit, clock, weightService, options.inlineMaxChars());
             InboxDigestScheduler scheduler = new InboxDigestScheduler(
                     digestService, Duration.ofMillis(options.digestDebounceMillis()));
             digestScheduler = scheduler;
@@ -208,13 +220,22 @@ public final class BotRuntime implements AutoCloseable {
             for (AdapterBinding binding : bindings) {
                 outboxes.put(binding.accountId(), binding.outbox());
             }
+            BotMediaStore mediaStore = new BotMediaStore(dataDir);
             BotReplyService replies = new BotReplyService(board,
-                    new BotOutboxReplyPort(outboxes), clock);
+                    new BotOutboxReplyPort(outboxes, mediaStore), clock);
 
             Map<String, ForwardCapability> forwardByAccount = capabilityMap(
                     bindings, ForwardCapability.class);
             Map<String, MediaCapability> mediaByAccount = capabilityMap(
                     bindings, MediaCapability.class);
+            Map<String, AudioCapability> audioByAccount = capabilityMap(
+                    bindings, AudioCapability.class);
+            Map<String, GroupFileCapability> groupFilesByAccount = capabilityMap(
+                    bindings, GroupFileCapability.class);
+            Map<String, RecallCapability> recallByAccount = capabilityMap(
+                    bindings, RecallCapability.class);
+            Map<String, GroupFileUploadCapability> groupFileUploadByAccount =
+                    capabilityMap(bindings, GroupFileUploadCapability.class);
             Map<String, RecentQqProvider> recentByAccount = capabilityMap(
                     bindings, RecentQqProvider.class);
             Map<String, ChatHistoryProvider> historyByAccount = capabilityMap(
@@ -233,9 +254,30 @@ public final class BotRuntime implements AutoCloseable {
                     board, notes, digestService, replies, options.accountId(),
                     forwardByAccount, recentByAccount, friendRequestByAccount, inboxAudit,
                     historyByAccount, weightService, consumerStates, accountRegistry));
-            BotMediaStore mediaStore = new BotMediaStore(dataDir);
+            tools.add(new BotMediaUploadTool(mediaStore));
             if (mediaByAccount.values().stream().anyMatch(Objects::nonNull)) {
                 tools.add(new BotMediaGetTool(board, mediaByAccount, mediaStore));
+            }
+            if (audioByAccount.values().stream().anyMatch(Objects::nonNull)) {
+                tools.add(new BotAudioGetTool(board, audioByAccount, mediaStore));
+            }
+            if (mediaByAccount.values().stream().anyMatch(Objects::nonNull)
+                    && forwardByAccount.values().stream().anyMatch(Objects::nonNull)) {
+                tools.add(new BotForwardMediaGetTool(board, forwardByAccount,
+                        mediaByAccount, mediaStore));
+            }
+            if (groupFilesByAccount.values().stream().anyMatch(Objects::nonNull)) {
+                BotGroupFileHandles groupFileHandles = new BotGroupFileHandles();
+                tools.add(new BotGroupFilesTool(groupFilesByAccount, groupFileHandles));
+                tools.add(new BotGroupFileGetTool(groupFilesByAccount,
+                        groupFileHandles, mediaStore));
+            }
+            if (groupFileUploadByAccount.values().stream().anyMatch(Objects::nonNull)) {
+                tools.add(new BotGroupFileUploadTool(board, groupFileUploadByAccount,
+                        mediaStore));
+            }
+            if (recallByAccount.values().stream().anyMatch(Objects::nonNull)) {
+                tools.add(new BotMessageRecallTool(recallByAccount));
             }
             // 默认 Agent MCP 只暴露统一 qq_* 业务工具、唯一通用 Inbox 工具
             // inbox_rest，以及暂留宿主交接的 descriptor 工具；不得全量倒入 16 个

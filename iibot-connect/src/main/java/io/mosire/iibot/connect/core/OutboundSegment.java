@@ -6,7 +6,7 @@ import java.util.Objects;
  * 协议中立的出站消息段。
  *
  * <p>适配器必须把本类型映射为对应协议的消息段，不允许把它拼成 CQ 字符串。
- * 当前支持 text/at/reply；图片发送、合并转发等后续通过扩展段加入。</p>
+ * 图片段携带受控字节；assetRef 只用于服务内部引用和审计，不进入日志正文。</p>
  */
 public sealed interface OutboundSegment {
 
@@ -25,9 +25,46 @@ public sealed interface OutboundSegment {
         }
     }
 
+    /** 群聊 @全体成员；适配器映射为标准 at 段 {@code {"qq":"all"}}。 */
+    record MentionAll() implements OutboundSegment {
+    }
+
     record Reply(String messageId) implements OutboundSegment {
         public Reply {
             messageId = requireText(messageId, "messageId");
+        }
+    }
+
+    /** 受控出站图片；字节由 BotMediaStore 解析后注入。 */
+    record Image(String assetRef, String fileName, String mediaType, byte[] bytes)
+            implements OutboundSegment {
+        public Image {
+            assetRef = requireText(assetRef, "assetRef");
+            fileName = optionalText(fileName, "image");
+            mediaType = optionalText(mediaType, "application/octet-stream");
+            bytes = bytes == null ? new byte[0] : bytes.clone();
+        }
+
+        public Image(String assetRef, String fileName, String mediaType) {
+            this(assetRef, fileName, mediaType, new byte[0]);
+        }
+
+        @Override
+        public byte[] bytes() {
+            return bytes.clone();
+        }
+
+        @Override
+        public String toString() {
+            return "Image{assetRef=" + assetRef + ", fileName=" + fileName
+                    + ", mediaType=" + mediaType + ", size=" + bytes.length + '}';
+        }
+    }
+
+    /** QQ 表情/贴纸；只接受受限 face/mface id，不接受任意图片 URL。 */
+    record Sticker(String faceId) implements OutboundSegment {
+        public Sticker {
+            faceId = requireText(faceId, "faceId");
         }
     }
 
@@ -37,5 +74,9 @@ public sealed interface OutboundSegment {
             throw new IllegalArgumentException(name + " 不能为空白");
         }
         return value.trim();
+    }
+
+    private static String optionalText(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 }

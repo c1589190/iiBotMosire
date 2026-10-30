@@ -73,7 +73,7 @@ config/
 | `accounts` | 是 | `alias -> account` 对象，至少一个 enabled |
 | `control` | 是 | Bot MCP 监听设置与 bearer token 环境变量名 |
 | `inbox` | 是 | embedded Inbox 设置 |
-| `messageBoard` | 否 | 摘要防抖、预览上限、outbox 和 weighting |
+| `messageBoard` | 否 | 摘要防抖、预览上限、短正文内联阈值、outbox 和 weighting |
 | `logging` | 否 | 日志目录、console/file、root/ops/包级级别和轮转 |
 
 账号形状：
@@ -113,6 +113,8 @@ config/
   诊断字段，不作为 wake gate；所有入站消息共用 `messageBoard.summaryDebounceMillis`
   的合并窗口，不再有“只有 @ 才快”的单独通道；
 - `messageBoard.summaryDebounceMillis` 是所有来源共用的 digest 合并窗口；
+- `messageBoard.inlineMaxChars` 默认 `512`，`0` 关闭短正文完整内联；实际仍受
+  Inbox `summary` 的 512 字符存储边界约束；
 - `logging.levels` 只接受 `io.mosire.iibot.connect` / `bot` / `app` / `inbox`
   及其子包、`iibot.ops`，级别只接受 `TRACE/DEBUG/INFO/WARN/ERROR/OFF`。
 

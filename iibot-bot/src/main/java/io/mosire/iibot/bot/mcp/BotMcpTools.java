@@ -198,12 +198,13 @@ public final class BotMcpTools {
             tools.add(new QqAccountStatusTool(accounts));
             tools.add(new QqAccountLoginInfoTool(accounts));
         }
-        BotAccountScope noteScope = BotAccountScope.of(knownAccountIds(accounts,
+        Set<String> knownAccounts = knownAccountIds(accounts,
                 defaultAccountId,
                 List.of(forwardProviders == null ? Map.of() : forwardProviders,
                         recentProviders == null ? Map.of() : recentProviders,
                         friendRequestServices == null ? Map.of() : friendRequestServices,
-                        historyProviders == null ? Map.of() : historyProviders)));
+                        historyProviders == null ? Map.of() : historyProviders));
+        BotAccountScope noteScope = BotAccountScope.of(knownAccounts);
         tools.addAll(List.of(
                 new BotThreadListTool(board, sourceWeights),
                 new BotThreadHistoryTool(board),
@@ -215,6 +216,9 @@ public final class BotMcpTools {
                 new BotUserNoteGetTool(notes, noteScope),
                 new BotUserNoteListTool(notes, noteScope),
                 new BotUserNoteUpsertTool(notes, noteScope)));
+        if (!knownAccounts.isEmpty()) {
+            tools.add(new BotQqPrivateSendTool(replies, knownAccounts));
+        }
         if (hasCapability(forwardProviders)) {
             tools.add(new BotForwardReadTool(board, forwardProviders));
         }

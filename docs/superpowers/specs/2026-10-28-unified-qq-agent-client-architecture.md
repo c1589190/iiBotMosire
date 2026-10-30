@@ -167,7 +167,9 @@ Inbox 只负责唤醒和未读预览，不拥有完整正文，也不拥有最�
 - Agent 读取会话后，Bot 在消息板推进 `read_seq`，再更新/归档对应 Inbox item；
 - Inbox item 的 revision、snapshot 范围、itemId 是 Bot 与 Inbox 的内部协调字段；
 - Inbox 更新失败不能回滚消息入库，必须记录 WARN 并在下一次读取/启动恢复时对账；
-- Inbox 中只放 bounded 摘要、未读数、`threadId` 和唤醒原因，不放完整正文或 token。
+- Inbox 中只放 bounded 摘要、未读数、`threadId` 和唤醒原因，不放 token；
+- 纯文本短批次在 `inlineMaxChars` 内可以使用 `kind=digest_complete` 和完整
+  bounded summary；权威正文仍在消息板，`content` 只在内部/claim 面使用。
 
 ### 5.3 出站
 
@@ -228,7 +230,7 @@ Inbox wake（只含 threadId/摘要/未读数）
   → 不推进 readSeq，不归档 Inbox item
 
 Agent 完成处理后：
-  → 调用 qq_conversation_ack(source) 或 ack(source, seq=N)
+  → 调用 qq_conversation_ack(source)
   → 服务把 readSeq 推进到该 consumer/thread 的 deliveredSeq
   → 更新/归档 Inbox item
 ```
@@ -237,8 +239,13 @@ Agent 完成处理后：
 
 - `qq_conversation_read(source)` 可以重复调用，未 ack 前返回同一批未读消息；read 不是 ack 的前置条件；
 - `ack(source)` 在未 read 时直接归档当前 active Inbox item；已 read 时按 read 时固定的 delivered 批次归档；
-- `ack(source, seq=N)` 可按整数消息序号精确归档，不接受 itemId、revision、snapshot 或任何不透明 hash；
+- `ack(source)` 不再接受 seq、itemId、revision、snapshot 或任何不透明 hash；
 - `read` 与 `ack` 之间到达的新消息属于下一次未读，不会被错误 ack；
+- read/ack 结果使用 compact 形状；ack 返回 `more=true` 时，表示同一 active item
+  仍有剩余未读；Agent 应在**同一回合**再次 `qq_conversation_read(source)` 继续
+  处理，不得结束本轮等待新 wake；
+- `kind=digest_complete` 的短文本 wake 已包含完整可读正文，Agent 可直接 ack，
+  不需要先 read；
 - 发送回复成功后的自动 ack 仍未实现；当前仍需显式 ack；
 - 完整消息历史始终可由 `qq_conversation_history` 读取，不受未读状态影响。
 
@@ -272,10 +279,18 @@ qq_account_use          # 仅在配置允许的账号集合内切换当前会话
 qq_conversation_list
 qq_conversation_read
 qq_conversation_history
-qq_conversation_send
+qq_conversation_send            # text/at/reply/image/sticker; mentionAll
+qq_private_send
 qq_message_get
+qq_message_recall
 qq_forward_read
+qq_forward_media_get
 qq_media_get
+qq_media_upload
+qq_audio_get
+qq_group_files
+qq_group_file_get
+qq_group_file_upload
 qq_user_note_get/list/upsert
 qq_friend_request_list/decide
 ```
@@ -289,7 +304,11 @@ Agent 面保留语义明确的 `inbox_rest` 和 `qq_conversation_ack`；不暴�
 - Inbox claim/renew/complete/release 作为主流程；
 - `tf_inbox_binding_descriptor` 给普通模型；descriptor 应由宿主交接流程读取。
 
-`qq_conversation_ack(source, seq?)` 只有业务来源和可选消息序号，没有内部同步令牌。通用 Inbox daemon 的完整工具面可以继续存在，但 iiBot 的产品 MCP 不能把 16 个 Inbox 工具和内部绑定工具全量倒入。
+`qq_conversation_ack(source)` 只接受业务来源，没有 seq、内部同步令牌或 revision。
+read/ack 的完整 compact 契约见
+[`2026-10-30-inbox-inline-and-compact-tool-results.md`](2026-10-30-inbox-inline-and-compact-tool-results.md)。
+通用 Inbox daemon 的完整工具面可以继续存在，但 iiBot 的产品 MCP 不能把 16 个
+Inbox 工具和内部绑定工具全量倒入。
 
 ### 7.4 命名与权限
 
@@ -336,7 +355,7 @@ Agent 面保留语义明确的 `inbox_rest` 和 `qq_conversation_ack`；不暴�
 
 1. 消息板是正文、历史、未读和发送状态的唯一事实源；Inbox 不是。
 2. Agent 不提供 `expectedRevision`、`snapshotToSeq`、`itemId` 作为完成前置条件；服务内部可保留乐观锁。
-3. `qq_conversation_read` 只预览并记录服务端 deliveredSeq；`qq_conversation_ack(source)` 才推进 readSeq；未 read 时 ack 当前 active item，可选整数 seq，不接受 revision/itemId。
+3. `qq_conversation_read(source)` 只预览并记录服务端 deliveredSeq；`qq_conversation_ack(source)` 才推进 readSeq；ack 只返回 `more`，不接受 seq/revision/itemId。
 4. Agent 不提供必填 `idempotencyKey`；服务根据 consumer、工具调用和会话生成稳定幂等键。
 5. 出站目标只由 thread 的 accountId + targetId 决定，模型不能伪造其他目标。
 6. 发送超时/中断一律 `UNKNOWN`，禁止自动重发。
@@ -363,6 +382,7 @@ Agent 面保留语义明确的 `inbox_rest` 和 `qq_conversation_ack`；不暴�
 ### 11.3 消息板与 Inbox
 
 - 新消息创建/更新一个 active Inbox item，带未读数和摘要；
+- 纯文本短批次可写完整 bounded summary 和 `kind=digest_complete`；
 - `qq_conversation_read` 后内容可见但未读仍保留；`qq_conversation_ack(source)` 后游标推进，Inbox item 更新或归档；
 - Agent 不传 revision/snapshot/itemId 也能完成读、ack、回复、继续对话；
 - read 与 ack 之间到达的新消息保留下一次未读，不被错误消费；
@@ -394,3 +414,6 @@ Agent 面保留语义明确的 `inbox_rest` 和 `qq_conversation_ack`；不暴�
 
 - 2026-10-28：根据用户“统一 QQ 消息客户端”“消息板不维护额外标记”“connect-agent 应该是上游实现”的方向新建。
 - 2026-10-28：用户冻结 AgentLib 0.2.4；选择读取只预览、处理完显式 ack；选择整合并删除独立的 `iibot-connect-agent` 模块。
+- 2026-10-30：补充 partial ack 同轮续处理语义。
+- 2026-10-30：D-032 把 read/ack 收敛为 source-only compact 契约，`ack` 只返回
+  `more`；短纯文本批次使用 `kind=digest_complete` 在 Inbox wake 内联。

@@ -161,7 +161,7 @@ public record BotConfig(
     }
 
     public record MessageBoard(long summaryDebounceMillis, int maxPreviewMessages,
-                               Outbox outbox, Weighting weighting) {
+                               int inlineMaxChars, Outbox outbox, Weighting weighting) {
         public MessageBoard {
             if (summaryDebounceMillis < 0L || summaryDebounceMillis > 86_400_000L) {
                 throw new IllegalArgumentException(
@@ -171,12 +171,16 @@ public record BotConfig(
                 throw new IllegalArgumentException(
                         "messageBoard.maxPreviewMessages 必须在 1..1000");
             }
+            if (inlineMaxChars < 0) {
+                throw new IllegalArgumentException("messageBoard.inlineMaxChars 不能为负");
+            }
             outbox = outbox == null ? Outbox.defaults() : outbox;
             weighting = weighting == null ? Weighting.defaults() : weighting;
         }
 
         public static MessageBoard defaults() {
-            return new MessageBoard(2_000L, 20, Outbox.defaults(), Weighting.defaults());
+            return new MessageBoard(2_000L, 20, 512, Outbox.defaults(),
+                    Weighting.defaults());
         }
     }
 

@@ -26,6 +26,7 @@ public record MessageSegment(
         MENTION,
         REPLY,
         IMAGE,
+        AUDIO,
         FORWARD,
         FILE,
         FACE,
@@ -68,13 +69,30 @@ public record MessageSegment(
                 mediaType, byteSize, "", "image");
     }
 
+    /** 语音/音频段；URL/fileId 只供程序内部提取，不进入 MCP 文本结果。 */
+    public static MessageSegment audio(int index, String fileId, String url,
+                                       String mediaType, long byteSize) {
+        return new MessageSegment(index, Type.AUDIO, "", "", "", fileId, url,
+                mediaType, byteSize, "", "record");
+    }
+
+    /**
+     * 群文件段。{@code text} 保存可安全展示的文件名，{@code fileId} 只供程序内部
+     * 下载/定位，不进入 MCP 结果或日志。
+     */
+    public static MessageSegment file(int index, String fileName, String fileId,
+                                      long byteSize) {
+        return new MessageSegment(index, Type.FILE, fileName, "", "", fileId, "",
+                "application/octet-stream", byteSize, "", "file");
+    }
+
     public static MessageSegment forward(int index, String forwardId) {
         return new MessageSegment(index, Type.FORWARD, "", "", "", "", "", "",
                 0L, forwardId, "forward");
     }
 
     public boolean media() {
-        return type == Type.IMAGE || type == Type.FILE;
+        return type == Type.IMAGE || type == Type.FILE || type == Type.AUDIO;
     }
 
     /** 安全文本形状；故意不输出 url/fileId/forwardId。 */

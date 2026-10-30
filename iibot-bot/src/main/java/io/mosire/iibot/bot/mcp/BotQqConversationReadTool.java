@@ -20,7 +20,7 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 读取 consumer 当前未 ack 的消息批次。
+ * 读取 source 当前未 ack 的入站消息批次。
  *
  * <p>只记录服务端 deliveredSeq，不推进 readSeq、不修改 Inbox。未 ack 前重复调用会
  * 返回同一 delivered 批次；read 与 ack 之间新到达的消息留到下一次读取。</p>
@@ -35,15 +35,8 @@ public final class BotQqConversationReadTool implements AgentTool {
             "type", "object",
             "properties", Map.of(
                     "source", Map.of("type", "string", "minLength", 1,
-                            "description", "统一来源地址，如 qq_group/bot-1/955432692"),
-                    "threadId", Map.of("type", "string", "minLength", 1,
-                            "description", "旧版内部 threadId；新调用方使用 source"),
-                    "limit", Map.of("type", "integer", "minimum", 1,
-                            "maximum", MAX_LIMIT,
-                            "description", "新批次最多返回条数，默认 50；未 ack 的旧批次回放不受该值截断"),
-                    "includeOutbound", Map.of("type", "boolean",
-                            "description", "是否把同批 OUT 消息放入 outbound；默认 false，且不进入 ack 边界")),
-            "required", List.of(),
+                            "description", "统一来源地址")),
+            "required", List.of("source"),
             "additionalProperties", false);
 
     private final MessageBoardStore board;
@@ -65,9 +58,8 @@ public final class BotQqConversationReadTool implements AgentTool {
     @Override public String name() { return NAME; }
 
     @Override public String description() {
-        return "读取当前 consumer 尚未显式 ack 的入站消息批次；默认不返回 OUT，OUT 只可通过 "
-                + "includeOutbound 单独查看。只预览并记录服务端投递位置，不推进已读游标、"
-                + "不归档 Inbox。处理完请调用 qq_conversation_ack(source)。";
+        return "读取 source 的未读入站消息；返回 compact 消息和 more 标记。"
+                + "complete=true 的 Inbox 摘要可直接 ack，不需要先 read。";
     }
 
     @Override public Map<String, Object> jsonSchema() { return SCHEMA; }
@@ -86,31 +78,30 @@ public final class BotQqConversationReadTool implements AgentTool {
                 throw new BotToolSupport.InvalidArgumentsException(
                         "limit 必须在 1.." + MAX_LIMIT);
             }
-            boolean includeOutbound = BotToolSupport.optionalBoolean(
-                    context.arguments(), "includeOutbound", false);
             ConsumerConversationState state = consumers.find(
                     ConsumerConversationStore.DEFAULT_CONSUMER_ID, threadId).orElse(null);
             long readSeq = state == null ? 0L : state.readSeq();
             long deliveredSeq = state == null ? 0L : state.deliveredSeq();
 
-            List<ChatMessage> fetched;
-            if (deliveredSeq > readSeq) {
-                // 未 ack 前回放同一 delivered 批次；新消息不进入本批。
-                long replayUpperBound = deliveredSeq;
-                fetched = board.readThread(threadId, readSeq, MAX_LIMIT).stream()
-                        .takeWhile(message -> message.localSeq() <= replayUpperBound)
-                        .toList();
-            } else {
-                fetched = board.readThread(threadId, readSeq, limit);
+            boolean replay = deliveredSeq > readSeq;
+            long replayUpperBound = replay ? deliveredSeq : Long.MAX_VALUE;
+            // A replayed delivered batch is all-or-nothing: ack uses deliveredSeq,
+            // so returning only a prefix would let ack consume messages the model
+            // never saw. New batches are bounded and advertise more instead.
+            int fetchLimit = replay ? 1000 : limit + 1;
+            List<ChatMessage> fetched = board.readThread(threadId, readSeq, fetchLimit);
+            List<ChatMessage> inbound = new ArrayList<>();
+            for (ChatMessage message : fetched) {
+                if (message.localSeq() > replayUpperBound) break;
+                if (message.direction() == ChatDirection.IN) {
+                    inbound.add(message);
+                }
             }
-
-            List<ChatMessage> inbound = fetched.stream()
-                    .filter(message -> message.direction() == ChatDirection.IN)
-                    .toList();
-            List<ChatMessage> outbound = includeOutbound
-                    ? fetched.stream().filter(message -> message.direction() == ChatDirection.OUT).toList()
-                    : List.of();
-            if (deliveredSeq <= readSeq && !inbound.isEmpty()) {
+            boolean more = !replay && inbound.size() > limit;
+            if (more) {
+                inbound = new ArrayList<>(inbound.subList(0, limit));
+            }
+            if (!replay && !inbound.isEmpty()) {
                 long batchDelivered = inbound.getLast().localSeq();
                 state = consumers.recordDelivered(
                         ConsumerConversationStore.DEFAULT_CONSUMER_ID,
@@ -120,15 +111,9 @@ public final class BotQqConversationReadTool implements AgentTool {
 
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("source", key.sourceAddress().canonical());
-            data.put("threadId", threadId);
-            data.put("accountId", key.accountId());
-            data.put("readSeq", readSeq);
-            data.put("deliveredSeq", deliveredSeq);
-            data.put("count", inbound.size());
-            data.put("messages", maps(inbound));
-            data.put("outboundCount", outbound.size());
-            data.put("outbound", maps(outbound));
-            return BotToolSupport.ok(NAME, data);
+            data.put("messages", compactMaps(inbound));
+            data.put("more", more);
+            return ToolResult.ok(BotToolSupport.json(data));
         } catch (BotToolSupport.InvalidArgumentsException invalid) {
             return BotToolSupport.failure("INVALID_ARGUMENTS", invalid.getMessage());
         } catch (RuntimeException failure) {
@@ -137,10 +122,10 @@ public final class BotQqConversationReadTool implements AgentTool {
         }
     }
 
-    private List<Map<String, Object>> maps(List<ChatMessage> messages) {
+    private List<Map<String, Object>> compactMaps(List<ChatMessage> messages) {
         List<Map<String, Object>> values = new ArrayList<>(messages.size());
         for (ChatMessage message : messages) {
-            values.add(BotToolSupport.messageMap(
+            values.add(BotToolSupport.compactMessageMap(
                     message, board.segments(message.messageKey())));
         }
         return values;
@@ -148,10 +133,8 @@ public final class BotQqConversationReadTool implements AgentTool {
 
     @Override public Map<String, Object> ledgerArgs(ToolContext context) {
         Map<String, Object> safe = new LinkedHashMap<>();
-        for (String name : List.of("source", "threadId", "limit", "includeOutbound")) {
-            if (context.arguments().containsKey(name)) {
-                safe.put(name, context.arguments().get(name));
-            }
+        if (context.arguments().containsKey("source")) {
+            safe.put("source", context.arguments().get("source"));
         }
         return Map.copyOf(safe);
     }

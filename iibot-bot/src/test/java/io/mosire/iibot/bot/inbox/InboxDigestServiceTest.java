@@ -13,6 +13,7 @@ import io.mosire.iibot.bot.weight.SourceWeightPolicy;
 import io.mosire.iibot.bot.weight.SourceWeightService;
 import io.mosire.iibot.bot.weight.WeightSettings;
 import io.mosire.iibot.connect.core.InboundMessage;
+import io.mosire.iibot.connect.core.MessageSegment;
 import io.mosire.iibot.bot.store.InMemoryMessageBoardStore;
 import io.mosire.iibot.bot.store.MessageBoardStore;
 import org.junit.jupiter.api.Test;
@@ -91,6 +92,74 @@ class InboxDigestServiceTest {
         assertThat(port.digests.get(itemId).messages())
                 .extracting(MessageSummary::localSeq)
                 .containsExactly(4L);
+    }
+
+    @Test
+    void inlinesShortTextBatchAndMarksSummaryComplete() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(
+                board, notes, states, port, new MessageSummaryBuilder(), 100,
+                null, CLOCK, null, 512);
+        board.append(inbound("m-1", "qq-1", "Alice", "第一条"));
+        board.append(inbound("m-2", "qq-2", "Bob", "第二条"));
+
+        service.flushThread(GROUP.threadId());
+
+        assertThat(port.lastDigest.summaryComplete()).isTrue();
+        assertThat(port.lastDigest.summary()).isEqualTo("Alice: 第一条 | Bob: 第二条");
+        assertThat(port.lastDigest.hasMoreUnread()).isFalse();
+    }
+
+    @Test
+    void inlineBoundaryIsExactly512CodePoints() {
+        InMemoryMessageBoardStore exactBoard = new InMemoryMessageBoardStore();
+        InMemoryInboxDigestStateStore exactStates = new InMemoryInboxDigestStateStore();
+        FakePort exactPort = new FakePort();
+        InboxDigestService exact = new InboxDigestService(
+                exactBoard, new InMemoryUserNoteStore(CLOCK), exactStates, exactPort,
+                new MessageSummaryBuilder(), 100, null, CLOCK, null, 512);
+        exactBoard.append(inbound("m-1", "qq-1", "A", "字".repeat(509)));
+
+        exact.flushThread(GROUP.threadId());
+
+        assertThat(exactPort.lastDigest.summaryComplete()).isTrue();
+        assertThat(exactPort.lastDigest.summary()).hasSize(512);
+
+        InMemoryMessageBoardStore overBoard = new InMemoryMessageBoardStore();
+        InMemoryInboxDigestStateStore overStates = new InMemoryInboxDigestStateStore();
+        FakePort overPort = new FakePort();
+        InboxDigestService over = new InboxDigestService(
+                overBoard, new InMemoryUserNoteStore(CLOCK), overStates, overPort,
+                new MessageSummaryBuilder(), 100, null, CLOCK, null, 512);
+        overBoard.append(inbound("m-1", "qq-1", "A", "字".repeat(510)));
+
+        over.flushThread(GROUP.threadId());
+
+        assertThat(overPort.lastDigest.summaryComplete()).isFalse();
+    }
+
+    @Test
+    void incompleteMediaOrOverlongBatchIsNotMarkedComplete() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(
+                board, notes, states, port, new MessageSummaryBuilder(), 100,
+                null, CLOCK, null, 512);
+
+        board.append(inbound("m-1", "qq-1", "Alice", "x".repeat(513)));
+        service.flushThread(GROUP.threadId());
+        assertThat(port.lastDigest.summaryComplete()).isFalse();
+
+        states.clear(GROUP.threadId());
+        board.append(ChatMessage.inbound(GROUP, "m-2", "qq-1", "Alice", T0, T0,
+                "看图", "", ""), List.of(MessageSegment.image(0, "f", "u", "image/png", 1L)));
+        service.flushThread(GROUP.threadId());
+        assertThat(port.lastDigest.summaryComplete()).isFalse();
     }
 
     @Test

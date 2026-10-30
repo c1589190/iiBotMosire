@@ -106,15 +106,13 @@ descriptor 只有 `inboxId/apiBaseUrl/adapterTokenRef/channels/label` 五个字�
 
 1. 调 `inbox_list`，选一个本轮要处理的 item；不要一次处理多个。
    当前 backlog 数量以 inbox_list 为准；不是重复唤醒；处理完一个再等下一次 wake。
-2. 从 wake 摘要读取每个 item 的 `source`（统一地址，如
-   `qq_group/bot-1/955432692`），必要时再看 summary/trigger；
-   unreadCount/hasMoreUnread、fromSeq/toSeq、item revision 和恢复正文所需信息。
-   wake 摘要不是正文；`content.messages` 只是最后 n 条未读预览。
-3. 需要正文时调 `qq_conversation_read(source)` 读取当前 consumer 尚未 ack 的批次。
+2. 从 wake 读取每个 item 的 `source`（统一地址，如
+   `qq_group/bot-1/955432692`）和 summary；若 item 带 `complete=true`，
+   表示当前 unread 的可读正文已经完整内联，不要调用 read。
+3. 只有没有 `complete=true` 时才调 `qq_conversation_read(source)` 读取当前
+   consumer 尚未 ack 的批次。read 返回 compact `messages` 和 `more`；
+   `more=true` 时先处理本页，ack 后同轮继续 read。
    read 只预览并记录服务端投递位置，不推进已读；未 ack 前重复调用回放同一批。
-   如果 Inbox 摘要已经足够，或只是消费掉消息，可以直接跳到 ack。
-   wake 摘要和 `content.messages` 都只是预览；需要单条原文时再 `qq_message_get`
-   或 `qq_conversation_history`。
 4. 判断是否需要回复：
    - 需要：调用 `qq_conversation_send(threadId, text, replyToMessageId?, mentionSender?, idempotencyKey?)`
    - `idempotencyKey` 可省略；省略时服务端生成 UUID 并在结果中返回。只有显式重试
@@ -123,9 +121,11 @@ descriptor 只有 `inboxId/apiBaseUrl/adapterTokenRef/channels/label` 五个字�
      解析 sender 并生成 at 段，模型不要自行传任意 QQ。
    - 不需要：跳过 `qq_conversation_send`
 5. 调 `qq_conversation_ack(source)`。
-   - 只接受 threadId；不要传 itemId、expectedRevision、snapshotToSeq 或 seq。
+   - 只传 source；不要传 itemId、expectedRevision、snapshotToSeq 或 seq。
    - 服务端先同步 Inbox 再推进已读；read 与 ack 之间到达的新消息保持未读。
-6. 完成后结束本回合。不要轮询；剩余 item 等下一次 wake。
+   - 若返回 `more=true`：立即再次 `qq_conversation_read(source)` 处理同一来源
+     剩余未读，再按本流程 ack；不要结束本轮等待新 wake。
+6. 该 source 的剩余未读处理完后结束本回合。不要轮询；其他 item 等下一次 wake。
    如果当前没有可处理项，直接结束。
 
 active item 是未读桶：新消息原地更新同一 item，`unreadCount` 增长，预览滚动到
@@ -175,10 +175,10 @@ qq_source_weight_set(source="qq_group/bot-1/955432692", sourceWeight=0,
 ## 错误处理
 
 - `qq_conversation_read` 失败：报告真实错误码，不要伪造消息或切换 source 重试。
-- ack 返回 `acked=false` / `reason=NO_DELIVERED_MESSAGES`：
-  说明本轮没有新的服务端投递批次；直接结束，不要构造 revision/snapshot。
-- ack 返回 `archived=false` / `remaining=true`：
-  说明同一 thread 还有剩余未读；本轮结束，等下一次 wake 或重新 read。
+- ack 成功只返回 `more`；`more=false` 表示当前已处理完，
+  `more=true` 表示同一 active item 还有剩余未读。
+- ack 返回 `more=true` 时立即再次 `qq_conversation_read(source)` 继续处理，
+  不要结束本轮等待新 wake，也不要构造 revision/snapshot。
 - `ITEM_STATUS_CONFLICT`、`INBOX_AUTH`、`INBOX_UNAVAILABLE`、`INBOX_NETWORK`
   等 Inbox 同步错误：报告真实错误码并停止；不要 claim/release/complete 绕过，
   也不要手工维护游标。

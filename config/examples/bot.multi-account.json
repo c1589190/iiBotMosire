@@ -54,6 +54,7 @@
   "messageBoard": {
     "summaryDebounceMillis": 2000,
     "maxPreviewMessages": 20,
+    "inlineMaxChars": 512,
     "outbox": {
       "sendTimeoutSeconds": 15,
       "minSendIntervalMillis": 150

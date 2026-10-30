@@ -12,6 +12,7 @@ import io.mosire.iibot.bot.weight.InboxWeight;
 import io.mosire.iibot.bot.weight.MessageWeightDecision;
 import io.mosire.iibot.bot.weight.SourceWeightPolicy;
 import io.mosire.iibot.bot.weight.SourceWeightService;
+import io.mosire.iibot.connect.core.MessageSegment;
 import io.mosire.iibot.connect.ops.OpsLog;
 
 import java.time.Clock;
@@ -34,6 +35,7 @@ public final class InboxDigestService {
     public static final int DEFAULT_MAX_MESSAGES_PER_FLUSH = 100;
     public static final int DEFAULT_CONTEXT_MESSAGES = 6;
     public static final int DEFAULT_CONTEXT_MAX_CHARS = 1200;
+    private static final int INBOX_SUMMARY_MAX_CHARS = 512;
 
     private final MessageBoardStore board;
     private final UserNoteStore notes;
@@ -44,6 +46,7 @@ public final class InboxDigestService {
     private final InboxDigestAuditStore auditStore;
     private final Clock clock;
     private final SourceWeightService weights;
+    private final int inlineMaxChars;
 
     public InboxDigestService(
             MessageBoardStore board,
@@ -75,7 +78,7 @@ public final class InboxDigestService {
             InboxDigestAuditStore auditStore,
             Clock clock) {
         this(board, notes, states, port, summaryBuilder, maxMessagesPerFlush,
-                auditStore, clock, null);
+                auditStore, clock, null, 0);
     }
 
     public InboxDigestService(
@@ -88,6 +91,21 @@ public final class InboxDigestService {
             InboxDigestAuditStore auditStore,
             Clock clock,
             SourceWeightService weights) {
+        this(board, notes, states, port, summaryBuilder, maxMessagesPerFlush,
+                auditStore, clock, weights, 0);
+    }
+
+    public InboxDigestService(
+            MessageBoardStore board,
+            UserNoteStore notes,
+            InboxDigestStateStore states,
+            InboxDigestPort port,
+            MessageSummaryBuilder summaryBuilder,
+            int maxMessagesPerFlush,
+            InboxDigestAuditStore auditStore,
+            Clock clock,
+            SourceWeightService weights,
+            int inlineMaxChars) {
         this.board = Objects.requireNonNull(board, "board");
         this.notes = Objects.requireNonNull(notes, "notes");
         this.states = Objects.requireNonNull(states, "states");
@@ -100,6 +118,10 @@ public final class InboxDigestService {
         this.auditStore = auditStore;
         this.clock = Objects.requireNonNull(clock, "clock");
         this.weights = weights;
+        if (inlineMaxChars < 0) {
+            throw new IllegalArgumentException("inlineMaxChars 不能为负");
+        }
+        this.inlineMaxChars = inlineMaxChars;
     }
 
     /** 处理一个 thread 自上次 flush 后的消息；同一来源追加到 active 未读桶。 */
@@ -367,9 +389,68 @@ public final class InboxDigestService {
                 : strongest.wakeReason().name();
         String summary = trigger == null ? summaries.getLast().summary()
                 : trigger.summary();
+        boolean summaryComplete = false;
+        if (!hasMoreUnread && sourceMessages.size() == unreadCount
+                && summaries.size() == sourceMessages.size()) {
+            Optional<String> inline = inlineSummary(sourceMessages);
+            if (inline.isPresent()) {
+                summary = inline.orElseThrow();
+                summaryComplete = true;
+            }
+        }
         return InboxDigest.of(unreadFromSeq, unreadToSeq, summaries, context,
                 summary, wakeReason, weight, source, trigger, unreadCount,
-                hasMoreUnread);
+                hasMoreUnread, summaryComplete);
+    }
+
+    /** 生成只用于干净文本短批次的完整摘要；媒体、空正文或超长均不内联。 */
+    private Optional<String> inlineSummary(List<ChatMessage> messages) {
+        if (inlineMaxChars <= 0 || messages.isEmpty()) {
+            return Optional.empty();
+        }
+        int limit = Math.min(inlineMaxChars, INBOX_SUMMARY_MAX_CHARS);
+        StringBuilder inline = new StringBuilder();
+        for (ChatMessage message : messages) {
+            if (message.direction() != ChatDirection.IN) {
+                return Optional.empty();
+            }
+            if (hasMediaSummary(message.nonTextSummary())) {
+                return Optional.empty();
+            }
+            for (MessageSegment segment : board.segments(message.messageKey())) {
+                if (segment.type() != MessageSegment.Type.TEXT
+                        && segment.type() != MessageSegment.Type.MENTION
+                        && segment.type() != MessageSegment.Type.REPLY) {
+                    return Optional.empty();
+                }
+            }
+            String body = message.text() == null ? "" : message.text()
+                    .replaceAll("\\s+", " ").trim();
+            if (body.isEmpty()) {
+                return Optional.empty();
+            }
+            String sender = message.senderName() == null || message.senderName().isBlank()
+                    ? message.senderId() : message.senderName().trim();
+            String piece = sender + ": " + body;
+            if (inline.length() > 0) {
+                inline.append(" | ");
+            }
+            inline.append(piece);
+            // Inbox 的 summary 上限是 Java String 长度；在 UTF-16 长度上 fail-closed，
+            // 避免 emoji 等代理对让 512 code point 变成 >512 个存储字符。
+            if (inline.length() > limit) {
+                return Optional.empty();
+            }
+        }
+        return inline.isEmpty() ? Optional.empty() : Optional.of(inline.toString());
+    }
+
+    private static boolean hasMediaSummary(String summary) {
+        if (summary == null || summary.isBlank()) return false;
+        return summary.contains("[图片") || summary.contains("[文件")
+                || summary.contains("[语音") || summary.contains("[视频")
+                || summary.contains("[转发") || summary.contains("[卡片")
+                || summary.contains("[表情");
     }
 
     private InboxSource sourceOf(String threadId, List<ChatMessage> sourceMessages) {

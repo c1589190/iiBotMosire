@@ -41,7 +41,7 @@ public final class BotConfigLoader {
             "apiHost", "apiPort", "mcpHost", "mcpPort", "mcpPath",
             "heartbeatMillis", "claimSweepIntervalMillis");
     private static final Set<String> MESSAGE_BOARD_FIELDS = Set.of(
-            "summaryDebounceMillis", "maxPreviewMessages", "outbox", "weighting");
+            "summaryDebounceMillis", "maxPreviewMessages", "inlineMaxChars", "outbox", "weighting");
     private static final Set<String> OUTBOX_FIELDS = Set.of(
             "sendTimeoutSeconds", "minSendIntervalMillis");
     private static final Set<String> WEIGHTING_FIELDS = Set.of(
@@ -292,10 +292,12 @@ public final class BotConfigLoader {
             rejectUnknown(node, MESSAGE_BOARD_FIELDS, pointer, "messageBoard");
             long debounce = optionalLong(node, "summaryDebounceMillis", pointer, 2_000L);
             int maxPreview = optionalInt(node, "maxPreviewMessages", pointer, 20);
+            int inlineMaxChars = optionalInt(node, "inlineMaxChars", pointer, 512);
             BotConfig.Outbox outbox = parseOutbox(node, pointer);
             BotConfig.Weighting weighting = parseWeighting(node, pointer);
             try {
-                return new BotConfig.MessageBoard(debounce, maxPreview, outbox, weighting);
+                return new BotConfig.MessageBoard(debounce, maxPreview, inlineMaxChars,
+                        outbox, weighting);
             } catch (IllegalArgumentException invalid) {
                 throw error(pointer, "valid messageBoard config", "object",
                         invalid.getMessage());

@@ -88,11 +88,11 @@ simulation2/dsh/HANDOFF_PROMPT.md
    `wakeMode: "view-ack"`；
 3. 用 `inbox_adapter_status` 确认 `isBound=true`、`wakeMode=view-ack`、
    `programMcp=available`、SSE/occupancy 正常；
-4. 后续从 Inbox summary 读取每个 item 的 `source`；需要正文时调
-   `qq_conversation_read(source)`。摘要已足够或只需消费掉时可直接
-   `qq_conversation_ack(source)`；需要精确到消息序号时用
-   `qq_conversation_ack(source, seq=N)`，不需要 itemId/hash。
-   Agent 不传 revision/snapshot/itemId 等内部标记；read 只记录服务端 delivered
+4. 后续从 Inbox wake 读取每个 item 的 `source`；item 带 `complete=true` 时
+   正文已内联，可直接 `qq_conversation_ack(source)`，不需要 read。没有 complete
+   时才调 `qq_conversation_read(source)`；处理完 ack(source)，ack 返回
+   `more=true` 时同轮继续 read。
+   Agent 不传 revision/snapshot/itemId/seq 等内部标记；read 只记录服务端 delivered
    位置，ack 才推进已读并同步 Inbox。处理期间的新消息留到下一次未读批次。
 
 view-ack 不使用 `claim/release/complete`。当前唤醒摘要会按 view-ack 模式生成；
