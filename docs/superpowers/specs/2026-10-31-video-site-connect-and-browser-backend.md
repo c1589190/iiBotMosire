@@ -1,6 +1,6 @@
 # 视频站 Connect 模块、无头浏览器与配置/日志设计
 
-> **状态**：有效（2026-10-31；用户已确认模块拆分与无头浏览器兼容；V1 已完成，V2 待开始）
+> **状态**：有效（2026-10-31；用户已确认模块拆分与无头浏览器兼容；V1/V2 已完成，V3 待开始）
 > **用户原话**：
 > - 「首先我建议把视频网站的视频抽取、评论区查询和整合，以及视屏网站的交互全都集中到一个统一的connect包里面方便管理，然后做标准MCP工具，统一在APP做注册，而不是分散在各个模块」
 > - 「此外还有易用性，允许选择分辨率吗？」
@@ -51,11 +51,12 @@
 - `BiliVideoReadTool`、`BiliVideoFramesTool`、登录 MCP 工具仍在
   `iibot-app/src/main/java/io/mosire/iibot/app/bilibili/`；`BiliLoginService` 已迁入
   `iibot-video-connect/.../bilibili/`，app 只做 MCP 适配。
-- `BotMain.java` 直接注册 `bili_video_read` 和登录工具；
-- `BotRuntime.java` 直接构造 QQ 工具、媒体工具并注册 `BiliVideoFramesTool`；
-- `BotMcpTools.java` 在 bot 模块内装配部分 `qq_*`/`conversation_*` 工具。
-- V1 已把视频领域收拢到独立模块；MCP 注册点仍分散，V2 才收敛到 app
-  `BotToolCatalog`。
+- V1 已把视频领域收拢到独立模块；V2 已把工具注册收敛到 app
+  `BotToolCatalog`：`QqToolPack`/`MediaToolPack`/`InboxToolPack`/`VideoSiteToolPack`。
+- `BotRuntime.java` 只构造 `BotToolContext` 并调用 catalog；`BotMain.java` 只传
+  `BotToolCatalog.withVideoAccounts(...)`；旧 `start(..., extraTools, ...)` 入口保留兼容。
+- `BotMcpTools.java` 仍在 bot 模块内装配部分 `qq_*`/`conversation_*` 工具，但只由
+  app 的 `QqToolPack` 调用，不再由 `BotRuntime` 直接调用。
 
 ### 2.2 视频能力
 
@@ -83,7 +84,7 @@
 
 ### 3.1 Maven 模块
 
-V1 已实现 4 模块：
+V1/V2 已实现 4 模块：
 
 ```text
 iibot-connect          外部消息连接（QQ/OneBot + core SPI）
@@ -515,8 +516,9 @@ io.mosire.iibot.video.browser
 - `iibot-connect` 的 main 依赖树中没有 Playwright、Chromium、ffmpeg、B 站视频类；
 - `iibot-video-connect` 不依赖 AgentLib/MCP；
 - `iibot-bot` 不依赖 `iibot-video-connect`；
-- V2 完成后 `iibot-app` 是唯一 MCP 工具注册点；V1 仍在 BotMain/BotRuntime 注册；
-- V2 完成后 `BotRuntime`/`BotMain` 无 Bili/Video import；V1 当前仍直接注册；
+- V2 已完成：`iibot-app` 是唯一 MCP 工具注册点；`BotRuntime` 不再 import
+  Bili/Video/media/Inbox 工具，`BotMain` 不再构造 `extraTools` 或直接 import B 站 MCP 工具；
+- 旧 `extraTools` 兼容入口仍存在，只用于测试/历史调用，并包装为 `BotToolCatalog`；
 - 工具名无重复，兼容别名可同时调用；
 - 旧 B 站私信/评论通知、conversation_* 和 QQ 工具行为不回归。
 

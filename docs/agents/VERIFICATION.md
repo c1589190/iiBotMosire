@@ -23,6 +23,12 @@ tools/gate.sh full
 
 ## 二、当前基线
 
+- 2026-10-31 D-035 V2 基线：app 已引入单一 `BotToolCatalog`/`BotToolContext` 与
+  `QqToolPack`/`MediaToolPack`/`InboxToolPack`/`VideoSiteToolPack`；`BotRuntime` 只构造
+  context 并调用 catalog，`BotMain` 只传 `withVideoAccounts`；旧 extraTools 入口保留。
+  `tools/gate.sh full` PASS，**306 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 73、video 14、bot 127、app 92）；docs PASS（modules=4 files=50 links=162）。
+  工具名、参数、返回形状未改；真实 B 站/浏览器外部联调 `NOT_RUN`。
 - 2026-10-31 D-035 V1 基线：`iibot-video-connect` 第 4 模块已创建并完成 B 站领域/
   登录/抽帧迁移；`tools/gate.sh full` PASS，**304 tests / 0 failures / 0 errors /
   0 skipped**（connect 73、video 14、bot 127、app 90）；`tools/gate.sh docs`
@@ -72,7 +78,7 @@ tools/gate.sh full
 | 应用集成 | BotRuntime + fake Adapter + embedded loopback Inbox/MCP | 已有 |
 | B 站公开读取 | 元数据/热评/字幕/短链 | 元数据+热评 smoke PASS；ffmpeg 3 帧看图 smoke PASS；字幕/短链 `NOT_RUN` |
 | B 站账号会话 | Cookie 登录、WBI、私信轮询、评论通知、私信/评论发送 | fake HTTP 单测 PASS；真实 `NOT_RUN` |
-| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询 | V1 模块已创建（14 tests）；app catalog、quality/time、评论查询 `NOT_RUN` |
+| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询 | V1 模块已创建（14 tests）；V2 catalog/tool packs 已有单测（app 92 tests）；quality/time、评论查询 `NOT_RUN` |
 | 无头浏览器（D-035） | Playwright embedded/remote-cdp、headless Linux、codec/超时/清理 | snap Chromium 156 headless `about:blank` PASS；Playwright/B 站页面/remote-cdp `NOT_RUN` |
 | 真实 NapCat E2E | 真实私聊/群聊入站与发送 | `NOT_RUN` |
 | 真实 DSH/OpenCode wake | 真实 wake/ack 闭环 | `NOT_RUN` |

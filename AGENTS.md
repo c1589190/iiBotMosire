@@ -1,6 +1,6 @@
 # AGENTS.md —— iiBotMosire 常驻索引
 
-> **更新时间**：2026-10-31（D-035 V1 视频站模块抽取完成）
+> **更新时间**：2026-10-31（D-035 V2 单一工具目录完成）
 > **本文件只做三件事**：项目边界、常驻红线、文档与模块路由。
 > **规则正文不在本文件**：项目设计看 `docs/superpowers/`，项目维护看 `docs/agents/`。
 > **禁止用 `@` 导入长文**；按需打开链接。
@@ -25,8 +25,7 @@
 - 一个或多个 B 站账号的凭据校验、私信/评论回复通知轮询与显式发送；
 - QQ / B 站统一消息板、thread、历史、用户备注和媒体；
 - 通用只读 `bili_video_read` / `bili_video_frames`（任意来源 B 站链接/BV/av/b23）；
-- D-035 V1：视频站抽取/评论/交互已集中到 `iibot-video-connect`；后续 V2 把标准 `video_*`
-  MCP 工具统一在 app 注册，并兼容无头浏览器；
+- D-035 V2：app 已用单一 `BotToolCatalog`/tool packs 收敛 MCP 注册；V1 视频站抽取/评论/交互在 `iibot-video-connect`；后续 V3 补标准 `video_*`、分辨率/精确时间/评论查询，并兼容无头浏览器；
 - 发送三态与 Inbox 唤醒；
 - 统一 MCP 工具面，供外部 Agent 读取、回复和管理 QQ/B 站会话。
 
@@ -78,8 +77,9 @@ iibot-bot     iibot-video-connect
 ```
 
 账号工具已进入 `iibot-bot` 的统一 MCP 工具包；独立 `iibot-connect-agent` 模块已删除。
-D-035 V1 已完成模块抽取，当前 `BotMain`/`BotRuntime` 仍按原路径注册 B 站工具；
-V2 才把注册收敛到 app 的 `BotToolCatalog`，迁移前保持工具行为不变。
+D-035 V1 已完成模块抽取；V2 已把 QQ/媒体/Inbox/视频站工具收敛到 app 的
+`BotToolCatalog` + `BotToolContext` + 四个 tool pack，`BotMain`/`BotRuntime`
+不再直接构造产品工具；工具名、参数和返回形状保持不变。
 
 ## 4. 当前有效设计与计划
 
@@ -108,7 +108,7 @@ V2 才把注册收敛到 app 的 `BotToolCatalog`，迁移前保持工具行为�
 
 - JDK 21；仓库内 `./mvnw`。
 - 门禁：`tools/gate.sh docs|selftest|pre|focused|full`。
-- D-035 V1 新模块抽取已完成（第 4 模块 `iibot-video-connect`），下一步 V2 app 单一工具目录；真实 B 站/浏览器联调仍 `NOT_RUN`。
+- D-035 V1 新模块抽取、V2 单一工具目录已完成（第 4 模块 `iibot-video-connect` + app `BotToolCatalog`），下一步 V3；真实 B 站/浏览器联调仍 `NOT_RUN`。
 - 当前产品分支：`refactor/bot-first-main-agent`；按责任区提交并推送，全量验证后再合并（M-005）。
 - worktree 统一放 `<仓库根>/worktree/<name>/`。
 - 同一 checkout 不并发跑 Maven；不覆盖正在运行的 jar；不提交 `.work/`、`target/`、数据库、日志和 secret。

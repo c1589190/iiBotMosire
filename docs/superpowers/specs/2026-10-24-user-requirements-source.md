@@ -20,7 +20,7 @@
 | D-027 | debug/info 日志与易用配置 | 已实现 P2/P3；后续只维护 |
 | D-028 | 依赖最新且可复现、文档一致 | 已完成 P6/P7a 主要依赖刷新；AgentLib 0.2.4 公开发布仍待上游 |
 | D-034 | B 站通用视频阅读 + 账号/私信/评论 Inbox 会话 | 第一批已实施（code-level）；视频工具与 B 站 Adapter 分离，统一走 source/conversation |
-| D-035 | 视频站 Connect 独立模块、无头浏览器与配置/日志 | V1 已完成；V2 待开始；当前 reactor 4 模块 |
+| D-035 | 视频站 Connect 独立模块、无头浏览器与配置/日志 | V1/V2 已完成；V3 待开始；当前 reactor 4 模块 |
 
 ## 二、当前用户原话
 
@@ -243,7 +243,7 @@
 
 - 当前 reactor 为 `iibot-connect` / `iibot-video-connect` / `iibot-bot` / `iibot-app`
   4 模块；D-035 V1 已创建 `iibot-video-connect` 并完成 B 站领域迁移；
-  V2 起收敛 app 单一 MCP 工具目录，未实现前不得写成已完成；
+  V2 已收敛 app 单一 `BotToolCatalog`/tool packs；V3 起补 quality/time/comments；
 - QQ 业务工具继续使用 `qq_*`；平台无关收发使用 `conversation_*` 别名；
   B 站内容读取当前使用 `bili_video_read`，D-035 V3 后标准名为 `video_read` 并保留
   `bili_*` 别名；不出现 `bot_*` / `tf_*` 业务工具；

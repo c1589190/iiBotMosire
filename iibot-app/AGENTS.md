@@ -4,7 +4,7 @@
 
 - 加载配置并创建 QQ / B 站 Adapter；
 - 装配 SQLite 消息板、embedded Inbox 与 Bot MCP；
-- 注册 B 站视频/抽帧/登录 MCP 工具；V2 起收敛到 app 的单一 `BotToolCatalog`；
+- 通过 app 的单一 `BotToolCatalog`/`BotToolContext` 注册 QQ、媒体、Inbox、B 站视频/抽帧/登录 MCP 工具；
 - 管理进程生命周期、日志和安全创建；
 - 提供唯一可运行入口 `io.mosire.iibot.app.Main`。
 
@@ -29,6 +29,8 @@
 - `src/main/java/io/mosire/iibot/app/Main.java`
 - `src/main/java/io/mosire/iibot/app/bot/BotMain.java`
 - `src/main/java/io/mosire/iibot/app/bot/BotRuntime.java`
+- `src/main/java/io/mosire/iibot/app/mcp/BotToolCatalog.java`
+- `src/main/java/io/mosire/iibot/app/mcp/BotToolContext.java`
 - `src/main/java/io/mosire/iibot/app/inbox/BotInboxRuntime.java`
 
 ## 验证

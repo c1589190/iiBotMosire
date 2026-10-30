@@ -1,8 +1,8 @@
 # 视频站 Connect 与无头浏览器实施计划
 
-> **状态**：V1 已完成（2026-10-31）；V2 待开始
+> **状态**：V1/V2 已完成（2026-10-31）；V3 待开始
 > **设计**：[`../specs/2026-10-31-video-site-connect-and-browser-backend.md`](../specs/2026-10-31-video-site-connect-and-browser-backend.md)
-> **当前基线**：`84fd1a8`；**304 tests**（connect 73 / video 14 / bot 127 / app 90）；真实 B 站登录/私信/评论联调 `NOT_RUN`；Playwright 未接入。
+> **当前基线**：`7d24f9b`；**306 tests**（connect 73 / video 14 / bot 127 / app 92）；真实 B 站登录/私信/评论联调 `NOT_RUN`；Playwright 未接入。
 > **用户要求**：视频站能力集中到 connect；MCP 统一在 app 注册；分辨率/精确时间；
 > 无头浏览器必须兼容；配置项、易维护性和日志同步做好。
 
@@ -79,8 +79,8 @@
 工作项：
 
 1. 新增 `BotToolContext` 与 `BotToolCatalog`；
-2. `BotRuntime.prepare(...)` 暴露 board、mediaStore、replies、digest、capabilities、
-   accountRegistry 等只读运行时服务；
+2. `BotRuntime` 构造 board、mediaStore、replies、digest、capabilities、
+   accountRegistry 等运行时服务并交给 catalog；
 3. 新增 tool packs：
    - `QqToolPack`（调用现有 `BotMcpTools` 工厂）；
    - `MediaToolPack`；
@@ -92,10 +92,23 @@
 
 验收：
 
-- `BotRuntime`/`BotMain` 无 `bilibili`/`video` import；
+- `BotRuntime` 无 `bilibili`/`video`/media/Inbox 工具 import；`BotMain` 不再构造
+  `extraTools` 或直接 import B 站 MCP 工具（仍保留 B 站 Adapter 组合根创建）；
 - 工具清单与旧版一致（或只多兼容别名）；
 - MCP E2E、权限、重复工具名、启动失败回滚 PASS；
 - 无行为变化，full gate PASS。
+
+**V2 实际结果（2026-10-31，提交 `7d24f9b`）**：
+
+- 新增 `io.mosire.iibot.app.mcp.BotToolCatalog`、`BotToolContext` 与
+  `app.mcp.toolpack.{QqToolPack,MediaToolPack,InboxToolPack,VideoSiteToolPack}`。
+- `BotToolCatalog` 提供 `standard()`（默认运行时仅匿名分帧）、
+  `withVideoAccounts(...)`（生产路径保留 `bili_video_read` + 登录工具）和
+  `withExtraTools(...)`（旧入口兼容）；工具顺序与关闭语义保持。
+- `BotRuntime` 只构造 context 并调用 catalog；`BotMain` 只传
+  `BotToolCatalog.withVideoAccounts(...)`。工具名、参数、返回形状未改。
+- `tools/gate.sh full` PASS：**306 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 73、video 14、bot 127、app 92）；真实 B 站/浏览器验收仍 `NOT_RUN`。
 
 ## V3 精确时间、分辨率和评论查询
 

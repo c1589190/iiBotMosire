@@ -26,7 +26,7 @@
 | D-032 | Inbox 短正文内联与 compact qq read/ack；Inbox core 不改，DSH 通用 profile 能力 | 已实施（code-level，2026-10-30） | [专题设计](specs/2026-10-30-inbox-inline-and-compact-tool-results.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
 | D-033 | 薄 DSH 边界 + 语义化 QQ MCP：DSH 不镜像业务工具，read 带 messageId、more 可信、send 支持 replyToSeq | 第一阶段实施中（2026-10-30） | [专题设计](specs/2026-10-30-thin-dsh-boundary-and-semantic-mcp.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
 | D-034 | B 站通用视频阅读 + B 站账号/私信/评论 Inbox 会话 Adapter | 第一批 code-level（2026-10-31）；真实联调 `NOT_RUN` | [专题设计](specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
-| D-035 | 视频站 Connect 独立模块、统一 MCP 工具目录、无头浏览器与配置/日志 | 设计已确认；V1 已完成（2026-10-31）；V2 待开始 | [专题设计](specs/2026-10-31-video-site-connect-and-browser-backend.md)；[实施计划](plans/2026-10-31-video-site-connect-and-browser-backend-plan.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
+| D-035 | 视频站 Connect 独立模块、统一 MCP 工具目录、无头浏览器与配置/日志 | 设计已确认；V1/V2 已完成（2026-10-31）；V3 待开始 | [专题设计](specs/2026-10-31-video-site-connect-and-browser-backend.md)；[实施计划](plans/2026-10-31-video-site-connect-and-browser-backend-plan.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
 
 ## 二、当前专题入口
 
@@ -40,7 +40,7 @@
 | Inbox 短正文内联与 compact 工具结果（D-032） | [`specs/2026-10-30-inbox-inline-and-compact-tool-results.md`](specs/2026-10-30-inbox-inline-and-compact-tool-results.md) | Inbox core 不改；`digest_complete` kind、DSH profile 紧凑注入、source-only read/ack |
 | 薄 DSH 边界与语义化 MCP（D-033） | [`specs/2026-10-30-thin-dsh-boundary-and-semantic-mcp.md`](specs/2026-10-30-thin-dsh-boundary-and-semantic-mcp.md) | iibot 工具面自解释；read 带 messageId、more 可信；send 支持 replyToSeq；DSH 不镜像业务工具 |
 | B 站通用视频与 Inbox 会话（D-034） | [`specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md`](specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md) | bili_video_read、BilibiliAdapter、bili_dm/bili_comment source、账号 Cookie/WBI、评论/私信收发 |
-| 视频站模块与无头浏览器（D-035） | [`specs/2026-10-31-video-site-connect-and-browser-backend.md`](specs/2026-10-31-video-site-connect-and-browser-backend.md)；[`plans/2026-10-31-video-site-connect-and-browser-backend-plan.md`](plans/2026-10-31-video-site-connect-and-browser-backend-plan.md) | V1 已创建 `iibot-video-connect`；后续 app 单一工具目录、quality/time、Playwright embedded/remote-cdp、配置/日志与 V0–V7 计划 |
+| 视频站模块与无头浏览器（D-035） | [`specs/2026-10-31-video-site-connect-and-browser-backend.md`](specs/2026-10-31-video-site-connect-and-browser-backend.md)；[`plans/2026-10-31-video-site-connect-and-browser-backend-plan.md`](plans/2026-10-31-video-site-connect-and-browser-backend-plan.md) | V1 已创建 `iibot-video-connect`；V2 已收敛 app 单一工具目录；后续 quality/time、Playwright embedded/remote-cdp、配置/日志与 V0–V7 计划 |
 | Inbox Mode A 接入 | [`specs/2026-10-25-inbox-mode-a-notification-workflow.md`](specs/2026-10-25-inbox-mode-a-notification-workflow.md) | 程序嵌入 Inbox 的通知/唤醒接线 |
 | 当前实施计划 | [`plans/2026-10-28-unified-qq-agent-client-refactor-plan.md`](plans/2026-10-28-unified-qq-agent-client-refactor-plan.md) | P0–P7 责任区、验收、风险 |
 | P8 来源地址与 wake | [`plans/2026-10-28-p8-source-address-and-wake-contract.md`](plans/2026-10-28-p8-source-address-and-wake-contract.md)；[`specs/2026-10-28-unified-message-source-address.md`](specs/2026-10-28-unified-message-source-address.md) | 全唤醒、source 地址、wake 契约 |
