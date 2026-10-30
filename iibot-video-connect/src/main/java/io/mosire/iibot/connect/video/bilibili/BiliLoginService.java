@@ -1,8 +1,7 @@
-package io.mosire.iibot.app.bilibili;
+package io.mosire.iibot.connect.video.bilibili;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.mosire.iibot.connect.bilibili.BilibiliCredential;
-import io.mosire.iibot.connect.bilibili.BilibiliLoginClient;
+import io.mosire.iibot.connect.video.core.VideoAccountRef;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -28,22 +27,22 @@ public final class BiliLoginService {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Duration TTL = Duration.ofMinutes(5);
 
-    private final List<BiliVideoReadTool.BiliVideoAccount> accounts;
+    private final List<VideoAccountRef> accounts;
     private final String passportBase;
     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
 
-    public BiliLoginService(List<BiliVideoReadTool.BiliVideoAccount> accounts) {
+    public BiliLoginService(List<VideoAccountRef> accounts) {
         this(accounts, null);
     }
 
-    public BiliLoginService(List<BiliVideoReadTool.BiliVideoAccount> accounts,
+    public BiliLoginService(List<VideoAccountRef> accounts,
                             String passportBase) {
         this.accounts = accounts == null ? List.of() : List.copyOf(accounts);
         this.passportBase = passportBase;
     }
 
     public StartResult start(String requestedAccount) {
-        BiliVideoReadTool.BiliVideoAccount account = select(requestedAccount);
+        VideoAccountRef account = select(requestedAccount);
         cleanExpired();
         try (BilibiliLoginClient client = client()) {
             BilibiliLoginClient.QrStart qr = client.start();
@@ -81,7 +80,7 @@ public final class BiliLoginService {
         }
     }
 
-    private BiliVideoReadTool.BiliVideoAccount select(String requestedAccount) {
+    private VideoAccountRef select(String requestedAccount) {
         if (accounts.isEmpty()) {
             throw new IllegalArgumentException("没有配置 B 站账号");
         }
@@ -163,7 +162,7 @@ public final class BiliLoginService {
         }
     }
 
-    private record Pending(BiliVideoReadTool.BiliVideoAccount account,
+    private record Pending(VideoAccountRef account,
                            String qrcodeKey, Instant expiresAt) {
     }
 

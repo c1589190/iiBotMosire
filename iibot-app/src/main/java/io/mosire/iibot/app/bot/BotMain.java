@@ -3,12 +3,13 @@ package io.mosire.iibot.app.bot;
 import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.iibot.app.bilibili.BiliAccountLoginPollTool;
 import io.mosire.iibot.app.bilibili.BiliAccountLoginStartTool;
-import io.mosire.iibot.app.bilibili.BiliLoginService;
 import io.mosire.iibot.app.bilibili.BiliVideoReadTool;
 import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.inbox.BotInboxRuntimeOptions;
-import io.mosire.iibot.connect.bilibili.BilibiliAdapter;
-import io.mosire.iibot.connect.bilibili.BilibiliAdapterConfig;
+import io.mosire.iibot.connect.video.bilibili.BiliLoginService;
+import io.mosire.iibot.connect.video.bilibili.BilibiliAdapter;
+import io.mosire.iibot.connect.video.bilibili.BilibiliAdapterConfig;
+import io.mosire.iibot.connect.video.core.VideoAccountRef;
 import io.mosire.iibot.connect.core.AccountRegistry;
 import io.mosire.iibot.connect.core.MessagingAdapter;
 import io.mosire.iibot.connect.napcat.NapCatAdapter;
@@ -72,7 +73,7 @@ public final class BotMain {
                                     + config.control().bearerTokenEnv() + " 为空"));
 
             List<BotRuntimeOptions.AccountOptions> accountOptions = new ArrayList<>();
-            List<BiliVideoReadTool.BiliVideoAccount> biliVideoAccounts = new ArrayList<>();
+            List<VideoAccountRef> biliVideoAccounts = new ArrayList<>();
             for (Map.Entry<String, BotConfig.Account> entry : enabledAccounts) {
                 String alias = entry.getKey();
                 BotConfig.Account account = entry.getValue();
@@ -114,7 +115,7 @@ public final class BotMain {
                             bilibili.writeEnabled(),
                             bilibili.maxWritesPerDay());
                     adapter = new BilibiliAdapter(adapterConfig);
-                    biliVideoAccounts.add(new BiliVideoReadTool.BiliVideoAccount(
+                    biliVideoAccounts.add(new VideoAccountRef(
                             account.accountId(), Path.of(credentialPath)));
                     log.debug("event=adapter_configured adapter={} alias={} accountId={} "
                                     + "pollSeconds={} privateMessages={} "

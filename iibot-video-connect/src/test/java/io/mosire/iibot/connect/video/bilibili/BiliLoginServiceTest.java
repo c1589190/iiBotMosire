@@ -1,8 +1,8 @@
-package io.mosire.iibot.app.bilibili;
+package io.mosire.iibot.connect.video.bilibili;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import io.mosire.iibot.connect.bilibili.BilibiliCredential;
+import io.mosire.iibot.connect.video.core.VideoAccountRef;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,8 +52,8 @@ class BiliLoginServiceTest {
                             "DedeUserID=123456; Path=/");
                 });
         Path credentialFile = tempDir.resolve("secrets/bili.json");
-        BiliVideoReadTool.BiliVideoAccount account =
-                new BiliVideoReadTool.BiliVideoAccount("bili-123456", credentialFile);
+        VideoAccountRef account =
+                new VideoAccountRef("bili-123456", credentialFile);
         BiliLoginService service = new BiliLoginService(List.of(account), base);
 
         BiliLoginService.StartResult start = service.start("");

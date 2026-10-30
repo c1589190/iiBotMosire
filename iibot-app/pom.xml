@@ -10,11 +10,16 @@
   </parent>
   <artifactId>iibot-app</artifactId>
   <name>iibot-app</name>
-  <description>Bot-first QQ client composition root: config, adapters, embedded Inbox and Bot MCP.</description>
+  <description>Bot-first QQ/video-site composition root: config, adapters, embedded Inbox, Bot MCP and video tools.</description>
   <dependencies>
     <dependency>
       <groupId>io.mosire.iibot</groupId>
       <artifactId>iibot-bot</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.mosire.iibot</groupId>
+      <artifactId>iibot-video-connect</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>

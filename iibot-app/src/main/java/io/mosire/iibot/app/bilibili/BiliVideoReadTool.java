@@ -5,15 +5,15 @@ import io.mosire.agentlib.permission.ToolSpec;
 import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolResult;
-import io.mosire.iibot.connect.bilibili.BilibiliCredential;
-import io.mosire.iibot.connect.bilibili.BilibiliHttpClient;
-import io.mosire.iibot.connect.bilibili.BilibiliModels;
-import io.mosire.iibot.connect.bilibili.BilibiliTarget;
-import io.mosire.iibot.connect.bilibili.BilibiliTargetResolver;
+import io.mosire.iibot.connect.video.bilibili.BilibiliCredential;
+import io.mosire.iibot.connect.video.bilibili.BilibiliHttpClient;
+import io.mosire.iibot.connect.video.bilibili.BilibiliModels;
+import io.mosire.iibot.connect.video.bilibili.BilibiliTarget;
+import io.mosire.iibot.connect.video.bilibili.BilibiliTargetResolver;
+import io.mosire.iibot.connect.video.core.VideoAccountRef;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -56,17 +56,17 @@ public final class BiliVideoReadTool implements AgentTool {
             "required", List.of("target"),
             "additionalProperties", false);
 
-    private final List<BiliVideoAccount> accounts;
+    private final List<VideoAccountRef> accounts;
     private final BilibiliTargetResolver resolver = new BilibiliTargetResolver();
     private final String apiBase;
     private final String vcApiBase;
 
-    public BiliVideoReadTool(List<BiliVideoAccount> accounts) {
+    public BiliVideoReadTool(List<VideoAccountRef> accounts) {
         this(accounts, BilibiliHttpClient.API_BASE, BilibiliHttpClient.VC_API_BASE);
     }
 
     /** 测试/隔离部署可指向本地 fake B站服务。 */
-    public BiliVideoReadTool(List<BiliVideoAccount> accounts,
+    public BiliVideoReadTool(List<VideoAccountRef> accounts,
                              String apiBase, String vcApiBase) {
         this.accounts = accounts == null ? List.of() : List.copyOf(accounts);
         this.apiBase = Objects.requireNonNull(apiBase, "apiBase");
@@ -169,10 +169,10 @@ public final class BiliVideoReadTool implements AgentTool {
     }
 
     private CredentialSelection selectCredential(String requestedAccount) {
-        BiliVideoAccount selected = null;
+        VideoAccountRef selected = null;
         if (!requestedAccount.isBlank()) {
             selected = accounts.stream()
-                    .filter(account -> requestedAccount.equals(account.accountId))
+                    .filter(account -> requestedAccount.equals(account.accountId()))
                     .findFirst()
                     .orElseThrow(() -> new IllegalArgumentException(
                             "未配置该 B 站账号: " + requestedAccount));
@@ -332,17 +332,6 @@ public final class BiliVideoReadTool implements AgentTool {
 
     private static String two(long value) {
         return value < 10L ? "0" + value : Long.toString(value);
-    }
-
-    public record BiliVideoAccount(String accountId, Path credentialFile) {
-        public BiliVideoAccount {
-            accountId = Objects.requireNonNull(accountId, "accountId").trim();
-            credentialFile = Objects.requireNonNull(credentialFile, "credentialFile")
-                    .toAbsolutePath().normalize();
-            if (accountId.isEmpty()) {
-                throw new IllegalArgumentException("accountId 不能为空");
-            }
-        }
     }
 
     private record CredentialSelection(String accountId, BilibiliCredential credential,

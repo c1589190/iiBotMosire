@@ -6,11 +6,13 @@ import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolResult;
 import io.mosire.iibot.app.media.BotMediaStore;
-import io.mosire.iibot.connect.bilibili.BilibiliCredential;
-import io.mosire.iibot.connect.bilibili.BilibiliHttpClient;
-import io.mosire.iibot.connect.bilibili.BilibiliModels;
-import io.mosire.iibot.connect.bilibili.BilibiliTarget;
-import io.mosire.iibot.connect.bilibili.BilibiliTargetResolver;
+import io.mosire.iibot.connect.video.bilibili.BilibiliCredential;
+import io.mosire.iibot.connect.video.bilibili.BilibiliHttpClient;
+import io.mosire.iibot.connect.video.bilibili.BilibiliModels;
+import io.mosire.iibot.connect.video.bilibili.BilibiliTarget;
+import io.mosire.iibot.connect.video.bilibili.BilibiliTargetResolver;
+import io.mosire.iibot.connect.video.frame.BiliFrameExtractor;
+import io.mosire.iibot.connect.video.frame.FfmpegBiliFrameExtractor;
 import io.mosire.iibot.connect.core.MediaAsset;
 
 import java.nio.file.Files;

@@ -1,4 +1,4 @@
-package io.mosire.iibot.app.bilibili;
+package io.mosire.iibot.connect.video.frame;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

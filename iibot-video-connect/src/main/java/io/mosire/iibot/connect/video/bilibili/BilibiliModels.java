@@ -1,4 +1,4 @@
-package io.mosire.iibot.connect.bilibili;
+package io.mosire.iibot.connect.video.bilibili;
 
 import java.util.List;
 import java.util.Objects;

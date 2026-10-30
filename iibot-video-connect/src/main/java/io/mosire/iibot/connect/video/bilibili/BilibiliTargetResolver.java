@@ -1,4 +1,4 @@
-package io.mosire.iibot.connect.bilibili;
+package io.mosire.iibot.connect.video.bilibili;
 
 import java.io.IOException;
 import java.net.URI;

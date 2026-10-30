@@ -1,4 +1,4 @@
-package io.mosire.iibot.connect.bilibili;
+package io.mosire.iibot.connect.video.bilibili;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;

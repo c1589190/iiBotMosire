@@ -5,6 +5,7 @@ import io.mosire.agentlib.permission.ToolSpec;
 import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolResult;
+import io.mosire.iibot.connect.video.bilibili.BiliLoginService;
 
 import java.util.LinkedHashMap;
 import java.util.List;

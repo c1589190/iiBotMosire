@@ -10,10 +10,11 @@
   <packaging>pom</packaging>
 
   <name>iiBotMosire</name>
-  <description>Agent-agnostic unified QQ client: OneBot transport, message board, embedded Inbox and Bot MCP.</description>
+  <description>Agent-agnostic unified QQ and video-site client: OneBot transport, Bilibili video, message board, embedded Inbox and Bot MCP.</description>
 
   <modules>
     <module>iibot-connect</module>
+    <module>iibot-video-connect</module>
     <module>iibot-bot</module>
     <module>iibot-app</module>
   </modules>

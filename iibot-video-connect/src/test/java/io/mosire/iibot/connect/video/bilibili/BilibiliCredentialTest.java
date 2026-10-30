@@ -1,4 +1,4 @@
-package io.mosire.iibot.connect.bilibili;
+package io.mosire.iibot.connect.video.bilibili;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
