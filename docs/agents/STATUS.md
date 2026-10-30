@@ -427,9 +427,10 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
     wake 后、ack 前到达的新消息可能被一并归档。这是既有 direct-ack 边界，D-032
     没有引入 through 字段；需要真实运行观察，必要时再裁定。
 15. **D-035 尚未进入代码**：`iibot-video-connect` 未创建、app 单一工具目录未实现、
-    `quality/time/times`/`video_comments` 未落地、Playwright/Chromium 未安装核对、
-    `video.*` 配置与浏览器日志未实现；真实浏览器帧、remote-cdp、服务器部署均
-    `NOT_RUN`。V6 交互范围 A/B 未确认，不得提前实现点赞/投币/收藏/关注。
+    `quality/time/times`/`video_comments` 未落地、Playwright 未接入、
+    `video.*` 配置与浏览器日志未实现；snap Chromium 156 已安装且 headless
+    `about:blank` PASS，但 B 站页面帧、remote-cdp、服务器部署均 `NOT_RUN`。
+    V6 交互范围 A/B 未确认，不得提前实现点赞/投币/收藏/关注。
 
 ## 7. 下一步
 

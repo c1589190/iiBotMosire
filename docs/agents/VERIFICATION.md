@@ -37,8 +37,9 @@ tools/gate.sh full
   smoke PASS；登录态字幕、真实私信/评论轮询与发送 `NOT_RUN`。
 - 2026-10-31 D-035 V0 基线（docs-only）：`tools/gate.sh docs` PASS
   （modules=3 files=49 links=159）；代码/配置未改，full 沿用 D-034 的 304 tests。
-  `iibot-video-connect`、Playwright/Chromium、`quality/time/times`、`video_comments`
-  与 `video.*` 配置均未实现；真实浏览器/服务器验收 `NOT_RUN`。
+  `iibot-video-connect`、Playwright、`quality/time/times`、`video_comments`
+  与 `video.*` 配置均未实现；snap Chromium 156 已安装，headless `about:blank`
+  PASS；B 站页面/Playwright/服务器验收 `NOT_RUN`。
 - 依赖：Jackson 2.22.4、SLF4J 2.0.20、JUnit 6.1.3、Java-WebSocket 1.6.0；
   `iibot-app` shaded jar 构建成功。
 - Inbox 依赖刷新后 `./mvnw -B -ntp clean verify` PASS：37 tests / 0 failures / 0 errors。
@@ -66,7 +67,7 @@ tools/gate.sh full
 | B 站公开读取 | 元数据/热评/字幕/短链 | 元数据+热评 smoke PASS；ffmpeg 3 帧看图 smoke PASS；字幕/短链 `NOT_RUN` |
 | B 站账号会话 | Cookie 登录、WBI、私信轮询、评论通知、私信/评论发送 | fake HTTP 单测 PASS；真实 `NOT_RUN` |
 | 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询 | 设计已确认；实施 `NOT_RUN` |
-| 无头浏览器（D-035） | Playwright embedded/remote-cdp、headless Linux、codec/超时/清理 | 依赖与实现 `NOT_RUN`；Chromium 未安装核对 |
+| 无头浏览器（D-035） | Playwright embedded/remote-cdp、headless Linux、codec/超时/清理 | snap Chromium 156 headless `about:blank` PASS；Playwright/B 站页面/remote-cdp `NOT_RUN` |
 | 真实 NapCat E2E | 真实私聊/群聊入站与发送 | `NOT_RUN` |
 | 真实 DSH/OpenCode wake | 真实 wake/ack 闭环 | `NOT_RUN` |
 | 长跑/崩溃恢复 | 多账号、日志轮转、进程崩溃与重启 | `NOT_RUN` |
