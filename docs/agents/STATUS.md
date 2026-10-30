@@ -1,11 +1,47 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-29 18:30（Asia/Shanghai）
+> **更新时间**：2026-10-30 23:30（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
 ## 0. 最新更新：P1a/P1b 清理与统一 QQ 客户端重构
 
+- **2026-10-30 可用代码检查点已提交 `d67b757`**：D-031/D-032 的源码、测试、
+  配置、设计文档与摩擦调查报告收口提交；本 STATUS 与 B 站 Adapter 调查报告
+  随后单独收口。提交前实跑 `tools/gate.sh docs` PASS
+  （modules=3 files=45 links=125）与 `tools/gate.sh full` PASS，
+  **277 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 73、bot 119、app 85）；真实 QQ/LLBot/DSH 外部联调仍为 `NOT_RUN`。
+- **2026-10-30 D-032 Inbox 短正文内联与 compact read/ack 已实现（code-level）**：
+  `InboxMosire` core 不改；Bot 以 `kind=digest_complete` 标记完整短文本，
+  `messageBoard.inlineMaxChars` 默认 512；`InboxMosire-DSH` 增加 profile 驱动的
+  `completeKinds` / `compactViewAckItems`，`iiBotMosire-DSH` 使用短 wake 文案；
+  `qq_conversation_read(source)` / `qq_conversation_ack(source)` 改为 compact 契约，
+  ack 只返回 `more`。iiBot full gate PASS，**277 tests / 0 failures / 0 errors /
+  0 skipped**（connect 73、bot 119、app 85）；InboxMosire-DSH `npm test` PASS
+  **149 tests / 146 pass / 3 live skipped / 0 fail**；iiBot-DSH profile PASS 2/2。
+  真实 DSH reload、真实 QQ/LLBot、新会话 token 降幅均 `NOT_RUN`。
+  设计正本：
+  [`../superpowers/specs/2026-10-30-inbox-inline-and-compact-tool-results.md`](../superpowers/specs/2026-10-30-inbox-inline-and-compact-tool-results.md)。
+- **2026-10-30 D-031 3A–3D 已实现（code-level）**：Raw LLBot 常规兜底、
+  `mentionAll`（群聊全员）、任意主动私聊、撤回、MCP 外发图片/表情/群文件、语音提取（ASR 未接）、
+  调度交宿主。`tools/gate.sh full` PASS，**272 tests / 0 failures / 0 errors /
+  0 skipped**（connect 73、bot 115、app 84）；真实 QQ/LLBot 外部动作 `NOT_RUN`。
+  设计正本：
+  [`../superpowers/specs/2026-10-30-qq-outbound-actions-and-media-rulings.md`](../superpowers/specs/2026-10-30-qq-outbound-actions-and-media-rulings.md)。
+- **2026-10-30 Bot 试运行摩擦第二批已实现（code-level）**：F-003
+  `qq_forward_media_get` 顶层转发图片安全读取；F-016 `GroupFileCapability` +
+  `qq_group_files` / `qq_group_file_get`（短期 fileRef，文本/图片/二进制三态）；
+  F-014 DSH 改为 agent-scoped tool schema；F-015 ack 的 `remaining/nextAction`
+  已由 D-032 的 `more` compact 契约取代。
+  iiBot `tools/gate.sh full` PASS，**251 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 67、bot 110、app 74）；DSH `npm test` PASS（147 tests，3 live skipped）；
+  iiBot-DSH wake profile PASS（2/2）。真实 QQ/LLBot/DSH reload 后联调 `NOT_RUN`。
+- **2026-10-29 Bot 试运行摩擦第一批已实现**：F-001 卡片可读文本与 F-002 群文件元数据保真；
+  `tools/gate.sh full` PASS，**246 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 66、bot 110、app 70）；`tools/gate.sh docs` PASS
+  （modules=3 files=43 links=109）。真实 QQ/LLBot 回归 `NOT_RUN`。调查与分诊见
+  [`../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md`](../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md)。
 - **用户方向**：iibot 只做面向各类 Agent 软件的统一 QQ 消息客户端，不提供程序化文游服务。
 - **执行分支**：`refactor/unified-qq-agent-client`；按责任区分批实现、测试、提交、推送，
   全部确认后再合并（M-005）。
@@ -149,7 +185,13 @@ OneBot 11 / NapCat / LLBot（可多个）
 当前进行中：
 
 - P1b–P8.7 已完成并合并；
-- 剩余：真实外部联调与 AgentLib 0.2.4 公开发布。
+- **Bot 试运行摩擦第一批（2026-10-29）已完成（code-level）**：按
+  [`../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md`](../superpowers/reports/2026-10-29-bot-trial-friction-investigation.md)
+  完成 F-001 卡片可读文本与 F-002 群文件元数据保真；未扩出站/任意 action；
+- **Bot 试运行摩擦第二批（2026-10-30）已完成（code-level）**：F-003 转发顶层
+  图片安全读取、F-016 群文件列表/读取、F-014 DSH programMcp 探测、F-015 partial
+  ack 同轮续处理；真实运行/宿主 reload 仍待验证；
+- 剩余：真实外部联调、F-012/F-013/F-019 等后续责任区与 AgentLib 0.2.4 公开发布。
 
 非目标：
 
@@ -164,10 +206,10 @@ OneBot 11 / NapCat / LLBot（可多个）
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.7）；feature/fix 分支保留 |
-| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main） |
+| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757` |
 | Maven reactor | 3 模块：`iibot-connect` / `iibot-bot` / `iibot-app` |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | clean；无运行中 Java 进程 |
+| 工作树 | 主检查点 `d67b757` 已提交；本 STATUS 与 B 站调查报告为收口提交，提交后工作树 clean |
 | 模块目标 | 已完成：`iibot-connect-agent` 已删除，模块数为 3 |
 
 ## 3. 最近功能门禁
@@ -212,6 +254,19 @@ OneBot 11 / NapCat / LLBot（可多个）
 | P8.7 DSH | `npm test` PASS：140 tests（3 live skipped）；direct ack 提示 |
 | P8.7 merged | iiBot `8e8d57e` / DSH `0370e07` / Inbox `a040f25` |
 | P8 跨仓 | Inbox `a040f25`（41 tests）、DSH `b14f7a1`/`bef43ed`（139 tests）、iiBot `bcc8646` |
+| 2026-10-29 摩擦第一批 focused | `tools/gate.sh focused iibot-bot -am test` PASS：connect 66 + bot 110，0/0/0；`.work/` 未提交 |
+| 2026-10-29 摩擦第一批 full | `tools/gate.sh full` PASS：**246 tests / 0 failures / 0 errors / 0 skipped**（connect 66、bot 110、app 70）；证据 `.work/bot-friction-f001-f002-full.log` |
+| 2026-10-29 摩擦第一批 docs | `tools/gate.sh docs` PASS（modules=3 files=43 links=109） |
+| 2026-10-30 摩擦第二批 full | `tools/gate.sh full` PASS：**251 tests / 0 failures / 0 errors / 0 skipped**（connect 67、bot 110、app 74）；证据 `.work/bot-friction-batch2-full.log` |
+| 2026-10-30 摩擦第二批 docs | `tools/gate.sh docs` PASS（modules=3 files=43 links=110） |
+| 2026-10-30 D-031 3A–3D full | `tools/gate.sh full` PASS：**272 tests / 0 failures / 0 errors / 0 skipped**（connect 73、bot 115、app 84）；证据 `.work/d031-full.log` |
+| 2026-10-30 D-031 3A–3D docs | `tools/gate.sh docs` PASS（modules=3 files=44 links=119） |
+| 2026-10-30 D-032 full | `tools/gate.sh full` PASS：**277 tests / 0 failures / 0 errors / 0 skipped**（connect 73、bot 119、app 85）；证据 `.work/d032-full.log` |
+| 2026-10-30 D-032 docs | `tools/gate.sh docs` PASS（modules=3 files=45 links=125）；证据 `.work/d032-docs.log` |
+| 2026-10-30 InboxMosire-DSH D-032 | `npm test` PASS：149 tests / 146 pass / 3 live skipped / 0 fail；证据 `.work/d032-inbox-dsh-test.log` |
+| 2026-10-30 iiBot-DSH D-032 | profile `npm test` PASS：2/2；证据 `.work/d032-profile-test.log` |
+| 2026-10-30 DSH test | `npm test` PASS：147 tests / 144 pass / 3 live skipped / 0 fail；证据 `.work/dsh-f014-test.log`（该仓 `.work` 未提交） |
+| 2026-10-30 iiBot-DSH profile | `npm test` PASS：2/2；partial-ack 同轮续处理提示进入两个 view-ack body |
 
 ## 4. 当前有效设计/维护入口
 
@@ -228,7 +283,21 @@ OneBot 11 / NapCat / LLBot（可多个）
 ## 5. 当前已实现能力
 
 - OneBot 11 事件 WS + HTTP Action，重连、心跳、去重、限速、分段、发送三态；
-- QQ 私聊/群聊消息板、thread、历史、用户备注、媒体、好友申请；
+- QQ 私聊/群聊消息板、thread、历史、用户备注、媒体、好友申请；入站卡片提取安全
+  标题/描述/链接，群文件保存文件名/大小/内部 file id；MCP 不返回 file id 或 URL；
+- `qq_forward_media_get`：顶层合并转发图片以 MCP ImageContent 返回；
+- `qq_group_files` / `qq_group_file_get`：群文件目录、短期 fileRef、文本有界正文、
+  图片 ImageContent、二进制元数据省略；不暴露 busid/URL；
+- `qq_group_file_upload`：受控资产经 `upload_group_file` 上传，先写 OUT/PENDING，
+  回写三态；不向模型暴露临时路径；
+- `qq_conversation_send` 支持 `mentionAll` 与 image/sticker attachments；
+- `qq_private_send`：主动私聊任意 QQ，消息板落库、账号路由、三态；
+- `qq_message_recall`：按 source/accountId 撤回，显式记录结果，不要求 confirm；
+- `qq_media_upload`：base64 入受控资产库，返回 `assetRef`；
+- `qq_audio_get`：提取 AUDIO 段为 `audioRef`；`asrConfigured=false`；
+- `qq_conversation_ack(source)` 返回 compact `more`；`more=true` 时同轮继续 read；
+- 短文本 digest 可达 `kind=digest_complete`，wake 内联完整 bounded summary；
+- `qq_conversation_read(source)` 返回 compact messages + more，不再返回内部投影；
 - Inbox summary/content 与未读桶；
 - Bot MCP + embedded Inbox 生命周期；
 - 回环 Bearer MCP、日志文件与 ops 事件基础；
@@ -247,12 +316,37 @@ OneBot 11 / NapCat / LLBot（可多个）
    尚未改成纯宿主 handoff；回复成功后仍要求显式 `qq_conversation_ack(source)`。
 5. **真实外部验收未跑**：真实 QQ → Inbox → DSH/OpenCode wake → Bot MCP 闭环、
    真实发送、日志轮转、长跑和崩溃恢复均 `NOT_RUN`。
+6. **入站/出站真实样本未跑**：card/file/forward/group-file/audio/mentionAll/recall/
+   主动私聊/图片/表情/群文件上传都只有 adapter、工具和存储单测；当前 Bot jar 未替换，
+   真实 LLBot 回归为 `NOT_RUN`。
+7. **F-014 宿主 reload 未跑**：DSH 的 agent-scoped 探测修复已由单测覆盖；
+   运行中的 DSH 仍持有旧模块，reload 后 `programMcp` 状态转变尚未实测。
+8. **D-032 运行验证未跑**：`digest_complete`、compact read/ack 与 DSH compact
+   profile 只有单测；真实 DSH reload 和新会话实测为 `NOT_RUN`。
+9. **ASR 未接**：语音只到 `audioRef`，`asrConfigured=false`；转写能力 `NOT_RUN`。
+10. **Raw LLBot 兜底未审计进消息板**：D-031 允许 Agent 常规使用，但其外发不会自动
+    进入 iibot 消息板；必须由 Agent 如实记录 messageId/结果。
+11. **source-only direct ack 竞态**：未 read 时 ack 归档当前 active item；
+    wake 后、ack 前到达的新消息可能被一并归档。这是既有 direct-ack 边界，D-032
+    没有引入 through 字段；需要真实运行观察，必要时再裁定。
 
 ## 7. 下一步
 
 1. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。
-2. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
+2. **已推进的摩擦项**：F-001/F-002/F-003/F-014/F-015/F-016 已完成 code-level；
+   下一步是替换测试 jar、reload 宿主并用真实样本验收。
+3. **D-031 已实现 code-level**：3A mentionAll + qq_message_recall；3B qq_private_send；
+   3C qq_media_upload + image/sticker + qq_group_file_upload；3D AUDIO + qq_audio_get。
+   下一步是替换测试 jar 后做真实 LLBot 外部动作验收；ASR 仍未接。
+4. **Raw LLBot 兜底**：按 D-031 允许常规使用；纪律和审计边界已写设计，不新增
+   iibot scheduler。
+5. **D-032 验证**：替换测试 jar、reload 两个 DSH bundle 后，用新会话验证
+   `complete=true` 不走 read、普通消息走 compact read/ack、`more` 同轮续读；
+   旧 649 轮会话不能冒充新验收。
+6. **F-013 复验**：先按 MCP 发送路径确认 OUT 已落库；只有 Raw LLBot 路径无记录，
+   不再把它当消息板缺陷。
+7. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
    `PUBLICATION_GAP` / `BLOCKED`。
-3. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack；
+8. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack；
    当前均未实施。
