@@ -39,7 +39,7 @@ class BotConfigLoaderTest {
         assertThat(loaded.inbox().dataDir())
                 .isEqualTo(tempDir.resolve("data").resolve("inbox").toAbsolutePath());
         assertThat(loaded.inbox().channels()).isEqualTo(Set.of("qq"));
-        assertThat(loaded.messageBoard().summaryDebounceMillis()).isEqualTo(2_000L);
+        assertThat(loaded.messageBoard().summaryDebounceMillis()).isEqualTo(5_000L);
         assertThat(loaded.messageBoard().maxPreviewMessages()).isEqualTo(20);
         assertThat(loaded.messageBoard().inlineMaxChars()).isEqualTo(512);
         assertThat(loaded.messageBoard().outbox().minSendIntervalMillis()).isEqualTo(150);
@@ -447,7 +447,7 @@ class BotConfigLoaderTest {
                     "channels": ["qq"]
                   },
                   "messageBoard": {
-                    "summaryDebounceMillis": 2000,
+                    "summaryDebounceMillis": 5000,
                     "maxPreviewMessages": 20,
                     "outbox": {
                       "sendTimeoutSeconds": 15,

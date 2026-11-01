@@ -399,8 +399,19 @@ public final class InboxDigestService {
             }
         }
         return InboxDigest.of(unreadFromSeq, unreadToSeq, summaries, context,
-                summary, wakeReason, weight, source, trigger, unreadCount,
+                boundSummary(summary), wakeReason, weight, source, trigger, unreadCount,
                 hasMoreUnread, summaryComplete);
+    }
+
+    private static String boundSummary(String summary) {
+        if (summary == null || summary.length() <= INBOX_SUMMARY_MAX_CHARS) {
+            return summary;
+        }
+        int end = INBOX_SUMMARY_MAX_CHARS - 1;
+        if (Character.isHighSurrogate(summary.charAt(end - 1))) {
+            end -= 1;
+        }
+        return summary.substring(0, end) + "…";
     }
 
     /** 生成只用于干净文本短批次的完整摘要；媒体、空正文或超长均不内联。 */

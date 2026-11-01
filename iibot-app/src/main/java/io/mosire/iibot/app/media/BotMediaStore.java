@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.attribute.PosixFilePermission;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -24,14 +26,18 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class BotMediaStore implements ToolAssetResolver {
 
     private final Path directory;
+    private final Path sourcesDirectory;
     private final Map<String, ToolAsset> cache = new ConcurrentHashMap<>();
 
     public BotMediaStore(Path dataDir) {
         this.directory = Objects.requireNonNull(dataDir, "dataDir")
                 .toAbsolutePath().normalize().resolve("media");
+        this.sourcesDirectory = directory.resolve("sources");
         try {
             Files.createDirectories(directory);
+            Files.createDirectories(sourcesDirectory);
             secure(directory, true);
+            secure(sourcesDirectory, true);
         } catch (IOException failure) {
             throw new IllegalStateException("创建媒体目录失败", failure);
         }
@@ -75,6 +81,60 @@ public final class BotMediaStore implements ToolAssetResolver {
         } catch (IOException failure) {
             throw new IllegalStateException("保存媒体资产失败", failure);
         }
+    }
+
+
+    /**
+     * Look up an asset previously stored for an opaque source key (file id/url
+     * fingerprint). The key itself is hashed on disk and never exposed.
+     */
+    public Optional<String> findBySource(String sourceKey) {
+        if (sourceKey == null || sourceKey.isBlank()) {
+            return Optional.empty();
+        }
+        Path marker = sourceMarker(sourceKey);
+        try {
+            if (!Files.isRegularFile(marker)) {
+                return Optional.empty();
+            }
+            String assetId = Files.readString(marker, StandardCharsets.UTF_8).trim();
+            if (assetId.isEmpty() || resolve(assetId).isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(assetId);
+        } catch (IOException | RuntimeException failure) {
+            return Optional.empty();
+        }
+    }
+
+    /** Remember that a source key resolved to an asset id; write is atomic. */
+    public void rememberSource(String sourceKey, String assetId) {
+        if (sourceKey == null || sourceKey.isBlank() || assetId == null || assetId.isBlank()) {
+            return;
+        }
+        Path marker = sourceMarker(sourceKey);
+        try {
+            Path temporary = Files.createTempFile(sourcesDirectory, ".source-", ".tmp");
+            try {
+                Files.writeString(temporary, assetId, StandardCharsets.UTF_8,
+                        StandardOpenOption.TRUNCATE_EXISTING);
+                secure(temporary, false);
+                try {
+                    Files.move(temporary, marker, StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                    Files.move(temporary, marker, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } finally {
+                Files.deleteIfExists(temporary);
+            }
+            secure(marker, false);
+        } catch (IOException failure) {
+            // Cache bookkeeping must never fail media retrieval.
+        }
+    }
+
+    private Path sourceMarker(String sourceKey) {
+        return sourcesDirectory.resolve(sha256(sourceKey.getBytes(StandardCharsets.UTF_8)) + ".asset");
     }
 
     @Override

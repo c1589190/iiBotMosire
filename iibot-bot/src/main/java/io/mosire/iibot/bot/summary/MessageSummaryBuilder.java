@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
  */
 public final class MessageSummaryBuilder {
 
-    public static final int DEFAULT_MAX_CHARS = 240;
+    public static final int DEFAULT_MAX_CHARS = 1000;
 
     private final int maxChars;
 

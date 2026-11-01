@@ -428,7 +428,7 @@ public final class BotConfigLoader {
             }
             String pointer = "/messageBoard";
             rejectUnknown(node, MESSAGE_BOARD_FIELDS, pointer, "messageBoard");
-            long debounce = optionalLong(node, "summaryDebounceMillis", pointer, 2_000L);
+            long debounce = optionalLong(node, "summaryDebounceMillis", pointer, 5_000L);
             int maxPreview = optionalInt(node, "maxPreviewMessages", pointer, 20);
             int inlineMaxChars = optionalInt(node, "inlineMaxChars", pointer, 512);
             BotConfig.Outbox outbox = parseOutbox(node, pointer);

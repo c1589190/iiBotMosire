@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -95,6 +96,42 @@ class BotMediaGetToolTest {
         assertThat(asset.mediaType()).isEqualTo("image/png");
         assertThat(asset.bytes()).containsExactly(1, 2, 3);
     }
+
+    @Test
+    void sameFileIdUsesCachedAssetWithoutDownloadingAgain() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        ChatSourceKey group = ChatSourceKey.groupChat("bot-1", "group-cache");
+        ChatMessage first = ChatMessage.inbound(group, "m-cache-1", "qq-1", "Alice",
+                T0, T0, "", "[图片×1]", "");
+        ChatMessage second = ChatMessage.inbound(group, "m-cache-2", "qq-1", "Alice",
+                T0.plusSeconds(1), T0.plusSeconds(1), "", "[图片×1]", "");
+        board.append(first, List.of(MessageSegment.image(
+                0, "same-file", "https://example.invalid/same.png", "image/png", 3)));
+        board.append(second, List.of(MessageSegment.image(
+                0, "same-file", "https://example.invalid/same.png", "image/png", 3)));
+        AtomicInteger downloads = new AtomicInteger();
+        MediaCapability provider = segment -> {
+            downloads.incrementAndGet();
+            return CompletableFuture.completedFuture(
+                    new MediaAsset("same.png", "image/png", new byte[]{1, 2, 3}));
+        };
+        BotMediaStore store = new BotMediaStore(tempDir);
+        BotMediaGetTool tool = new BotMediaGetTool(board, provider, store);
+        AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
+                .allow(tool.name())
+                .build();
+
+        ToolResult firstResult = tool.execute(new ToolContext(AccessToken.DEFAULT, permissions,
+                Map.of(), Map.of("messageKey", first.messageKey())));
+        ToolResult secondResult = tool.execute(new ToolContext(AccessToken.DEFAULT, permissions,
+                Map.of(), Map.of("messageKey", second.messageKey())));
+
+        assertThat(firstResult.success()).isTrue();
+        assertThat(secondResult.success()).isTrue();
+        assertThat(downloads).hasValue(1);
+        assertThat(secondResult.message()).contains("\"cached\":true");
+    }
+
     @Test
     void routesMediaLookupByMessageAccount() {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();

@@ -1,6 +1,7 @@
 package io.mosire.iibot.app.media;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.mosire.agentlib.llm.ToolAsset;
 import io.mosire.agentlib.permission.ToolSpec;
 import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolContext;
@@ -17,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -116,15 +118,25 @@ public final class BotMediaGetTool implements AgentTool {
             List<Map<String, Object>> errors = new ArrayList<>();
             for (MessageSegment image : images) {
                 try {
+                    String sourceKey = sourceKey(messageKey, image);
+                    Optional<String> cachedId = mediaStore.findBySource(sourceKey);
+                    if (cachedId.isPresent()) {
+                        Optional<ToolAsset> cached = mediaStore.resolve(cachedId.orElseThrow());
+                        if (cached.isPresent()) {
+                            ToolAsset asset = cached.orElseThrow();
+                            String assetId = cachedId.orElseThrow();
+                            assetIds.add(assetId);
+                            metadata.add(mediaMetadata(image, assetId, asset, true));
+                            continue;
+                        }
+                    }
                     MediaAsset asset = mediaProvider.image(image)
                             .toCompletableFuture().get(20, TimeUnit.SECONDS);
                     String assetId = mediaStore.store(asset);
+                    mediaStore.rememberSource(sourceKey, assetId);
                     assetIds.add(assetId);
-                    Map<String, Object> item = new LinkedHashMap<>();
-                    item.put("segmentIndex", image.index());
-                    item.put("mediaType", asset.mediaType());
-                    item.put("size", asset.size());
-                    metadata.add(item);
+                    metadata.add(mediaMetadata(image, assetId,
+                            new ToolAsset(asset.mediaType(), asset.bytes()), false));
                 } catch (Exception failure) {
                     Map<String, Object> item = new LinkedHashMap<>();
                     item.put("segmentIndex", image.index());
@@ -149,6 +161,34 @@ public final class BotMediaGetTool implements AgentTool {
         } catch (Exception failure) {
             return ToolResult.error("MEDIA_UNAVAILABLE", "图片读取失败（内部原因已脱敏）");
         }
+    }
+
+    private static Map<String, Object> mediaMetadata(MessageSegment image, String assetId,
+                                                      ToolAsset asset, boolean cached) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("segmentIndex", image.index());
+        item.put("assetId", assetId);
+        item.put("sha256", sha256Of(assetId));
+        item.put("mediaType", asset.mediaType());
+        item.put("size", asset.bytes().length);
+        item.put("cached", cached);
+        return item;
+    }
+
+    private static String sourceKey(String messageKey, MessageSegment image) {
+        if (!image.fileId().isBlank()) {
+            return "file:" + image.fileId();
+        }
+        if (!image.url().isBlank()) {
+            return "url:" + image.url();
+        }
+        return "message:" + messageKey + ":" + image.index();
+    }
+
+    private static String sha256Of(String assetId) {
+        int underscore = assetId == null ? -1 : assetId.indexOf('_');
+        return underscore >= 0 && underscore + 1 < assetId.length()
+                ? assetId.substring(underscore + 1) : assetId;
     }
 
     private MediaCapability providerFor(String accountId) {

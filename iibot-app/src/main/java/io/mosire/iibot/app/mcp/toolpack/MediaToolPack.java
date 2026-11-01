@@ -8,6 +8,9 @@ import io.mosire.iibot.app.media.BotGroupFileGetTool;
 import io.mosire.iibot.app.media.BotGroupFileHandles;
 import io.mosire.iibot.app.media.BotGroupFilesTool;
 import io.mosire.iibot.app.media.BotMediaGetTool;
+import io.mosire.iibot.app.media.BotMediaInspectTool;
+import io.mosire.iibot.app.media.BotMediaNoteStore;
+import io.mosire.iibot.app.media.BotMediaNoteTool;
 import io.mosire.iibot.app.media.BotMediaUploadTool;
 import io.mosire.iibot.app.reply.BotGroupFileUploadTool;
 import io.mosire.iibot.app.reply.BotMessageRecallTool;
@@ -21,9 +24,11 @@ public final class MediaToolPack {
 
     private final BotToolContext context;
     private final BotGroupFileHandles groupFileHandles = new BotGroupFileHandles();
+    private final BotMediaNoteStore mediaNotes;
 
     public MediaToolPack(BotToolContext context) {
         this.context = Objects.requireNonNull(context, "context");
+        this.mediaNotes = new BotMediaNoteStore(context.dataDir());
     }
 
     /** 无条件可用的媒体上传工具。 */
@@ -37,6 +42,9 @@ public final class MediaToolPack {
         if (hasCapability(context.mediaByAccount())) {
             tools.add(new BotMediaGetTool(context.board(), context.mediaByAccount(),
                     context.mediaStore()));
+            tools.add(new BotMediaInspectTool(context.board(), context.mediaByAccount(),
+                    context.mediaStore()));
+            tools.add(new BotMediaNoteTool(context.mediaStore(), mediaNotes));
         }
         if (hasCapability(context.audioByAccount())) {
             tools.add(new BotAudioGetTool(context.board(), context.audioByAccount(),
