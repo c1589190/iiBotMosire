@@ -23,6 +23,15 @@ tools/gate.sh full
 
 ## 二、当前基线
 
+- 2026-11-01 D-036 基线：DSH wake 默认 `wakeContent=bounded`，摘要后读取展示 item
+  detail 并放入独立不可信 content 块；每项 4000/整轮 12000 默认预算，`none` 关闭；
+  `MessageSummaryBuilder` 1000、digest summary 511+`…`、`summaryDebounceMillis` 默认
+  5000；媒体 source 去重、`qq_media_note`、`qq_media_inspect`（first_frame/grid，
+  最多 9 tile，maxWidth 320–1600）。`tools/gate.sh full` PASS，**343 tests /
+  0 failures / 0 errors / 0 skipped**（connect 73、video 26、bot 128、app 116）；
+  docs PASS（modules=4 files=52 links=173）。`InboxMosire-DSH npm test` PASS：
+  **155 tests / 152 pass / 3 live-skipped / 0 fail**。真实 DSH reload 后 wake、
+  5.7MB GIF、下游 image parser、5s 窗口真实样本均 `NOT_RUN`。
 - 2026-10-31 D-035 V6 基线：显式 B 站评论/楼中楼回复走
   `BotReplyService.sendExternal` → 消息板 → `BotOutboxReplyPort`；点赞/投币/收藏/关注由
   `BilibiliAdapter` 统一经过 `writeEnabled`、5 秒冷却、每日额度与
@@ -111,7 +120,8 @@ tools/gate.sh full
 | 应用集成 | BotRuntime + fake Adapter + embedded loopback Inbox/MCP | 已有 |
 | B 站公开读取 | 元数据/热评/字幕/短链 | 元数据+热评 smoke PASS；ffmpeg 3 帧看图 smoke PASS；字幕/短链 `NOT_RUN` |
 | B 站账号会话 | Cookie 登录、WBI、私信轮询、评论通知、私信/评论发送 | fake HTTP 单测 PASS；真实 `NOT_RUN` |
-| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询、browser fallback、显式评论/互动写入 | V1–V6 已实现；video 26 tests、bot 128 tests、app 112 tests；quality fallback/strict、time/times、评论分页、browser config/guard/fallback、CDP 回环、remote smoke、写入三态/幂等均为 fake/本地单测；真实 B 站写入/验收 `NOT_RUN` |
+| 视频站模块/工具目录（D-035） | `iibot-video-connect`、app `BotToolCatalog`、quality/time、评论查询、browser fallback、显式评论/互动写入 | V1–V6 已实现；video 26 tests、bot 128 tests、app 116 tests；quality fallback/strict、time/times、评论分页、browser config/guard/fallback、CDP 回环、remote smoke、写入三态/幂等均为 fake/本地单测；真实 B 站写入/验收 `NOT_RUN` |
+| 媒体去重/检查（D-036） | `qq_media_get` source 去重、`qq_media_note`、`qq_media_inspect` 首帧/网格/降采样 | fake/本地单测 PASS；真实重复图片、5.7MB GIF、下游 image parser `NOT_RUN` |
 | 无头浏览器（D-035） | Playwright embedded/remote-cdp、headless Linux、codec/超时/清理 | V4/V5 Playwright `1.55.0` + snap Chromium 156；headless about:blank、embedded/remote-cdp fake 页面截图 PASS；真实 B 站页面、服务器镜像/部署、并发/断线/崩溃/超时清理负向 `NOT_RUN` |
 | 真实 NapCat E2E | 真实私聊/群聊入站与发送 | `NOT_RUN` |
 | 真实 DSH/OpenCode wake | 真实 wake/ack 闭环 | `NOT_RUN` |
@@ -149,6 +159,10 @@ tools/gate.sh full
 14. replay 已投递批次时，若批次之后仍有未读入站，`more` 必须为 true。
 15. `replyToSeq` 只能解析同一 thread 内消息；与 `replyToMessageId` 同时出现必须拒绝；
     mention 目标必须是同 thread 入站消息。
+21. D-036 wake content 单项超预算 ⇒ 必须截断并标 `truncated`；整轮预算用尽时后续项省略；
+    固定指令/摘要不得被挤掉；content 不得进入 state/logs。
+22. 媒体 source 命中 ⇒ `qq_media_get` 不得再次调用 `mediaProvider.image()`；
+    `qq_media_note` 超过 2000 字必须拒绝；`qq_media_inspect` 超过 9 tile 必须拒绝。
 
 ## 六、未验证表达
 

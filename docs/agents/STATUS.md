@@ -1,10 +1,26 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-10-31 04:10（Asia/Shanghai）
+> **更新时间**：2026-11-01 20:10（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
 ## 0. 最新更新：P1a/P1b 清理与统一 QQ 客户端重构
+
+- **2026-11-01 D-036 唤醒正文、摘要边界与媒体检查已完成（code-level）**：
+  - `InboxMosire-DSH` 默认 `wakeContent=bounded`：摘要后按展示 item 读取 detail，
+    放入独立的不可信 `content` 块；每项 4000 字/整轮 12000 字默认预算，`none` 可关；
+    固定指令和摘要预算独立；`payload`/`payloadRef`/claim token 不读取，不 claim/complete。
+  - `MessageSummaryBuilder.DEFAULT_MAX_CHARS` 240→1000；`InboxDigestService` 将 digest
+    summary 截到 511+`…`，守住 Inbox 512 字符边界；`messageBoard.summaryDebounceMillis`
+    默认 2000→5000，所有来源共用。
+  - 媒体：`BotMediaStore` 增加 source 索引，`qq_media_get` 命中不再下载并返回
+    `assetId`/`sha256`/`cached`；新增 `qq_media_note`（assetId 备注，0600）与
+    `qq_media_inspect`（first_frame/grid、降采样、最多 9 tile）。
+  - `InboxMosire-DSH npm test` PASS：**155 tests / 152 pass / 3 skipped / 0 fail**；
+    iiBot full PASS：**343 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 73、video 26、bot 128、app 116）；docs PASS（modules=4 files=52 links=173）。
+  - 真实 DSH 热加载后的下一轮 wake、5.7MB GIF 实际解析、5s 窗口真实运行均为
+    `NOT_RUN`；D-033 的 content 边界由 D-036 调整，D-033 其余边界仍有效。
 
 - **2026-10-31 D-035 V6 显式 B 站评论与互动写入已完成（code-level）**，提交 `d611b10`：
   - `BotReplyService.sendExternal` + `video_comment_reply` 把评论/楼中楼回复经消息板、
@@ -374,16 +390,17 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 |---|---|
 | 仓库 | `/home/cna/DevMosire-iiBot/iiBotMosire` |
 | 分支 | `refactor/bot-first-main-agent`（已合并 P0–P8.7）；feature/fix 分支保留 |
-| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e`；D-035 设计 `5e901b3`；D-035 环境补充 `059de6f`；D-035 V1 `84fd1a8`；D-035 V2 `7d24f9b`；D-035 V3 `494294b`；D-035 V4 `ef3aa31`；D-035 V5 `dabe87d`；D-035 V6 `d611b10` |
+| 已推送提交 | P0 `12ca813`/`de19c46`；P1a `0acd0a0`；P1b `bdef235`；P2 `e84c679`；P3 `d81442a`；P4 `7293b5b`；P5 `b501eea`；P6a `8910c7b`；P6b `5117f21`；P7a `138737c`；P7b `e6f012c`；最终状态 `2f84f02`/`65d053c`；Inbox 依赖刷新 `f151a87`（main）；2026-10-30 可用检查点 `d67b757`；D-033 主提交 `2fbc3a4`；D-034 主提交 `a3ddf32`；B 站扫码登录 `6967a28`；B 站分帧看图 `7214a2e`；D-035 设计 `5e901b3`；D-035 环境补充 `059de6f`；D-035 V1 `84fd1a8`；D-035 V2 `7d24f9b`；D-035 V3 `494294b`；D-035 V4 `ef3aa31`；D-035 V5 `dabe87d`；D-035 V6 `d611b10`；D-036 code `225d016`；InboxMosire-DSH `69e7e6e` |
 | Maven reactor | **4 模块**：`iibot-connect` / `iibot-video-connect` / `iibot-bot` / `iibot-app`；V1 已创建并迁移 |
 | AgentLib | `0.2.4`（用户冻结；公开 tag/Pages 仍为 0.2.3，见 blocker） |
-| 工作树 | V1–V6 代码已提交（V6 `d611b10`）；V6 文档待提交；D-034 代码在 `a3ddf32`/`6967a28`/`7214a2e` |
+| 工作树 | D-036 code `225d016` 已提交；D-036 docs 本次提交；V1–V6 已提交 |
 | 模块目标 | **当前 4 模块**；`iibot-connect` 已退出 B 站/视频职责，`iibot-video-connect` 为视频站边界 |
 
 ## 3. 最近功能门禁
 
 | 项 | 实际结果 |
 |---|---|
+| D-036 full | `tools/gate.sh full` PASS：**343 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 26、bot 128、app 116）；D-036 docs PASS（modules=4 files=52 links=173） |
 | D-035 V6 full | `tools/gate.sh full` PASS：**339 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 26、bot 128、app 112） |
 | D-035 V6 docs | `tools/gate.sh docs` PASS（modules=4 files=51 links=168） |
 | D-035 V5 full | `tools/gate.sh full` PASS：**332 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 23、bot 127、app 109） |
@@ -537,32 +554,39 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
     B 站页面均 `NOT_RUN`。交互范围 B 已在 V6 实施（评论 + 点赞/投币/收藏/关注），
     真实写入仍未验收；V7 才做真实 B 站/服务器验收。
 
+16. **D-036 尚未真实 reload**：DSH wake content/5s 窗口/媒体去重与 `qq_media_inspect`
+    仅为 code-level + fake/单元测试；真实 DSH 热加载、500 条样本、重复图片、5.7MB GIF
+    和下游图像解析均 `NOT_RUN`。真实运行前不得把 F-026–F-028 标为已验收。
+
 ## 7. 下一步
+
+**D-036 已完成 code-level**：DSH wake content、5s 合并窗口、媒体去重/备注/分块检查已实现；下一步为真实 reload/大图样本验收。
 
 **D-035 优先顺序**：V1 模块抽取、V2 单一工具目录、V3 质量/精确时间/评论查询、
 V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案、V6 显式评论与互动写入
 已完成；下一步 V7 真实 B 站/服务器验收。
 
-1. **D-035 V7**：在用户当次授权下做真实 B 站扫码/评论/互动、浏览器与服务器验收；
+1. **D-036/F-026–F-028 验证**：替换测试 DSH bundle/jar 后，在真实 500 条/重复图片/5.7MB GIF 样本上验证 wake content、5s 合并、去重/备注/分块；未跑前保持 `NOT_RUN`。
+2. **D-035 V7**：在用户当次授权下做真实 B 站扫码/评论/互动、浏览器与服务器验收；
    写入默认关闭、单次显式、账号级配额/冷却、UNKNOWN 不重发，真实写入仍需用户当次授权。
-2. **B 站 D-034 验收**：为 B 站 Adapter 准备独立测试账号 Cookie，验证登录、
+3. **B 站 D-034 验收**：为 B 站 Adapter 准备独立测试账号 Cookie，验证登录、
    私信轮询、评论回复通知、统一 source 入库/Inbox wake、conversation_send
    三态和 UNKNOWN 不重发；真实写入前先取得用户授权。
-3. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
+4. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。
-4. **已推进的摩擦项**：F-001/F-002/F-003/F-014/F-015/F-016 已完成 code-level；
+5. **已推进的摩擦项**：F-001/F-002/F-003/F-014/F-015/F-016 已完成 code-level；
    下一步是替换测试 jar、reload 宿主并用真实样本验收。
-5. **D-031 已实现 code-level**：3A mentionAll + qq_message_recall；3B qq_private_send；
+6. **D-031 已实现 code-level**：3A mentionAll + qq_message_recall；3B qq_private_send；
    3C qq_media_upload + image/sticker + qq_group_file_upload；3D AUDIO + qq_audio_get。
    下一步是替换测试 jar 后做真实 LLBot 外部动作验收；ASR 仍未接。
-6. **Raw LLBot 兜底**：按 D-031 允许常规使用；纪律和审计边界已写设计，不新增
+7. **Raw LLBot 兜底**：按 D-031 允许常规使用；纪律和审计边界已写设计，不新增
    iibot scheduler。
-7. **D-032 验证**：替换测试 jar、reload 两个 DSH bundle 后，用新会话验证
+8. **D-032 验证**：替换测试 jar、reload 两个 DSH bundle 后，用新会话验证
    `complete=true` 不走 read、普通消息走 compact read/ack、`more` 同轮续读；
    旧 649 轮会话不能冒充新验收。
-8. **F-013 复验**：先按 MCP 发送路径确认 OUT 已落库；只有 Raw LLBot 路径无记录，
+9. **F-013 复验**：先按 MCP 发送路径确认 OUT 已落库；只有 Raw LLBot 路径无记录，
    不再把它当消息板缺陷。
-9. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
+10. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
    `PUBLICATION_GAP` / `BLOCKED`。
-10. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack 仍未实施；
+11. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack 仍未实施；
     D-035 交互范围 B 已在 V6 实施，下一步 V7 真实验收。

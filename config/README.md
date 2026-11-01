@@ -118,7 +118,7 @@ config/
 - **当前全唤醒**：`weighting.notifyThreshold/quietMillis/cooldownMillis` 只保留为排序/
   诊断字段，不作为 wake gate；所有入站消息共用 `messageBoard.summaryDebounceMillis`
   的合并窗口，不再有“只有 @ 才快”的单独通道；
-- `messageBoard.summaryDebounceMillis` 是所有来源共用的 digest 合并窗口；
+- `messageBoard.summaryDebounceMillis` 是所有来源共用的 digest 合并窗口，默认 `5000` 毫秒；
 - `messageBoard.inlineMaxChars` 默认 `512`，`0` 关闭短正文完整内联；实际仍受
   Inbox `summary` 的 512 字符存储边界约束；
 - `logging.levels` 只接受 `io.mosire.iibot.connect` / `bot` / `app` / `inbox`

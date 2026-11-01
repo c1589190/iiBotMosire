@@ -21,6 +21,7 @@
 | D-028 | 依赖最新且可复现、文档一致 | 已完成 P6/P7a 主要依赖刷新；AgentLib 0.2.4 公开发布仍待上游 |
 | D-034 | B 站通用视频阅读 + 账号/私信/评论 Inbox 会话 | 第一批已实施（code-level）；视频工具与 B 站 Adapter 分离，统一走 source/conversation |
 | D-035 | 视频站 Connect 独立模块、无头浏览器与配置/日志 | V1/V2/V3/V4/V5/V6 已完成；V7 待开始；当前 reactor 4 模块 |
+| D-036 | 唤醒正文注入、摘要边界、5s 合并窗口与媒体去重/检查 | code-level 已实施（2026-11-01）；真实热加载/大图验收 `NOT_RUN` |
 
 ## 二、当前用户原话
 
@@ -239,6 +240,32 @@
 - **实施计划**：
   [`../plans/2026-10-31-video-site-connect-and-browser-backend-plan.md`](../plans/2026-10-31-video-site-connect-and-browser-backend-plan.md)
 
+### D-036 唤醒正文注入与媒体检查
+
+- **日期**：2026-11-01
+- **用户原话**：
+  > 「A，直接在wake文本里放完整信息」
+  > 「其他按你说的优化，写文档，开始吧」
+
+- **裁定**：
+  1. DSH wake 默认 `wakeContent=bounded`：摘要之后按展示 item 读取 detail content，
+     放入独立的不可信 `content` 块；`none` 关闭。每项预算 4000 字、整轮 12000 字，
+     固定指令/摘要预算独立，不得被 content 挤掉。
+  2. DSH 仍不 claim、不 complete、不调用业务 MCP、不读 `payload`/`payloadRef`/
+     claim token；content 不进入 state/日志，只进入当前 wake 文本。
+  3. `MessageSummaryBuilder.DEFAULT_MAX_CHARS` 提升到 1000；`InboxDigestService`
+     将 digest summary 截到 511+`…`，守住 Inbox 512 字符边界；detail content
+     使用独立预算。
+  4. `messageBoard.summaryDebounceMillis` 默认 2000→5000，所有来源共用。
+  5. 媒体：`BotMediaStore` 增加 source 索引，`qq_media_get` 命中 source 时不再下载，
+     返回 `assetId`/`sha256`/`cached`；新增 `qq_media_note`（按 assetId 持久化备注）
+     与 `qq_media_inspect`（first_frame/grid、降采样、最多 9 tile）。
+  6. 旧 D-033“DSH 不读取 content”的边界由本裁定调整；不 claim/不镜像业务工具的
+     部分继续有效。
+
+- **设计正本**：
+  [`2026-11-01-wake-content-and-media-inspection.md`](2026-11-01-wake-content-and-media-inspection.md)
+
 ## 三、当前验收判据
 
 - 当前 reactor 为 `iibot-connect` / `iibot-video-connect` / `iibot-bot` / `iibot-app`
@@ -247,7 +274,8 @@
   quality/time/comments 与 `video.*` 配置；V4 已实现 Playwright embedded
   `video.browser.*` 配置与 ffmpeg 失败 fallback；V5 已实现 remote-cdp、CDP 回环校验；
   V5 已给出服务器 sidecar 部署草案；V6 已实现显式评论/互动写入
-  （默认关闭、账号配额/幂等、UNKNOWN 不重发）；
+  （默认关闭、账号配额/幂等、UNKNOWN 不重发）；D-036 已实现 DSH bounded
+  wake content、5s 合并窗口、媒体 source 去重/备注/分块检查；
 - QQ 业务工具继续使用 `qq_*`；平台无关收发使用 `conversation_*` 别名；
   B 站内容读取使用 `video_read`/`video_frames`/`video_comments`，显式写入使用
   `video_comment_reply`/`video_like`/`video_coin`/`video_favorite`/`video_follow`；

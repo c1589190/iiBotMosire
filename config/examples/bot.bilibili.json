@@ -39,7 +39,7 @@
     "claimSweepIntervalMillis": 5000
   },
   "messageBoard": {
-    "summaryDebounceMillis": 2000,
+    "summaryDebounceMillis": 5000,
     "maxPreviewMessages": 20,
     "inlineMaxChars": 512,
     "outbox": {

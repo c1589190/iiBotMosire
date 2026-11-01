@@ -1,6 +1,6 @@
 # AGENTS.md —— iiBotMosire 常驻索引
 
-> **更新时间**：2026-10-31（D-035 V6 显式 B 站评论与互动写入完成）
+> **更新时间**：2026-11-01（D-036 唤醒正文与媒体检查完成）
 > **本文件只做三件事**：项目边界、常驻红线、文档与模块路由。
 > **规则正文不在本文件**：项目设计看 `docs/superpowers/`，项目维护看 `docs/agents/`。
 > **禁止用 `@` 导入长文**；按需打开链接。
@@ -8,7 +8,7 @@
 ## 0. 冲突顺序
 
 1. 用户当次明确指令。
-2. 用户设计裁定：D-025..D-035、统一 QQ Agent 客户端目标架构、来源地址与 direct ack。
+2. 用户设计裁定：D-025..D-036、统一 QQ Agent 客户端目标架构、来源地址与 direct ack。
 3. 项目维护裁定：`docs/agents/MAINTENANCE_RULINGS.md`、`docs/AGENTS.md`。
 4. 当前有效设计与契约：`docs/superpowers/specs/**`。
 5. 本文件。
@@ -25,6 +25,7 @@
 - 一个或多个 B 站账号的凭据校验、私信/评论回复通知轮询与显式发送；
 - QQ / B 站统一消息板、thread、历史、用户备注和媒体；
 - 通用只读 `video_read`/`bili_video_read`、`video_frames`/`bili_video_frames`、`video_comments`（任意来源 B 站链接/BV/av/b23）；
+- D-036：DSH wake 默认注入 bounded detail content；摘要 512 边界、5 秒合并窗口；媒体 source 去重、`qq_media_note` 与 `qq_media_inspect` 已完成 code-level；
 - D-035 V6：范围 B 的显式评论写入与点赞/投币/收藏/关注已完成（默认关闭、单次显式、账号配额/幂等、禁止自动循环）；V5 remote-cdp/服务器部署草案、V4 embedded 浏览器 backend 与 ffmpeg 失败 fallback、V3 分辨率 `quality`/`strictQuality`/精确 `time/times`/评论分页查询、V2 单一 `BotToolCatalog`/tool packs、V1 视频站抽取均已完成；
 - 发送三态与 Inbox 唤醒；
 - 统一 MCP 工具面，供外部 Agent 读取、回复和管理 QQ/B 站会话。
@@ -99,6 +100,7 @@ V6 已补显式评论回复与点赞/投币/收藏/关注写入；保留 `bili_*
 | B 站通用视频与 Inbox 会话（D-034） | [`docs/superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md`](docs/superpowers/specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md) |
 | 视频站 Connect 与无头浏览器（D-035） | [`docs/superpowers/specs/2026-10-31-video-site-connect-and-browser-backend.md`](docs/superpowers/specs/2026-10-31-video-site-connect-and-browser-backend.md) |
 | D-035 V0–V7 实施计划 | [`docs/superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md`](docs/superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md) |
+| 唤醒正文与媒体检查（D-036） | [`docs/superpowers/specs/2026-11-01-wake-content-and-media-inspection.md`](docs/superpowers/specs/2026-11-01-wake-content-and-media-inspection.md) |
 | P8 来源地址/wake 计划 | [`docs/superpowers/plans/2026-10-28-p8-source-address-and-wake-contract.md`](docs/superpowers/plans/2026-10-28-p8-source-address-and-wake-contract.md) |
 | 文档规则 | [`docs/AGENTS.md`](docs/AGENTS.md) |
 | 工作流 | [`docs/agents/WORKFLOW.md`](docs/agents/WORKFLOW.md) |
@@ -111,7 +113,7 @@ V6 已补显式评论回复与点赞/投币/收藏/关注写入；保留 `bili_*
 
 - JDK 21；仓库内 `./mvnw`。
 - 门禁：`tools/gate.sh docs|selftest|pre|focused|full`。
-- D-035 V1 新模块抽取、V2 单一工具目录、V3 分辨率/精确时间/评论查询、V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案、V6 显式评论与互动写入已完成（第 4 模块 `iibot-video-connect` + app `BotToolCatalog`），下一步 V7 真实验收；真实 B 站写入/浏览器抽帧、服务器镜像/部署/断线重连仍 `NOT_RUN`。
+- D-036 唤醒正文/摘要/5 秒窗口/媒体去重检查已完成 code-level；D-035 V1–V6 已完成（第 4 模块 `iibot-video-connect` + app `BotToolCatalog`）。下一步 D-036 真实 DSH reload/大图样本验收与 D-035 V7 真实验收；真实 B 站写入/浏览器抽帧、服务器镜像/部署/断线重连仍 `NOT_RUN`。
 - 当前产品分支：`refactor/bot-first-main-agent`；按责任区提交并推送，全量验证后再合并（M-005）。
 - worktree 统一放 `<仓库根>/worktree/<name>/`。
 - 同一 checkout 不并发跑 Maven；不覆盖正在运行的 jar；不提交 `.work/`、`target/`、数据库、日志和 secret。

@@ -295,7 +295,7 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 86400000,
-          "default": 2000,
+          "default": 5000,
           "description": "所有入站消息共用的 digest 合并窗口；不是按 @/权重分流的快慢通道"
         },
         "maxPreviewMessages": {

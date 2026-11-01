@@ -2,7 +2,7 @@
 
 面向各类 Agent 软件的**统一 QQ / B 站会话客户端**：通过 OneBot 11 接入 QQ、通过 B 站 Web API 接入私信与评论，把消息写入统一消息板，提供统一 MCP 工具，并用 Inbox 唤醒外部 Agent。B 站视频阅读/抽帧是独立的通用只读工具；抽帧默认需要本机 `ffmpeg`（可用 `IIBOT_FFMPEG` 指定），启用 `video.browser.*` 时可用 Playwright embedded 或 remote-cdp 作为失败补帧。
 
-> **当前阶段**：D-035 V6 已完成显式、单次、可审计的 B 站评论写入与点赞/投币/收藏/关注 interaction（范围 B；写入仍默认关闭）；V5 已完成 Playwright `remote-cdp` 浏览器 backend、CDP 回环校验、共享 backend 与服务器 Chromium/ffmpeg sidecar 部署草案，V4 已完成 embedded backend 与 ffmpeg 失败 fallback，V3 已完成视频质量/精确时间/评论查询，V2 已完成 app 单一 `BotToolCatalog`/tool packs，V1 已完成 `iibot-video-connect` 第 4 个模块抽取。默认 4 个模块、`video_*` 标准工具与 `bili_*` 别名、`qq_*`/`conversation_*` 工具、多账号路由、服务端 read/ack、配置/日志 v2；下一步 D-035 V7 真实验收。真实 QQ/B站/DSH/OpenCode 外部联调、真实 B 站写入/浏览器抽帧、服务器部署与 AgentLib 0.2.4 公开发布仍待办。当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
+> **当前阶段**：D-036 已完成 code-level 的唤醒正文注入（DSH `wakeContent=bounded`）、摘要 512 边界、5 秒合并窗口，以及媒体 source 去重、图片备注和 `qq_media_inspect` 首帧/分块检查；D-035 V6 已完成显式、单次、可审计的 B 站评论写入与点赞/投币/收藏/关注 interaction（范围 B；写入仍默认关闭）；V5 已完成 Playwright `remote-cdp` 浏览器 backend，V4 已完成 embedded backend 与 ffmpeg 失败 fallback，V3 已完成视频质量/精确时间/评论查询，V2 已完成 app 单一 `BotToolCatalog`/tool packs，V1 已完成 `iibot-video-connect` 第 4 个模块抽取。默认 4 个模块；下一步是 D-036 真实 DSH reload/大图样本验收与 D-035 V7 真实验收。真实 QQ/B站/DSH/OpenCode 外部联调、真实 B 站写入/浏览器抽帧、服务器部署与 AgentLib 0.2.4 公开发布仍待办。当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
 
 ## 当前模块
 
@@ -27,6 +27,9 @@ iibot-connect
 
 - OneBot 11 事件 WebSocket + HTTP Action；
 - QQ 私聊/群聊入库、thread、历史、用户备注、媒体读取、好友申请；
+- 媒体读取按 fileId/URL/message source 去重，返回 `assetId`/`sha256`/`cached`；
+- `qq_media_inspect` 支持首帧/网格降采样，`qq_media_note` 按 assetId 持久化图片备注；
+- DSH wake 默认注入 bounded detail content，摘要/正文预算独立，content 明确标为不可信；
 - B 站账号凭据校验、WBI、私信轮询、评论回复通知轮询、私信/评论发送（写入默认关闭）；
 - 通用 `video_comment_reply`：显式单次评论/楼中楼回复，写入默认关闭，经消息板/出站与账号配额；
 - `video_like` / `video_coin` / `video_favorite` / `video_follow`：显式单次互动，
@@ -73,7 +76,7 @@ http://127.0.0.1:8765/mcp/bot
 Authorization: Bearer <IIBOT_CONTROL_TOKEN>
 ```
 
-默认 MCP 暴露 QQ `qq_*` 业务工具、平台无关 `conversation_read/ack/send` 别名、B 站内容工具 `video_read` / `video_frames` / `video_comments`（兼容 `bili_*` 别名）、显式写入工具 `video_comment_reply` / `video_like` / `video_coin` / `video_favorite` / `video_follow`、B 站扫码登录工具 `bili_account_login_start/poll`、唯一通用 Inbox 工具 `inbox_rest`，以及暂留宿主交接的 `qq_inbox_binding_descriptor`。写入工具默认关闭，不保留绕过消息板/审计的公开直接发送工具。
+默认 MCP 暴露 QQ `qq_*` 业务工具（含 `qq_media_inspect` / `qq_media_note`）、平台无关 `conversation_read/ack/send` 别名、B 站内容工具 `video_read` / `video_frames` / `video_comments`（兼容 `bili_*` 别名）、显式写入工具 `video_comment_reply` / `video_like` / `video_coin` / `video_favorite` / `video_follow`、B 站扫码登录工具 `bili_account_login_start/poll`、唯一通用 Inbox 工具 `inbox_rest`，以及暂留宿主交接的 `qq_inbox_binding_descriptor`。写入工具默认关闭，不保留绕过消息板/审计的公开直接发送工具。
 
 消息来源统一为 canonical `source`：`qq_group/{account}/{group}`、`qq_private/{account}/{peer}`、`qq_system/{account}/{event}`、`app_system/{event}`、`bili_dm/{account}/{peer}`、`bili_comment/{account}/{bvid}/{rootRpid}`、`bili_video/{account}/{bvid}`。`conversation_read/ack/send` 与兼容的 `qq_conversation_*` 都只接受 `source`。短文本 `kind=digest_complete` 摘要可直接 ack；ack 结果只返回 `more`。
 
