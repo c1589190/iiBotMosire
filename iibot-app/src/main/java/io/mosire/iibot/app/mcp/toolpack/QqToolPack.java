@@ -26,6 +26,8 @@ public final class QqToolPack {
                 context.historyByAccount(),
                 context.sourceWeights(),
                 context.consumerStates(),
-                context.accountRegistry());
+                context.accountRegistry(),
+                context.groupRequestByAccount(),
+                context.groupCatalogue());
     }
 }

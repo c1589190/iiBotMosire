@@ -12,7 +12,9 @@ import io.mosire.iibot.bot.weight.SourceWeightService;
 import io.mosire.iibot.bot.store.ConsumerConversationStore;
 import io.mosire.iibot.bot.store.InMemoryConsumerConversationStore;
 import io.mosire.iibot.bot.store.MessageBoardStore;
+import io.mosire.iibot.bot.group.GroupCatalogueStore;
 import io.mosire.iibot.connect.core.ForwardCapability;
+import io.mosire.iibot.connect.core.GroupRequestCapability;
 import io.mosire.iibot.connect.core.RecentQqProvider;
 
 import java.util.ArrayList;
@@ -187,6 +189,35 @@ public final class BotMcpTools {
             SourceWeightService sourceWeights,
             ConsumerConversationStore consumers,
             AccountRegistry accounts) {
+        return allForAccounts(board, notes, inboxDigests, replies, defaultAccountId,
+                forwardProviders, recentProviders, friendRequestServices, inboxAuditStore,
+                historyProviders, sourceWeights, consumers, accounts, null, null);
+    }
+
+    /**
+     * 带群系统请求能力与群目录的完整装配入口。
+     *
+     * <p>{@code groupRequestServices} 提供「接受邀请入群 / 审批入群申请」能力，
+     * {@code groupCatalogue} 是 bot 自己见过的群目录（已加入、待处理邀请、历史记忆），
+     * 二者一起支撑 {@code qq_group_*} 工具。QQ 没有可用的群搜索接口，也没有按群号
+     * 主动申请加群的接口，因此群目录只记录 bot 自己的关系面。</p>
+     */
+    public static List<AgentTool> allForAccounts(
+            MessageBoardStore board,
+            UserNoteStore notes,
+            InboxDigestService inboxDigests,
+            BotReplyService replies,
+            String defaultAccountId,
+            Map<String, ForwardCapability> forwardProviders,
+            Map<String, RecentQqProvider> recentProviders,
+            Map<String, FriendRequestService> friendRequestServices,
+            InboxDigestAuditStore inboxAuditStore,
+            Map<String, ChatHistoryProvider> historyProviders,
+            SourceWeightService sourceWeights,
+            ConsumerConversationStore consumers,
+            AccountRegistry accounts,
+            Map<String, GroupRequestCapability> groupRequestServices,
+            GroupCatalogueStore groupCatalogue) {
         Objects.requireNonNull(board, "board");
         Objects.requireNonNull(notes, "notes");
         Objects.requireNonNull(inboxDigests, "inboxDigests");
@@ -203,7 +234,8 @@ public final class BotMcpTools {
                 List.of(forwardProviders == null ? Map.of() : forwardProviders,
                         recentProviders == null ? Map.of() : recentProviders,
                         friendRequestServices == null ? Map.of() : friendRequestServices,
-                        historyProviders == null ? Map.of() : historyProviders));
+                        historyProviders == null ? Map.of() : historyProviders,
+                        groupRequestServices == null ? Map.of() : groupRequestServices));
         BotAccountScope noteScope = BotAccountScope.of(knownAccounts);
         tools.addAll(List.of(
                 new BotThreadListTool(board, sourceWeights),
@@ -231,6 +263,12 @@ public final class BotMcpTools {
         if (hasCapability(friendRequestServices)) {
             tools.add(new BotFriendRequestListTool(friendRequestServices));
             tools.add(new BotFriendRequestDecideTool(friendRequestServices));
+        }
+        if (hasCapability(groupRequestServices)) {
+            tools.add(new BotGroupRequestListTool(groupRequestServices, groupCatalogue));
+            tools.add(new BotGroupRequestDecideTool(groupRequestServices));
+            tools.add(new BotGroupInviteAcceptTool(groupRequestServices, groupCatalogue));
+            tools.add(new BotGroupSearchTool(groupRequestServices, groupCatalogue));
         }
         if (inboxAuditStore != null) {
             tools.add(new BotInboxHistoryTool(inboxAuditStore));

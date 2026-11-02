@@ -3,6 +3,7 @@ package io.mosire.iibot.app.mcp;
 import io.mosire.iibot.app.inbox.BotInboxRuntime;
 import io.mosire.iibot.app.media.BotMediaStore;
 import io.mosire.iibot.bot.friend.FriendRequestService;
+import io.mosire.iibot.bot.group.GroupCatalogueStore;
 import io.mosire.iibot.bot.inbox.InboxDigestAuditStore;
 import io.mosire.iibot.bot.inbox.InboxDigestService;
 import io.mosire.iibot.bot.note.UserNoteStore;
@@ -16,6 +17,7 @@ import io.mosire.iibot.connect.core.ChatHistoryProvider;
 import io.mosire.iibot.connect.core.ForwardCapability;
 import io.mosire.iibot.connect.core.GroupFileCapability;
 import io.mosire.iibot.connect.core.GroupFileUploadCapability;
+import io.mosire.iibot.connect.core.GroupRequestCapability;
 import io.mosire.iibot.connect.core.MediaCapability;
 import io.mosire.iibot.connect.core.RecallCapability;
 import io.mosire.iibot.connect.core.RecentQqProvider;
@@ -52,7 +54,9 @@ public record BotToolContext(
         Map<String, GroupFileCapability> groupFilesByAccount,
         Map<String, RecallCapability> recallByAccount,
         Map<String, GroupFileUploadCapability> groupFileUploadByAccount,
-        BotInboxRuntime inboxRuntime) {
+        BotInboxRuntime inboxRuntime,
+        Map<String, GroupRequestCapability> groupRequestByAccount,
+        GroupCatalogueStore groupCatalogue) {
 
     public BotToolContext {
         Objects.requireNonNull(board, "board");
@@ -75,5 +79,6 @@ public record BotToolContext(
         Objects.requireNonNull(recallByAccount, "recallByAccount");
         Objects.requireNonNull(groupFileUploadByAccount, "groupFileUploadByAccount");
         Objects.requireNonNull(inboxRuntime, "inboxRuntime");
+        Objects.requireNonNull(groupRequestByAccount, "groupRequestByAccount");
     }
 }

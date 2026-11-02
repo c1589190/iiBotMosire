@@ -31,6 +31,8 @@ final class OneBot11Codec {
     private static final Pattern XML_TITLE = xmlTag("title");
     private static final Pattern XML_SUMMARY = xmlTag("summary");
     private static final Pattern XML_URL = xmlTag("url");
+    private static final Pattern GROUP_INVITE_URL = Pattern.compile(
+            "mqqapi://group/invite_join[^\\s\"'<>]*", Pattern.CASE_INSENSITIVE);
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int MAX_CARD_PAYLOAD_CHARS = 16_384;
     private static final int MAX_CARD_PART_CHARS = 300;
@@ -306,6 +308,10 @@ final class OneBot11Codec {
         if (card == null || !card.isObject()) {
             return "";
         }
+        String invite = groupInviteDisplay(card);
+        if (!invite.isEmpty()) {
+            return invite;
+        }
         LinkedHashSet<String> parts = new LinkedHashSet<>();
         addCardDisplayPart(parts, text(card, "prompt"), false);
         addCardDisplayPart(parts, text(card, "title"), false);
@@ -331,6 +337,85 @@ final class OneBot11Codec {
             }
         }
         return joinDisplayParts(parts);
+    }
+
+    /**
+     * 群邀请卡片的可读摘要。
+     *
+     * <p>QQ 的入群邀请把群号与通知序列号放在 {@code mqqapi://group/invite_join} 链接里，
+     * 通用卡片解析因为只放行 http(s) 链接而把它们整个丢掉，结果 bot 只看到「卡片」两个字，
+     * 既不知道被邀请去哪个群，也没有可用于接受的序列号。这里只提取群号与序列号，
+     * 票据（{@code config.token}）与原始链接一律不外泄。</p>
+     */
+    private static String groupInviteDisplay(JsonNode card) {
+        String bizsrc = text(card, "bizsrc");
+        boolean byBizsrc = bizsrc != null
+                && bizsrc.toLowerCase(java.util.Locale.ROOT).contains("qun.invite");
+        String inviteUrl = findGroupInviteUrl(card);
+        if (inviteUrl == null && !byBizsrc) {
+            return "";
+        }
+        Map<String, String> query = queryPairs(inviteUrl);
+        String groupCode = firstNonBlank(query.get("groupcode"), query.get("group_code"),
+                query.get("groupCode"), query.get("gc"));
+        String msgseq = firstNonBlank(query.get("msgseq"), query.get("msgSeq"),
+                query.get("sequence"));
+        JsonNode news = card.path("meta").path("news");
+        String title = firstNonBlank(text(news, "title"), text(card, "title"),
+                text(card, "prompt"));
+        String desc = firstNonBlank(text(news, "desc"), text(card, "desc"),
+                text(card, "summary"));
+
+        LinkedHashSet<String> parts = new LinkedHashSet<>();
+        parts.add("群邀请");
+        addCardDisplayPart(parts, title, false);
+        if (groupCode != null) {
+            parts.add("群号 " + normalizeInline(groupCode));
+        }
+        if (msgseq != null) {
+            parts.add("序列 " + normalizeInline(msgseq));
+        }
+        addCardDisplayPart(parts, desc, false);
+        return joinDisplayParts(parts);
+    }
+
+    private static String findGroupInviteUrl(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isTextual()) {
+            Matcher matcher = GROUP_INVITE_URL.matcher(decodeEntities(node.asText()));
+            return matcher.find() ? matcher.group() : null;
+        }
+        if (node.isContainerNode()) {
+            for (JsonNode child : node) {
+                String found = findGroupInviteUrl(child);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Map<String, String> queryPairs(String url) {
+        if (url == null) {
+            return Map.of();
+        }
+        int index = url.indexOf('?');
+        if (index < 0 || index == url.length() - 1) {
+            return Map.of();
+        }
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String pair : url.substring(index + 1).split("&")) {
+            int separator = pair.indexOf('=');
+            if (separator <= 0) {
+                continue;
+            }
+            result.put(pair.substring(0, separator).trim(),
+                    decodeEntities(pair.substring(separator + 1)));
+        }
+        return result;
     }
 
     private static String cardDisplayFromXml(String xml) {

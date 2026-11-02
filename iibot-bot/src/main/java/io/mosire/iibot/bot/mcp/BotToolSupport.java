@@ -99,6 +99,34 @@ final class BotToolSupport {
         return number.longValue();
     }
 
+    static boolean requiredBoolean(Map<String, Object> args, String name) {
+        Object value = args == null ? null : args.get(name);
+        if (!(value instanceof Boolean bool)) {
+            throw new InvalidArgumentsException("参数 " + name + " 必须是布尔值");
+        }
+        return bool;
+    }
+
+    /**
+     * 等待一个账号能力结果。
+     *
+     * <p>超时与中断都转成 {@link IllegalStateException}，由调用方映射为稳定失败码；这里不会
+     * 重试，避免对未确定的外部副作重复提交。</p>
+     */
+    static <T> T await(java.util.concurrent.CompletionStage<T> stage) {
+        try {
+            return stage.toCompletableFuture()
+                    .orTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                    .join();
+        } catch (java.util.concurrent.CompletionException failure) {
+            Throwable cause = failure.getCause() == null ? failure : failure.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new IllegalStateException(cause);
+        }
+    }
+
     static boolean optionalBoolean(Map<String, Object> args, String name, boolean fallback) {
         Object value = args == null ? null : args.get(name);
         if (value == null) {

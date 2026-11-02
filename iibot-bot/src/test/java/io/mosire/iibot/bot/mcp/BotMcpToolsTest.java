@@ -757,4 +757,62 @@ class BotMcpToolsTest {
                     current.fromSeq(), current.priority(), current.digest()));
         }
     }
+
+    @Test
+    void registersGroupInviteToolsOnlyWhenCapabilityPresent() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InboxDigestService digestService = new InboxDigestService(board, notes,
+                new InMemoryInboxDigestStateStore(), new FakeInboxPort());
+        BotReplyService replies = new BotReplyService(board, new FakeReplyPort(), CLOCK);
+        io.mosire.iibot.connect.core.GroupRequestCapability capability =
+                new io.mosire.iibot.connect.core.GroupRequestCapability() {
+                    @Override
+                    public java.util.concurrent.CompletableFuture<
+                            List<io.mosire.iibot.connect.core.ChatConversation>> joinedGroups() {
+                        return java.util.concurrent.CompletableFuture.completedFuture(List.of());
+                    }
+
+                    @Override
+                    public java.util.concurrent.CompletableFuture<
+                            List<io.mosire.iibot.connect.core.GroupSystemRequest>>
+                            listGroupRequests(int limit) {
+                        return java.util.concurrent.CompletableFuture.completedFuture(List.of());
+                    }
+
+                    @Override
+                    public java.util.concurrent.CompletableFuture<
+                            io.mosire.iibot.connect.core.SendReceipt> decideGroupRequest(
+                            long sequence, boolean approve, String reason) {
+                        return java.util.concurrent.CompletableFuture.completedFuture(
+                                io.mosire.iibot.connect.core.SendReceipt.sent(List.of("r")));
+                    }
+
+                    @Override
+                    public java.util.concurrent.CompletableFuture<
+                            io.mosire.iibot.connect.core.SendReceipt> acceptGroupInvitation(
+                            String groupId, long sequence, int eventType) {
+                        return java.util.concurrent.CompletableFuture.completedFuture(
+                                io.mosire.iibot.connect.core.SendReceipt.sent(List.of("i")));
+                    }
+                };
+
+        List<AgentTool> withoutGroups = BotMcpTools.allForAccounts(
+                board, notes, digestService, replies, "bot-1",
+                java.util.Collections.singletonMap("bot-1", null), null, null, null, null, null,
+                new InMemoryConsumerConversationStore(), null, null, null);
+        assertThat(withoutGroups).extracting(AgentTool::name)
+                .doesNotContain("qq_group_request_list", "qq_group_request_decide",
+                        "qq_group_invite_accept", "qq_group_search");
+
+        List<AgentTool> withGroups = BotMcpTools.allForAccounts(
+                board, notes, digestService, replies, "bot-1",
+                java.util.Collections.singletonMap("bot-1", null), null, null, null, null, null,
+                new InMemoryConsumerConversationStore(), null,
+                Map.of("bot-1", capability),
+                new io.mosire.iibot.bot.group.InMemoryGroupCatalogueStore());
+        assertThat(withGroups).extracting(AgentTool::name)
+                .contains("qq_group_request_list", "qq_group_request_decide",
+                        "qq_group_invite_accept", "qq_group_search");
+    }
 }

@@ -23,6 +23,8 @@ import io.mosire.iibot.connect.core.ForwardPage;
 import io.mosire.iibot.connect.core.GroupFileCapability;
 import io.mosire.iibot.connect.core.GroupFileUploadCapability;
 import io.mosire.iibot.connect.core.GroupMember;
+import io.mosire.iibot.connect.core.GroupRequestCapability;
+import io.mosire.iibot.connect.core.GroupSystemRequest;
 import io.mosire.iibot.connect.core.QqGroupFile;
 import io.mosire.iibot.connect.core.RecallCapability;
 import io.mosire.iibot.connect.core.QqPlatformCapability;
@@ -88,11 +90,13 @@ import org.slf4j.LoggerFactory;
 public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvider,
         ChatHistoryProvider, QqPlatformCapability, ForwardCapability, MediaCapability,
         GroupFileCapability, GroupFileUploadCapability, RecallCapability, AudioCapability,
-        RecentQqProvider, FriendRequestCapability {
+        RecentQqProvider, FriendRequestCapability, GroupRequestCapability {
 
     private static final Logger LOG = LoggerFactory.getLogger(NapCatAdapter.class);
     private static final Pattern SAFE_EVENT_NAME = Pattern.compile("[A-Za-z0-9_.-]{1,64}");
     private static final int MAX_MEDIA_BYTES = 10 * 1024 * 1024;
+    /** 内核入群请求的操作码：1=accept，2=reject，3=ignore。 */
+    private static final int GROUP_REQUEST_OPERATION_ACCEPT = 1;
 
     private final NapCatConfig config;
     private final String adapterId;
@@ -335,6 +339,207 @@ public final class NapCatAdapter implements MessagingAdapter, AccountInfoProvide
                 .exceptionally(error -> SendReceipt.unknown(
                         "FRIEND_REQUEST_UNKNOWN",
                         "好友申请处理结果未知，禁止自动重试"));
+    }
+
+    @Override
+    public CompletionStage<List<GroupSystemRequest>> listGroupRequests(int limit) {
+        if (limit < 1) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("limit 必须大于 0"));
+        }
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new OneBotActionException(
+                    FailureKind.TRANSPORT, "ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        return postAction("get_group_system_msg", objectMapper.createObjectNode())
+                .thenApply(root -> parseGroupSystemRequests(root, limit));
+    }
+
+    private List<GroupSystemRequest> parseGroupSystemRequests(JsonNode root, int limit) {
+        JsonNode data = root.path("data");
+        if (!data.isObject()) {
+            throw new CompletionException(new OneBotActionException(
+                    FailureKind.INVALID_RESPONSE, "INVALID_GROUP_SYSTEM_RESPONSE",
+                    "群系统消息响应缺少 data 对象"));
+        }
+        List<GroupSystemRequest> collected = new ArrayList<>();
+        collected.addAll(parseGroupSystemRequests(
+                data.path("invited_requests"),
+                GroupSystemRequest.Kind.INVITE,
+                GroupSystemRequest.EVENT_TYPE_INVITE));
+        collected.addAll(parseGroupSystemRequests(
+                data.path("join_requests"),
+                GroupSystemRequest.Kind.JOIN,
+                GroupSystemRequest.EVENT_TYPE_JOIN));
+        collected.sort(java.util.Comparator
+                .comparing(GroupSystemRequest::handled)
+                .thenComparing(java.util.Comparator.comparingLong(
+                        GroupSystemRequest::sequence).reversed()));
+        if (collected.size() <= limit) {
+            return List.copyOf(collected);
+        }
+        return List.copyOf(collected.subList(0, limit));
+    }
+
+    private List<GroupSystemRequest> parseGroupSystemRequests(
+            JsonNode items, GroupSystemRequest.Kind kind, int eventType) {
+        if (items == null || !items.isArray()) {
+            return List.of();
+        }
+        List<GroupSystemRequest> parsed = new ArrayList<>();
+        for (JsonNode item : items) {
+            long sequence = integralValue(item.get("request_id"));
+            if (sequence <= 0L) {
+                continue;
+            }
+            parsed.add(new GroupSystemRequest(
+                    sequence,
+                    kind,
+                    eventType,
+                    scalarText(item.get("group_id")),
+                    scalarText(item.get("group_name")),
+                    scalarText(item.get("invitor_uin")),
+                    scalarText(item.get("invitor_nick")),
+                    scalarText(item.get("requester_uin")),
+                    scalarText(item.get("requester_nick")),
+                    limitChars(scalarText(item.get("message")), 120),
+                    integralValue(item.get("checked")) != 0L));
+        }
+        return parsed;
+    }
+
+    private static long integralValue(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return 0L;
+        }
+        if (node.isIntegralNumber()) {
+            return node.asLong();
+        }
+        if (node.isBoolean()) {
+            return node.asBoolean() ? 1L : 0L;
+        }
+        if (node.isTextual()) {
+            try {
+                return Long.parseLong(node.asText().trim());
+            } catch (NumberFormatException ignored) {
+                return 0L;
+            }
+        }
+        return 0L;
+    }
+
+    private static String limitChars(String value, int maxChars) {
+        if (value == null) {
+            return "";
+        }
+        if (value.length() <= maxChars) {
+            return value;
+        }
+        return value.substring(0, Math.max(0, maxChars - 1)) + "…";
+    }
+
+    @Override
+    public CompletionStage<SendReceipt> decideGroupRequest(
+            long sequence, boolean approve, String reason) {
+        if (closed.get()) {
+            return CompletableFuture.completedFuture(
+                    SendReceipt.failed("ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (sequence <= 0L) {
+            return CompletableFuture.completedFuture(
+                    SendReceipt.failed("INVALID_SEQUENCE", "群系统请求序列号非法"));
+        }
+        return postGroupAddRequest(sequence, approve, reason)
+                .thenApply(root -> SendReceipt.sent(List.of("group-request-" + sequence)))
+                .exceptionally(error -> SendReceipt.unknown(
+                        "GROUP_REQUEST_UNKNOWN",
+                        "群系统请求处理结果未知，禁止自动重试"));
+    }
+
+    @Override
+    public CompletionStage<SendReceipt> acceptGroupInvitation(
+            String groupId, long sequence, int eventType) {
+        if (closed.get()) {
+            return CompletableFuture.completedFuture(
+                    SendReceipt.failed("ADAPTER_CLOSED", "适配器已关闭"));
+        }
+        if (sequence <= 0L) {
+            return CompletableFuture.completedFuture(
+                    SendReceipt.failed("INVALID_SEQUENCE", "群邀请序列号非法"));
+        }
+        return postGroupAddRequest(sequence, true, null)
+                .handle((root, error) -> {
+                    if (error == null) {
+                        return CompletableFuture.completedFuture(
+                                SendReceipt.sent(List.of("group-invite-" + sequence)));
+                    }
+                    Throwable cause = unwrap(error);
+                    if (cause instanceof OneBotActionException actionException
+                            && actionException.kind == FailureKind.REJECTED) {
+                        // 邀请卡片往往不在待处理通知列表里，此时服务端会拒绝数字 flag；
+                        // 直接走内核入群请求，序列号本身就是它需要的参数。
+                        return acceptGroupInvitationViaKernel(groupId, sequence, eventType);
+                    }
+                    return CompletableFuture.completedFuture(SendReceipt.unknown(
+                            "GROUP_INVITE_UNKNOWN",
+                            "接受群邀请结果未知，禁止自动重试"));
+                })
+                .thenCompose(stage -> stage);
+    }
+
+    private CompletableFuture<JsonNode> postGroupAddRequest(
+            long sequence, boolean approve, String reason) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("flag", Long.toString(sequence));
+        payload.put("approve", approve);
+        if (reason != null && !reason.isBlank()) {
+            payload.put("reason", reason.trim());
+        }
+        return postAction("set_group_add_request", payload);
+    }
+
+    /**
+     * 走内核 OIDB 0x10c8 直接提交入群请求。
+     *
+     * <p>OneBot 的 {@code set_group_add_request} 要求序列号仍出现在通知列表里，而邀请卡片
+     * 通常不满足该前提；内核请求只依赖序列号与群号，因此作为回退路径。</p>
+     */
+    private CompletableFuture<SendReceipt> acceptGroupInvitationViaKernel(
+            String groupId, long sequence, int eventType) {
+        final long groupCode;
+        try {
+            groupCode = Long.parseLong(groupId == null ? "" : groupId.trim());
+        } catch (NumberFormatException invalid) {
+            return CompletableFuture.completedFuture(SendReceipt.failed(
+                    "INVALID_GROUP_ID", "群号必须是数字"));
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("apiClass", "qqProtocol");
+        payload.put("method", "handleGroupRequest");
+        ArrayNode args = payload.putArray("args");
+        args.add(sequence);
+        args.add(eventType > 0 ? eventType : GroupSystemRequest.EVENT_TYPE_INVITE);
+        args.add(groupCode);
+        args.add(GROUP_REQUEST_OPERATION_ACCEPT);
+        args.add("");
+        args.add(false);
+        return postAction("llonebot_debug", payload)
+                .handle((root, error) -> {
+                    if (error != null) {
+                        return SendReceipt.unknown(
+                                "GROUP_INVITE_KERNEL_UNKNOWN",
+                                "内核入群请求结果未知，禁止自动重试");
+                    }
+                    long errorCode = integralValue(root.path("data").path("errorCode"));
+                    if (errorCode == 0L) {
+                        return SendReceipt.sent(List.of("group-invite-" + sequence));
+                    }
+                    String detail = Redaction.sanitize(
+                            scalarText(root.path("data").path("errorMsg")),
+                            config.accessToken().orElse(null));
+                    return SendReceipt.failed("GROUP_INVITE_REJECTED",
+                            detail.isBlank() ? "服务端拒绝了这次入群请求" : detail);
+                });
     }
 
     @Override

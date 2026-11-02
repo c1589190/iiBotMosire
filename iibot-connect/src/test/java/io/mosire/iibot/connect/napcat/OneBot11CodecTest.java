@@ -337,4 +337,50 @@ class OneBot11CodecTest {
         assertThat(message.nonTextSummary()).isEqualTo("[文件×1] 三国.json");
     }
 
+    @Test
+    void rendersGroupInviteCardWithGroupNumberAndSequence() throws Exception {
+        String card = """
+                {"app":"com.tencent.tuwen.lua","bizsrc":"qun.invite",
+                 "config":{"token":"304e6c939bf660a58507e8976bd890cc"},
+                 "meta":{"news":{"title":"肥鱼邀请你加入群聊","desc":"目标是星辰大海",
+                   "jumpUrl":"mqqapi://group/invite_join?src_type=web&groupcode=938269591&msgseq=1793612836122334&invite_from=0"}}}
+                """.replace("\n", "");
+        JsonNode event = mapper.readTree("""
+                {"post_type":"message","message_type":"group","self_id":"10001",
+                 "message_id":"g-30","user_id":"20002","group_id":"30003",
+                 "message":[{"type":"json","data":{"data":%s}}]}
+                """.formatted(mapper.writeValueAsString(card)));
+
+        InboundMessage message = codec.decodeMessage("napcat", event, Instant.EPOCH)
+                .orElseThrow();
+
+        MessageSegment cardSegment = message.segments().getFirst();
+        assertThat(cardSegment.rawType()).isEqualTo("json");
+        assertThat(cardSegment.text())
+                .contains("群邀请", "肥鱼邀请你加入群聊", "群号 938269591",
+                        "序列 1793612836122334", "目标是星辰大海")
+                .doesNotContain("304e6c939bf660a58507e8976bd890cc")
+                .doesNotContain("mqqapi");
+        assertThat(message.nonTextSummary()).contains("[卡片×1]", "群号 938269591");
+    }
+
+    @Test
+    void rendersGroupInviteCardFromCqString() throws Exception {
+        String card = """
+                {"app":"com.tencent.tuwen.lua","bizsrc":"qun.invite",
+                 "meta":{"news":{"title":"加入吧",
+                   "jumpUrl":"mqqapi://group/invite_join?groupcode=1072031273&msgseq=1793612836122999"}}}
+                """.replace("\n", "");
+        String cq = "[CQ:json,data=" + card.replace(",", "&#44;") + "]";
+        JsonNode event = mapper.readTree("""
+                {"post_type":"message","message_type":"private","self_id":1,
+                 "message_id":31,"user_id":2,"message":%s}
+                """.formatted(mapper.writeValueAsString(cq)));
+
+        InboundMessage message = codec.decodeMessage("napcat", event, Instant.EPOCH)
+                .orElseThrow();
+
+        assertThat(message.segments().getFirst().text())
+                .contains("群邀请", "群号 1072031273", "序列 1793612836122999");
+    }
 }

@@ -11,6 +11,7 @@ import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.chat.ChatType;
 import io.mosire.iibot.bot.friend.FriendRequestService;
 import io.mosire.iibot.bot.friend.SqliteFriendRequestStore;
+import io.mosire.iibot.bot.group.SqliteGroupCatalogueStore;
 import io.mosire.iibot.bot.inbox.InboxDigestScheduler;
 import io.mosire.iibot.bot.inbox.SqliteInboxDigestAuditStore;
 import io.mosire.iibot.bot.inbox.InboxDigestService;
@@ -35,6 +36,7 @@ import io.mosire.iibot.connect.core.FriendRequestCapability;
 import io.mosire.iibot.connect.core.ForwardCapability;
 import io.mosire.iibot.connect.core.GroupFileCapability;
 import io.mosire.iibot.connect.core.GroupFileUploadCapability;
+import io.mosire.iibot.connect.core.GroupRequestCapability;
 import io.mosire.iibot.connect.core.RecallCapability;
 import io.mosire.iibot.connect.core.MediaCapability;
 import io.mosire.iibot.connect.core.QqPlatformCapability;
@@ -90,6 +92,7 @@ public final class BotRuntime implements AutoCloseable {
     private final BotIngestionService ingestion;
     private final BotMcpServer mcpServer;
     private final SqliteFriendRequestStore friendRequests;
+    private final SqliteGroupCatalogueStore groupCatalogue;
     private final SqliteInboxDigestAuditStore inboxAudit;
     private final SqliteSourceWeightStore sourceWeights;
     private final BotToolCatalog toolCatalog;
@@ -103,6 +106,7 @@ public final class BotRuntime implements AutoCloseable {
                        BotInboxRuntime inboxRuntime,
                        InboxDigestScheduler digestScheduler, BotIngestionService ingestion,
                        BotMcpServer mcpServer, SqliteFriendRequestStore friendRequests,
+                       SqliteGroupCatalogueStore groupCatalogue,
                        SqliteInboxDigestAuditStore inboxAudit,
                        SqliteSourceWeightStore sourceWeights,
                        BotToolCatalog toolCatalog) {
@@ -119,6 +123,7 @@ public final class BotRuntime implements AutoCloseable {
         this.ingestion = ingestion;
         this.mcpServer = mcpServer;
         this.friendRequests = friendRequests;
+        this.groupCatalogue = groupCatalogue;
         this.inboxAudit = inboxAudit;
         this.sourceWeights = sourceWeights;
         this.toolCatalog = Objects.requireNonNull(toolCatalog, "toolCatalog");
@@ -188,11 +193,13 @@ public final class BotRuntime implements AutoCloseable {
         InboxDigestScheduler digestScheduler = null;
         BotMcpServer mcpServer = null;
         SqliteFriendRequestStore friendRequests = null;
+        SqliteGroupCatalogueStore groupCatalogue = null;
         SqliteInboxDigestAuditStore inboxAudit = null;
         SqliteSourceWeightStore sourceWeights = null;
         try {
             board = new SqliteMessageBoardStore(dataDir.resolve("bot.db"));
             friendRequests = new SqliteFriendRequestStore(dataDir.resolve("bot.db"));
+            groupCatalogue = new SqliteGroupCatalogueStore(dataDir.resolve("bot.db"));
             inboxAudit = new SqliteInboxDigestAuditStore(dataDir.resolve("bot.db"));
             sourceWeights = new SqliteSourceWeightStore(dataDir.resolve("bot.db"));
             notes = new SqliteUserNoteStore(dataDir.resolve("bot.db"), clock);
@@ -249,6 +256,8 @@ public final class BotRuntime implements AutoCloseable {
                     capabilityMap(bindings, GroupFileUploadCapability.class);
             Map<String, RecentQqProvider> recentByAccount = capabilityMap(
                     bindings, RecentQqProvider.class);
+            Map<String, GroupRequestCapability> groupRequestByAccount = capabilityMap(
+                    bindings, GroupRequestCapability.class);
             Map<String, ChatHistoryProvider> historyByAccount = capabilityMap(
                     bindings, ChatHistoryProvider.class);
             // 每个账号一套 FriendRequestService：store 按 accountId 分区，入站 handler 只绑定
@@ -267,7 +276,7 @@ public final class BotRuntime implements AutoCloseable {
                     inboxAudit, historyByAccount, weightService, consumerStates,
                     accountRegistry, dataDir, mediaStore, mediaByAccount, audioByAccount,
                     groupFilesByAccount, recallByAccount, groupFileUploadByAccount,
-                    inboxRuntime));
+                    inboxRuntime, groupRequestByAccount, groupCatalogue));
             OpsLog.info("event=bot_tools_prepared tools={} digestLimit={}",
                     tools.size(), digestLimit);
             mcpServer = new BotMcpServer(options.controlHost(), options.controlPort(),
@@ -315,8 +324,8 @@ public final class BotRuntime implements AutoCloseable {
                     inboxRuntime.mcpPort(), tools.size());
             return new BotRuntime(options, accountRegistry, bindings, outboxes,
                     board, notes, digestStates, consumerStates, inboxRuntime,
-                    digestScheduler, ingestion, mcpServer, friendRequests, inboxAudit,
-                    sourceWeights, toolCatalog);
+                    digestScheduler, ingestion, mcpServer, friendRequests, groupCatalogue,
+                    inboxAudit, sourceWeights, toolCatalog);
         } catch (IOException | RuntimeException failure) {
             OpsLog.error("event=bot_runtime_start_failed errorType={}",
                     failure.getClass().getSimpleName());
@@ -324,6 +333,7 @@ public final class BotRuntime implements AutoCloseable {
             closeQuietly(toolCatalog);
             closeQuietly(mcpServer);
             closeQuietly(friendRequests);
+            closeQuietly(groupCatalogue);
             closeQuietly(inboxAudit);
             closeQuietly(sourceWeights);
             closeQuietly(digestScheduler);
@@ -536,6 +546,7 @@ public final class BotRuntime implements AutoCloseable {
         closeQuietly(toolCatalog);
         closeQuietly(mcpServer);
         closeQuietly(friendRequests);
+        closeQuietly(groupCatalogue);
         closeQuietly(inboxAudit);
         closeQuietly(sourceWeights);
         closeQuietly(digestScheduler);
