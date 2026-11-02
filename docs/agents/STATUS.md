@@ -589,10 +589,11 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 16. **D-036 尚未真实 reload**：DSH wake content/5s 窗口/媒体去重与 `qq_media_inspect`
     仅为 code-level + fake/单元测试；真实 DSH 热加载、500 条样本、重复图片、5.7MB GIF
     和下游图像解析均 `NOT_RUN`。真实运行前不得把 F-026–F-028 标为已验收。
-17. **D-037 未做真实 QQ 联调**：邀请卡片接受入群、`flag 不存在` 时的
+17. **D-037 真实 QQ 联调 `BLOCKED`**：邀请卡片接受入群、`flag 不存在` 时的
     `llonebot_debug` OIDB 0x10c8 回退、群目录长期写入与 `qq_group_search` 三来源合并
-    均只有 fake/单元测试；真实联调需要用户当次授权，运行中的 jar 仍是 D-036 版本，
-    替换前相关能力在线上不存在。
+    均只有 fake/单元测试。线上 Bot 运行态已于 2026-11-02 停摆（DSH 主 Agent 会话被
+    服务端内容审核 400 `Content Exists Risk` 永久毒化，用户裁定不恢复、不换 jar），
+    因此不再有可用于联调的在线实例；能力只在 jar 代码与单测中成立，不得写成 PASS。
 18. **D-037 能力边界**：QQ 官方无可用群搜索接口、OneBot 实现无「按群号主动加群」，
     `qq_group_search` 只覆盖 bot 自己的关系面；这不是实现缺口，不要把它当 bug 复开。
 
@@ -609,9 +610,9 @@ QQ 邀请接受/OIDB 回退验收，并把 `bot/FRICTION.md` 的 F-008 与群邀
 V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案、V6 显式评论与互动写入
 已完成；下一步 V7 真实 B 站/服务器验收。
 
-1. **D-037 真实验收**：用户授权后替换 jar、用真实群邀请卡片验证
-   `qq_group_invite_accept` 与 `flag 不存在` 回退路径，确认 `qq_group_search`
-   在真实已加入群/待处理邀请上返回一致结果；未跑前保持 `NOT_RUN`。
+1. **D-037 真实验收（`BLOCKED`）**：需要在线 Bot 实例才能验证
+   `qq_group_invite_accept` 与 `flag 不存在` 回退路径；当前运行态已停摆且用户裁定
+   不重建，恢复在线 Bot 前此项保持 `BLOCKED`，不得写成 `NOT_RUN` 或 PASS。
 2. **D-036/F-026–F-028 验证**：替换测试 DSH bundle/jar 后，在真实 500 条/重复图片/5.7MB GIF 样本上验证 wake content、5s 合并、去重/备注/分块；未跑前保持 `NOT_RUN`。
 3. **D-035 V7**：在用户当次授权下做真实 B 站扫码/评论/互动、浏览器与服务器验收；
    写入默认关闭、单次显式、账号级配额/冷却、UNKNOWN 不重发，真实写入仍需用户当次授权。
