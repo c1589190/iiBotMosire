@@ -1,10 +1,38 @@
 # iiBotMosire 当前状态
 
-> **更新时间**：2026-11-01 20:10（Asia/Shanghai）
+> **更新时间**：2026-11-02 19:50（Asia/Shanghai）
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
-## 0. 最新更新：P1a/P1b 清理与统一 QQ 客户端重构
+## 0. 最新更新：D-037 群邀请/入群申请与群目录检索
+
+- **2026-11-02 D-037 群邀请可操作性已完成（code-level）**，设计见
+  [`../superpowers/specs/2026-11-02-qq-group-invite-and-catalogue.md`](../superpowers/specs/2026-11-02-qq-group-invite-and-catalogue.md)：
+  - `iibot-connect` 新增 `GroupSystemRequest`、`GroupRequestCapability`；
+    `NapCatAdapter` 实现 `listGroupRequests`（归一化 `invited_requests`/`join_requests`）、
+    `decideGroupRequest`（`set_group_add_request`，`flag` 用十进制 sequence）、
+    `acceptGroupInvitation`（先 `set_group_add_request`，仅服务端明确拒绝
+    `flag 不存在` 时回退 `llonebot_debug → qqProtocol.handleGroupRequest`
+    即 OIDB 0x10c8；传输失败一律 `UNKNOWN` 不重试）。
+  - `OneBot11Codec` 识别 `bizsrc=qun.invite` 卡片，从
+    `mqqapi://group/invite_join` 提取群号与 `msgseq`，渲染为
+    `群邀请｜标题｜群号 X｜序列 Y｜描述`；**不输出 token、不输出 `mqqapi:` 原文**。
+  - `iibot-bot` 新增 `group_catalogue` SQLite 目录（`group_id` 主键 +
+    `source=joined|invite|join_request`）与四个工具：`qq_group_request_list`、
+    `qq_group_request_decide`、`qq_group_invite_accept`、`qq_group_search`；
+    能力不存在时不注册。`BotRuntime` 装配 `SqliteGroupCatalogueStore` 与
+    `capabilityMap(bindings, GroupRequestCapability.class)`。
+  - 协议事实（探针实测）：LLOneBot 8.3.2、NapCat、Lagrange 均无「搜群」和
+    「按群号主动加群」；`qun.qq.com/cgi-bin/group_search/group_search` 带 `keyword`
+    确定性返回 `errcode:258` 风控门；`qunjoin/*` 等入群 Web 接口全 404。
+    因此 `qq_group_search` 只检索 bot 自有关系面（已加入群 + 待处理邀请/申请 +
+    本地目录），未命中给 `NO_MATCH` 与可执行提示。
+  - `tools/gate.sh full` PASS：**373 tests / 0 failures / 0 errors / 0 skipped**
+    （connect 85、video 26、bot 146、app 116，较 D-036 基线 +30）。
+  - 真实 QQ 群邀请接受、`llonebot_debug` OIDB 回退与长期目录写入均为 `NOT_RUN`，
+    需要用户当次授权；运行中的 jar 未替换（PID 1220 仍跑 D-036 版本）。
+
+## 0.1 P1a/P1b 清理与统一 QQ 客户端重构
 
 - **2026-11-01 D-036 唤醒正文、摘要边界与媒体检查已完成（code-level）**：
   - `InboxMosire-DSH` 默认 `wakeContent=bounded`：摘要后按展示 item 读取 detail，
@@ -375,6 +403,9 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 - **Bot 试运行摩擦第二批（2026-10-30）已完成（code-level）**：F-003 转发顶层
   图片安全读取、F-016 群文件列表/读取、F-014 DSH programMcp 探测、F-015 partial
   ack 同轮续处理；真实运行/宿主 reload 仍待验证；
+- **D-037 群邀请与群目录（2026-11-02）已完成 code-level**：邀请卡片解码、
+  接受邀请/审批入群、bot 自有群目录检索与四个 `qq_group_*` 工具；QQ 无搜群与
+  主动加群接口的事实已写入设计；
 - 剩余：真实外部联调、F-012/F-013/F-019 等后续责任区与 AgentLib 0.2.4 公开发布。
 
 非目标：
@@ -400,6 +431,7 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 
 | 项 | 实际结果 |
 |---|---|
+| D-037 full | `tools/gate.sh full` PASS：**373 tests / 0 failures / 0 errors / 0 skipped**（connect 85、video 26、bot 146、app 116）；D-037 docs PASS（modules=4 files=53 links=179） |
 | D-036 full | `tools/gate.sh full` PASS：**343 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 26、bot 128、app 116）；D-036 docs PASS（modules=4 files=52 links=173） |
 | D-035 V6 full | `tools/gate.sh full` PASS：**339 tests / 0 failures / 0 errors / 0 skipped**（connect 73、video 26、bot 128、app 112） |
 | D-035 V6 docs | `tools/gate.sh docs` PASS（modules=4 files=51 links=168） |
@@ -557,8 +589,19 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 16. **D-036 尚未真实 reload**：DSH wake content/5s 窗口/媒体去重与 `qq_media_inspect`
     仅为 code-level + fake/单元测试；真实 DSH 热加载、500 条样本、重复图片、5.7MB GIF
     和下游图像解析均 `NOT_RUN`。真实运行前不得把 F-026–F-028 标为已验收。
+17. **D-037 未做真实 QQ 联调**：邀请卡片接受入群、`flag 不存在` 时的
+    `llonebot_debug` OIDB 0x10c8 回退、群目录长期写入与 `qq_group_search` 三来源合并
+    均只有 fake/单元测试；真实联调需要用户当次授权，运行中的 jar 仍是 D-036 版本，
+    替换前相关能力在线上不存在。
+18. **D-037 能力边界**：QQ 官方无可用群搜索接口、OneBot 实现无「按群号主动加群」，
+    `qq_group_search` 只覆盖 bot 自己的关系面；这不是实现缺口，不要把它当 bug 复开。
 
 ## 7. 下一步
+
+**D-037 已完成 code-level**：群邀请卡片解码、接受邀请/审批入群、群目录与
+`qq_group_*` 四个工具已实现并通过 373 tests；下一步是在用户当次授权下做真实
+QQ 邀请接受/OIDB 回退验收，并把 `bot/FRICTION.md` 的 F-008 与群邀请条目更新为
+「已修复（待真实验收）」。
 
 **D-036 已完成 code-level**：DSH wake content、5s 合并窗口、媒体去重/备注/分块检查已实现；下一步为真实 reload/大图样本验收。
 
@@ -566,27 +609,30 @@ OneBot 11 / NapCat / LLBot（可多个）        B 站等视频站
 V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案、V6 显式评论与互动写入
 已完成；下一步 V7 真实 B 站/服务器验收。
 
-1. **D-036/F-026–F-028 验证**：替换测试 DSH bundle/jar 后，在真实 500 条/重复图片/5.7MB GIF 样本上验证 wake content、5s 合并、去重/备注/分块；未跑前保持 `NOT_RUN`。
-2. **D-035 V7**：在用户当次授权下做真实 B 站扫码/评论/互动、浏览器与服务器验收；
+1. **D-037 真实验收**：用户授权后替换 jar、用真实群邀请卡片验证
+   `qq_group_invite_accept` 与 `flag 不存在` 回退路径，确认 `qq_group_search`
+   在真实已加入群/待处理邀请上返回一致结果；未跑前保持 `NOT_RUN`。
+2. **D-036/F-026–F-028 验证**：替换测试 DSH bundle/jar 后，在真实 500 条/重复图片/5.7MB GIF 样本上验证 wake content、5s 合并、去重/备注/分块；未跑前保持 `NOT_RUN`。
+3. **D-035 V7**：在用户当次授权下做真实 B 站扫码/评论/互动、浏览器与服务器验收；
    写入默认关闭、单次显式、账号级配额/冷却、UNKNOWN 不重发，真实写入仍需用户当次授权。
-3. **B 站 D-034 验收**：为 B 站 Adapter 准备独立测试账号 Cookie，验证登录、
+4. **B 站 D-034 验收**：为 B 站 Adapter 准备独立测试账号 Cookie，验证登录、
    私信轮询、评论回复通知、统一 source 入库/Inbox wake、conversation_send
    三态和 UNKNOWN 不重发；真实写入前先取得用户授权。
-4. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
+5. **真实运行验收**：真实 QQ/DSH/OpenCode、外发、长跑均需用户当次授权；未跑写
    `NOT_RUN` / `BLOCKED`，不写 PASS。
-5. **已推进的摩擦项**：F-001/F-002/F-003/F-014/F-015/F-016 已完成 code-level；
+6. **已推进的摩擦项**：F-001/F-002/F-003/F-014/F-015/F-016 已完成 code-level；
    下一步是替换测试 jar、reload 宿主并用真实样本验收。
-6. **D-031 已实现 code-level**：3A mentionAll + qq_message_recall；3B qq_private_send；
+7. **D-031 已实现 code-level**：3A mentionAll + qq_message_recall；3B qq_private_send；
    3C qq_media_upload + image/sticker + qq_group_file_upload；3D AUDIO + qq_audio_get。
    下一步是替换测试 jar 后做真实 LLBot 外部动作验收；ASR 仍未接。
-7. **Raw LLBot 兜底**：按 D-031 允许常规使用；纪律和审计边界已写设计，不新增
+8. **Raw LLBot 兜底**：按 D-031 允许常规使用；纪律和审计边界已写设计，不新增
    iibot scheduler。
-8. **D-032 验证**：替换测试 jar、reload 两个 DSH bundle 后，用新会话验证
+9. **D-032 验证**：替换测试 jar、reload 两个 DSH bundle 后，用新会话验证
    `complete=true` 不走 read、普通消息走 compact read/ack、`more` 同轮续读；
    旧 649 轮会话不能冒充新验收。
-9. **F-013 复验**：先按 MCP 发送路径确认 OUT 已落库；只有 Raw LLBot 路径无记录，
+10. **F-013 复验**：先按 MCP 发送路径确认 OUT 已落库；只有 Raw LLBot 路径无记录，
    不再把它当消息板缺陷。
-10. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
+11. **上游发布跟进**：ProjectMosire 补 v0.2.4 tag/Pages；发布前干净仓库门禁保持
    `PUBLICATION_GAP` / `BLOCKED`。
-11. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack 仍未实施；
+12. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack 仍未实施；
     D-035 交互范围 B 已在 V6 实施，下一步 V7 真实验收。

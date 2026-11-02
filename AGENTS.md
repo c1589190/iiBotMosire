@@ -1,6 +1,6 @@
 # AGENTS.md —— iiBotMosire 常驻索引
 
-> **更新时间**：2026-11-01（D-036 唤醒正文与媒体检查完成）
+> **更新时间**：2026-11-02（D-037 群邀请与群目录完成）
 > **本文件只做三件事**：项目边界、常驻红线、文档与模块路由。
 > **规则正文不在本文件**：项目设计看 `docs/superpowers/`，项目维护看 `docs/agents/`。
 > **禁止用 `@` 导入长文**；按需打开链接。
@@ -8,7 +8,7 @@
 ## 0. 冲突顺序
 
 1. 用户当次明确指令。
-2. 用户设计裁定：D-025..D-036、统一 QQ Agent 客户端目标架构、来源地址与 direct ack。
+2. 用户设计裁定：D-025..D-037、统一 QQ Agent 客户端目标架构、来源地址与 direct ack。
 3. 项目维护裁定：`docs/agents/MAINTENANCE_RULINGS.md`、`docs/AGENTS.md`。
 4. 当前有效设计与契约：`docs/superpowers/specs/**`。
 5. 本文件。
@@ -101,6 +101,7 @@ V6 已补显式评论回复与点赞/投币/收藏/关注写入；保留 `bili_*
 | 视频站 Connect 与无头浏览器（D-035） | [`docs/superpowers/specs/2026-10-31-video-site-connect-and-browser-backend.md`](docs/superpowers/specs/2026-10-31-video-site-connect-and-browser-backend.md) |
 | D-035 V0–V7 实施计划 | [`docs/superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md`](docs/superpowers/plans/2026-10-31-video-site-connect-and-browser-backend-plan.md) |
 | 唤醒正文与媒体检查（D-036） | [`docs/superpowers/specs/2026-11-01-wake-content-and-media-inspection.md`](docs/superpowers/specs/2026-11-01-wake-content-and-media-inspection.md) |
+| 群邀请/入群与群目录（D-037） | [`docs/superpowers/specs/2026-11-02-qq-group-invite-and-catalogue.md`](docs/superpowers/specs/2026-11-02-qq-group-invite-and-catalogue.md) |
 | P8 来源地址/wake 计划 | [`docs/superpowers/plans/2026-10-28-p8-source-address-and-wake-contract.md`](docs/superpowers/plans/2026-10-28-p8-source-address-and-wake-contract.md) |
 | 文档规则 | [`docs/AGENTS.md`](docs/AGENTS.md) |
 | 工作流 | [`docs/agents/WORKFLOW.md`](docs/agents/WORKFLOW.md) |
@@ -114,6 +115,7 @@ V6 已补显式评论回复与点赞/投币/收藏/关注写入；保留 `bili_*
 - JDK 21；仓库内 `./mvnw`。
 - 门禁：`tools/gate.sh docs|selftest|pre|focused|full`。
 - D-036 唤醒正文/摘要/5 秒窗口/媒体去重检查已完成 code-level；D-035 V1–V6 已完成（第 4 模块 `iibot-video-connect` + app `BotToolCatalog`）。下一步 D-036 真实 DSH reload/大图样本验收与 D-035 V7 真实验收；真实 B 站写入/浏览器抽帧、服务器镜像/部署/断线重连仍 `NOT_RUN`。
+- D-037 群邀请卡片解码、接受邀请/审批入群（含 `flag 不存在` 时 OIDB 0x10c8 回退）与 bot 自有群目录检索已完成 code-level；QQ 无官方搜群/主动加群接口，`qq_group_search` 只覆盖 bot 关系面。下一步是用户授权后的真实 QQ 验收。
 - 当前产品分支：`refactor/bot-first-main-agent`；按责任区提交并推送，全量验证后再合并（M-005）。
 - worktree 统一放 `<仓库根>/worktree/<name>/`。
 - 同一 checkout 不并发跑 Maven；不覆盖正在运行的 jar；不提交 `.work/`、`target/`、数据库、日志和 secret。

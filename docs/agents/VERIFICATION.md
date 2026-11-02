@@ -23,6 +23,22 @@ tools/gate.sh full
 
 ## 二、当前基线
 
+- 2026-11-02 D-037 基线：群邀请卡片解码、接受邀请/审批入群与 bot 自有群目录检索。
+  `iibot-connect` 新增 `GroupSystemRequest`/`GroupRequestCapability`，
+  `NapCatAdapter.listGroupRequests`（归一化 `invited_requests`/`join_requests`）、
+  `decideGroupRequest`（`set_group_add_request`，`flag` 为十进制 sequence）、
+  `acceptGroupInvitation`（快路径 + 仅 `flag 不存在` 时回退
+  `llonebot_debug → qqProtocol.handleGroupRequest` OIDB 0x10c8，传输失败 `UNKNOWN`）；
+  `OneBot11Codec` 渲染 `群邀请｜标题｜群号｜序列｜描述` 且不输出 token/`mqqapi:`；
+  `iibot-bot` 新增 `group_catalogue` 表与 `qq_group_request_list` /
+  `qq_group_request_decide` / `qq_group_invite_accept` / `qq_group_search`。
+  `tools/gate.sh full` PASS：**373 tests / 0 failures / 0 errors / 0 skipped**
+  （connect 85、video 26、bot 146、app 116）。新增测试：
+  `NapCatAdapterGroupRequestTest`(10)、`OneBot11CodecTest`(+2)、
+  `BotGroupToolsTest`(14)、`SqliteGroupCatalogueStoreTest`(3)、
+  `BotMcpToolsTest`(+1)。协议事实：LLOneBot 8.3.2 / NapCat / Lagrange 均无搜群与
+  按群号主动加群接口；`qun.qq.com` 群搜索带 `keyword` 返回 `errcode:258` 风控门；
+  真实 QQ 邀请接受、OIDB 回退、长期目录写入均 `NOT_RUN`。
 - 2026-11-01 D-036 基线：DSH wake 默认 `wakeContent=bounded`，摘要后读取展示 item
   detail 并放入独立不可信 content 块；每项 4000/整轮 12000 默认预算，`none` 关闭；
   `MessageSummaryBuilder` 1000、digest summary 511+`…`、`summaryDebounceMillis` 默认

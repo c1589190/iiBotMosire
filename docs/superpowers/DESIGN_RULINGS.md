@@ -28,6 +28,7 @@
 | D-034 | B 站通用视频阅读 + B 站账号/私信/评论 Inbox 会话 Adapter | 第一批 code-level（2026-10-31）；真实联调 `NOT_RUN` | [专题设计](specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
 | D-035 | 视频站 Connect 独立模块、统一 MCP 工具目录、无头浏览器与配置/日志 | 设计已确认；V1/V2/V3/V4/V5/V6 已完成（2026-10-31）；V7 待开始 | [专题设计](specs/2026-10-31-video-site-connect-and-browser-backend.md)；[实施计划](plans/2026-10-31-video-site-connect-and-browser-backend-plan.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
 | D-036 | 唤醒正文注入、摘要 512 边界、5s 合并窗口与媒体去重/备注/分块检查 | 已实施（code-level，2026-11-01）；真实热加载/大图验收 `NOT_RUN` | [专题设计](specs/2026-11-01-wake-content-and-media-inspection.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
+| D-037 | 群邀请卡片解码、接受邀请/审批入群与 bot 自有群目录检索；QQ 无搜群/主动加群接口 | 已实施（code-level，2026-11-02）；真实 QQ 联调 `NOT_RUN` | [专题设计](specs/2026-11-02-qq-group-invite-and-catalogue.md)；[需求原稿](specs/2026-10-24-user-requirements-source.md) |
 
 ## 二、当前专题入口
 
@@ -43,6 +44,7 @@
 | B 站通用视频与 Inbox 会话（D-034） | [`specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md`](specs/2026-10-31-bilibili-generic-video-and-conversation-adapter.md) | bili_video_read、BilibiliAdapter、bili_dm/bili_comment source、账号 Cookie/WBI、评论/私信收发 |
 | 视频站模块与无头浏览器（D-035） | [`specs/2026-10-31-video-site-connect-and-browser-backend.md`](specs/2026-10-31-video-site-connect-and-browser-backend.md)；[`plans/2026-10-31-video-site-connect-and-browser-backend-plan.md`](plans/2026-10-31-video-site-connect-and-browser-backend-plan.md) | V1–V6 已完成模块、工具目录、quality/time/comments、video 配置、Playwright embedded/remote-cdp 与显式评论/互动写入；下一步 V7 真实验收 |
 | 唤醒正文与媒体检查（D-036） | [`specs/2026-11-01-wake-content-and-media-inspection.md`](specs/2026-11-01-wake-content-and-media-inspection.md) | DSH bounded content 注入、摘要 512/5s 窗口、媒体 source 去重、备注与 `qq_media_inspect` |
+| 群邀请与群目录（D-037） | [`specs/2026-11-02-qq-group-invite-and-catalogue.md`](specs/2026-11-02-qq-group-invite-and-catalogue.md) | 邀请卡片解码、`qq_group_request_list/decide`、`qq_group_invite_accept`、`qq_group_search`、OIDB 0x10c8 回退 |
 | Inbox Mode A 接入 | [`specs/2026-10-25-inbox-mode-a-notification-workflow.md`](specs/2026-10-25-inbox-mode-a-notification-workflow.md) | 程序嵌入 Inbox 的通知/唤醒接线 |
 | 当前实施计划 | [`plans/2026-10-28-unified-qq-agent-client-refactor-plan.md`](plans/2026-10-28-unified-qq-agent-client-refactor-plan.md) | P0–P7 责任区、验收、风险 |
 | P8 来源地址与 wake | [`plans/2026-10-28-p8-source-address-and-wake-contract.md`](plans/2026-10-28-p8-source-address-and-wake-contract.md)；[`specs/2026-10-28-unified-message-source-address.md`](specs/2026-10-28-unified-message-source-address.md) | 全唤醒、source 地址、wake 契约 |
