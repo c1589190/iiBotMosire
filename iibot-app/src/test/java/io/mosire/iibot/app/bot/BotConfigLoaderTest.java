@@ -450,6 +450,36 @@ class BotConfigLoaderTest {
         return "file: " + file.toAbsolutePath().normalize();
     }
 
+    @Test
+    void bindingTtlDefaultsToPermanentAndAcceptsExplicitZero() throws Exception {
+        BotConfig defaults = BotConfigLoader.load(
+                write("ttl-default.json", validConfig("main", "10001", true)), SECRETS);
+        assertThat(defaults.inbox().bindingTtlHours()).isZero();
+
+        String permanent = validConfig("main", "10001", true).replace(
+                """
+                            "channels": ["qq"]""",
+                """
+                            "channels": ["qq"],
+                            "bindingTtlHours": 0""");
+        BotConfig loaded = BotConfigLoader.load(write("ttl-zero.json", permanent), SECRETS);
+        assertThat(loaded.inbox().bindingTtlHours()).isZero();
+    }
+
+    @Test
+    void rejectsNegativeBindingTtl() throws Exception {
+        String json = validConfig("main", "10001", true).replace(
+                """
+                            "channels": ["qq"]""",
+                """
+                            "channels": ["qq"],
+                            "bindingTtlHours": -1""");
+
+        assertThatThrownBy(() -> BotConfigLoader.load(write("ttl-bad.json", json), SECRETS))
+                .isInstanceOf(ConfigException.class)
+                .hasMessageContaining("bindingTtlHours");
+    }
+
     private static String validConfig(String alias, String accountId, boolean enabled) {
         return """
                 {

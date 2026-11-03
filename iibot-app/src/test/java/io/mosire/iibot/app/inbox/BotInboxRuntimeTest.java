@@ -1,6 +1,7 @@
 package io.mosire.iibot.app.inbox;
 
 import io.mosire.agentlib.tool.AgentTool;
+import io.mosire.inbox.client.InboxClient;
 import io.mosire.inbox.client.InboxModels;
 import io.mosire.iibot.bot.chat.ChatDirection;
 import io.mosire.iibot.bot.inbox.InboxDigest;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
@@ -46,6 +48,51 @@ class BotInboxRuntimeTest {
             assertThat(runtime.descriptor().apiBaseUrl())
                     .contains(":" + runtime.apiPort());
         }
+    }
+
+    @Test
+    void restartsReuseTheTokenFilesInsteadOfReissuing() throws Exception {
+        Path dataDir = tempDir.resolve("inbox-reuse");
+        String program;
+        String wake;
+        String descriptorRef;
+        try (BotInboxRuntime runtime = BotInboxRuntime.start(
+                dataDir, "bot-reuse", "dsh-reuse", Set.of("qq"), 0L)) {
+            program = Files.readString(runtime.programTokenPath());
+            wake = Files.readString(runtime.wakeTokenPath());
+            descriptorRef = runtime.descriptor().adapterTokenRef();
+        }
+        try (BotInboxRuntime runtime = BotInboxRuntime.start(
+                dataDir, "bot-reuse", "dsh-reuse", Set.of("qq"), 0L)) {
+            // 文件即配置：重启后 token 不变，Hermes 侧不会拿到死值
+            assertThat(Files.readString(runtime.programTokenPath())).isEqualTo(program);
+            assertThat(Files.readString(runtime.wakeTokenPath())).isEqualTo(wake);
+            assertThat(runtime.descriptor().adapterTokenRef()).isEqualTo(descriptorRef);
+            // 复用来的凭据仍然可用
+            assertThat(runtime.programClient().whoAmI().inbox()).isEqualTo("bot-reuse");
+        }
+    }
+
+    @Test
+    void zeroTtlMeansAPermanentWakeCredential() throws Exception {
+        try (BotInboxRuntime runtime = BotInboxRuntime.start(
+                tempDir.resolve("inbox-perm"), "bot-perm", "dsh-perm", Set.of("qq"), 0L)) {
+            assertThat(runtime.programClient().whoAmI().expiresAt()).isNull();
+            assertThat(wakeClient(runtime).whoAmI().expiresAt()).isNull();
+        }
+    }
+
+    @Test
+    void positiveTtlStillExpiresTheWakeCredential() throws Exception {
+        try (BotInboxRuntime runtime = BotInboxRuntime.start(
+                tempDir.resolve("inbox-ttl"), "bot-ttl", "dsh-ttl", Set.of("qq"), 24L)) {
+            assertThat(wakeClient(runtime).whoAmI().expiresAt()).isNotBlank();
+        }
+    }
+
+    private static InboxClient wakeClient(BotInboxRuntime runtime) {
+        return InboxClient.forTokenFile(
+                URI.create(runtime.descriptor().apiBaseUrl()), runtime.wakeTokenPath());
     }
 
     @Test

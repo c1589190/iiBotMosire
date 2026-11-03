@@ -126,6 +126,11 @@ config/
 - `messageBoard.summaryMaxChars`（默认 `1000`，范围 16..20000）是板里每条消息的正文长度上限。
   调大能让唤醒消息里的对话接近原文，但 digest 塞进 Inbox `content` 有 256KiB 硬上限，
   超预算时 iiBot 会丢最老的未读并置 `hasMoreUnread`，而不是让 push 失败；
+- `inbox.bindingTtlHours`（默认 `0`，范围 0..87600）是 wake token 的有效期：
+  `0` = **永不过期**（推荐；token 只是识别 + 授权，凭据仍可 revoke/rotate），
+  正数 = 到期即失效（`dsh-wake.token` 文件还在，但服务端会拒）。
+  token 文件（`<dataDir>/inbox/{program-mcp.token,dsh-wake.token}`）是**配置**：
+  iiBot 启动时先用 `whoami` 校验，仍然有效就复用，只有缺失/失效/换 inbox 才重新签发；
 - `logging.levels` 只接受 `io.mosire.iibot.connect` / `bot` / `app` / `inbox`
   及其子包、`iibot.ops`，级别只接受 `TRACE/DEBUG/INFO/WARN/ERROR/OFF`。
 

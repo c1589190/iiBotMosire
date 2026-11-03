@@ -28,7 +28,7 @@
     "inboxId": "iibot-bot",
     "bindingLabel": "dsh-bot",
     "channels": ["qq"],
-    "bindingTtlHours": 24,
+    "bindingTtlHours": 0,
     "apiHost": "127.0.0.1",
     "apiPort": 0,
     "mcpHost": "127.0.0.1",

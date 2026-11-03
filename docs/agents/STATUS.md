@@ -676,3 +676,16 @@ V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案、V6 显式�
    `PUBLICATION_GAP` / `BLOCKED`。
 12. **后续裁定**：多 consumer、descriptor 完全移出 Agent MCP、自动 ack 仍未实施；
     D-035 交互范围 B 已在 V6 实施，下一步 V7 真实验收。
+
+### 2026-11-03 15:45 token 永久化 + 复用（配置文件化）
+
+- `inbox.bindingTtlHours` 默认 `24` → **`0`（永不过期）**，范围放宽到 `0..87600`；
+  `InboxClient.issueBinding` 对 `null/零/负数` ttl 发送 `expiresInSeconds=null`，
+  服务端存 `expires_at=null`（`ApiCredential.active()` 只在 revoked 或过期时返回 false）。
+  这类凭据仍可 `revoke`/`rotate`，只是不会自己到期。
+- `BotInboxRuntime` 启动时**先复用** `data/inbox/{program-mcp.token,dsh-wake.token}`：
+  用 `whoami` 校验 inbox 对得上、scope 够、没过期 → 直接用，只有缺失/失效/换 inbox 才重签。
+  于是「token 文件就是配置」：重启 iiBot 不再让 Hermes 侧的 `adapterTokenRef` 变成死值，
+  也可以把别处签好的授权文件放进来直接用。
+- 测试：`BotInboxRuntimeTest` 新增「重启复用 token」「ttl=0 凭据不过期」「ttl>0 仍过期」，
+  `BotConfigLoaderTest` 新增「ttl 缺省为 0」「显式 0 可读」「负数被拒」；`tools/gate.sh full` PASS。

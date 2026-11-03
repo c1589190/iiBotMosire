@@ -21,6 +21,8 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermission;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
@@ -118,26 +120,37 @@ public final class BotInboxRuntime implements AutoCloseable {
                     .build());
             LOG.debug("event=inbox_client_action action=ensure_inbox inboxId={}", inboxId);
             server.client().ensureInbox(inboxId);
-            LOG.debug("event=inbox_client_action action=issue_credential inboxId={} "
-                            + "scopeCount={}", inboxId, PROGRAM_SCOPES.size());
-            InboxModels.IssuedCredentialView issued = server.client().issueCredential(
-                    inboxId,
-                    new InboxModels.CredentialIssueRequest(
-                            PROGRAM_CREDENTIAL_LABEL, PROGRAM_SCOPES, Set.of(), null));
-            if (issued == null || issued.token() == null || issued.token().isBlank()) {
-                throw new IllegalStateException("Inbox program MCP token 签发结果缺少 token");
+            // token 是配置文件（data 目录下的 0600 文件），不是每次启动生成的临时物：
+            // 文件里的凭据仍然有效就直接复用，只有缺失/失效/换 inbox 时才重新签发。
+            // 这样重启 iiBot 不会让 Hermes 侧的 adapterTokenRef 变成死值。
+            if (!reuseCredential(server, inboxId, programTokenPath, PROGRAM_SCOPES,
+                    "program_token")) {
+                LOG.debug("event=inbox_client_action action=issue_credential inboxId={} "
+                                + "scopeCount={}", inboxId, PROGRAM_SCOPES.size());
+                InboxModels.IssuedCredentialView issued = server.client().issueCredential(
+                        inboxId,
+                        new InboxModels.CredentialIssueRequest(
+                                PROGRAM_CREDENTIAL_LABEL, PROGRAM_SCOPES, Set.of(), null));
+                if (issued == null || issued.token() == null || issued.token().isBlank()) {
+                    throw new IllegalStateException("Inbox program MCP token 签发结果缺少 token");
+                }
+                TokenStore.writeAtomic(programTokenPath, issued.token());
+                LOG.debug("event=inbox_client_action action=program_token_written inboxId={}",
+                        inboxId);
             }
-            TokenStore.writeAtomic(programTokenPath, issued.token());
             verifyOwnerOnlyFile(programTokenPath, "program MCP token");
-            LOG.debug("event=inbox_client_action action=program_token_written inboxId={}",
-                    inboxId);
 
-            LOG.debug("event=inbox_client_action action=issue_binding inboxId={} "
-                            + "channelCount={} ttlHours={}", inboxId,
-                    options.channels().size(), options.bindingTtlHours());
-            InboxModels.BindingDescriptor descriptor = server.client().issueBinding(
-                    inboxId, options.bindingLabel(), options.channels(), wakeTokenPath,
-                    Duration.ofHours(options.bindingTtlHours()));
+            long ttlHours = options.bindingTtlHours();
+            InboxModels.BindingDescriptor descriptor =
+                    reuseBinding(server, options, wakeTokenPath);
+            if (descriptor == null) {
+                LOG.debug("event=inbox_client_action action=issue_binding inboxId={} "
+                                + "channelCount={} ttlHours={}", inboxId,
+                        options.channels().size(), ttlHours);
+                descriptor = server.client().issueBinding(
+                        inboxId, options.bindingLabel(), options.channels(), wakeTokenPath,
+                        ttlHours <= 0L ? Duration.ZERO : Duration.ofHours(ttlHours));
+            }
             if (descriptor == null) {
                 throw new IllegalStateException("Inbox wake binding descriptor 签发结果为空");
             }
@@ -167,6 +180,59 @@ public final class BotInboxRuntime implements AutoCloseable {
                 server.close();
             }
             throw failure;
+        }
+    }
+
+    /**
+     * 复用 data 目录里已有的 token 文件（"配置文件化"）：用 whoami 探一次，
+     * inbox 对得上、scope 够、没过期就直接用；否则返回 false 让调用方重新签发。
+     */
+    private static boolean reuseCredential(EmbeddedInboxServer server, String inboxId,
+                                           Path tokenPath, Set<String> requiredScopes,
+                                           String kind) {
+        if (!Files.isRegularFile(tokenPath)) {
+            return false;
+        }
+        boolean usable;
+        try {
+            InboxClient probe = InboxClient.forTokenFile(server.apiUrl(), tokenPath);
+            InboxModels.CredentialView me = probe.whoAmI();
+            usable = me != null
+                    && ("*".equals(me.inbox()) || inboxId.equals(me.inbox()))
+                    && me.scopes() != null
+                    && me.scopes().containsAll(requiredScopes)
+                    && notExpired(me.expiresAt());
+        } catch (RuntimeException failure) {
+            usable = false;
+        }
+        OpsLog.info("event=inbox_token_reused kind={} inboxId={} reused={} path={}",
+                kind, inboxId, usable, tokenPath);
+        return usable;
+    }
+
+    /** 同上，但复用成功时按现成文件重建 descriptor（不重新签发）。 */
+    private static InboxModels.BindingDescriptor reuseBinding(
+            EmbeddedInboxServer server, BotInboxRuntimeOptions options, Path wakeTokenPath) {
+        if (!reuseCredential(server, options.inboxId(), wakeTokenPath,
+                InboxClient.WAKE_SCOPES, "wake")) {
+            return null;
+        }
+        return new InboxModels.BindingDescriptor(
+                options.inboxId(),
+                server.apiUrl().toString(),
+                "file:" + wakeTokenPath.toAbsolutePath().normalize(),
+                options.channels(),
+                options.bindingLabel());
+    }
+
+    private static boolean notExpired(String expiresAt) {
+        if (expiresAt == null || expiresAt.isBlank()) {
+            return true;
+        }
+        try {
+            return Instant.parse(expiresAt).isAfter(Instant.now());
+        } catch (DateTimeParseException failure) {
+            return false;
         }
     }
 

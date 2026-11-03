@@ -324,8 +324,11 @@ public record BotConfig(
             bindingLabel = requireText(bindingLabel, "inbox.bindingLabel");
             channels = channels == null || channels.isEmpty()
                     ? Set.of("qq") : Set.copyOf(new LinkedHashSet<>(channels));
-            if (bindingTtlHours <= 0 || bindingTtlHours > 24L * 365L) {
-                throw new IllegalArgumentException("inbox.bindingTtlHours 超出范围");
+            // 0 = 不限期（token 只是识别 + 授权，本机 program 自己用不该被时间踢掉）；
+            // 正数 = 到期即失效，最长 10 年够用了
+            if (bindingTtlHours < 0L || bindingTtlHours > 24L * 3650L) {
+                throw new IllegalArgumentException(
+                        "inbox.bindingTtlHours 超出范围（0=永不过期，最大 87600 小时）");
             }
             apiHost = requireLoopback(apiHost, "inbox.apiHost");
             mcpHost = requireLoopback(mcpHost, "inbox.mcpHost");

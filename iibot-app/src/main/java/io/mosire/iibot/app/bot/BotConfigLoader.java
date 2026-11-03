@@ -316,7 +316,7 @@ public final class BotConfigLoader {
                     .orElse("dsh-bot");
             Set<String> channels = optionalStringSet(node, "channels", pointer)
                     .orElse(Set.of("qq"));
-            long ttlHours = optionalLong(node, "bindingTtlHours", pointer, 24L);
+            long ttlHours = optionalLong(node, "bindingTtlHours", pointer, 0L);
             String apiHost = optionalText(node, "apiHost", pointer)
                     .orElse(BotConfig.Inbox.DEFAULT_HOST);
             int apiPort = optionalInt(node, "apiPort", pointer,

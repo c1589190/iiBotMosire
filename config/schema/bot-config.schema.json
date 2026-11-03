@@ -244,9 +244,10 @@
         },
         "bindingTtlHours": {
           "type": "integer",
-          "minimum": 1,
-          "maximum": 8760,
-          "default": 24
+          "minimum": 0,
+          "maximum": 87600,
+          "default": 0,
+          "description": "wake token 有效期（小时）。0 = 永不过期（token 只用于识别与授权，本机 program 自用推荐 0；凭据仍可 revoke/rotate）。"
         },
         "apiHost": {
           "type": "string",

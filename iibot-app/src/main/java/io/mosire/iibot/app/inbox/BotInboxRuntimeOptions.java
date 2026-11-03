@@ -40,8 +40,10 @@ public record BotInboxRuntimeOptions(
         bindingLabel = requireText(bindingLabel, "bindingLabel");
         channels = channels == null || channels.isEmpty()
                 ? Set.of("qq") : Set.copyOf(new LinkedHashSet<>(channels));
-        if (bindingTtlHours <= 0 || bindingTtlHours > 24L * 365L) {
-            throw new IllegalArgumentException("bindingTtlHours 超出范围");
+        // 0 = 不限期（token 只做识别 + 授权；可 revoke/rotate）
+        if (bindingTtlHours < 0L || bindingTtlHours > 24L * 3650L) {
+            throw new IllegalArgumentException(
+                    "bindingTtlHours 超出范围（0=永不过期，最大 87600 小时）");
         }
         apiHost = requireLoopback(apiHost, "apiHost");
         mcpHost = requireLoopback(mcpHost, "mcpHost");
