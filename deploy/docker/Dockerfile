@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1.7
+# 语法前置只为文档性提示；本文件不依赖 BuildKit 专有指令，经典构建器也能构建。
 #
 # hermes + iiBot 单容器镜像：一个进程跑 iiBot（内嵌 Inbox + 两套 MCP），
 # 一个进程跑 hermes gateway。两个进程靠 127.0.0.1 互相看见，和裸机拓扑一致。
@@ -65,8 +66,10 @@ COPY iibot/type /etc/s6-overlay/s6-rc.d/iibot/type
 RUN mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d \
  && chmod +x /etc/s6-overlay/s6-rc.d/iibot/run \
  && touch /etc/s6-overlay/s6-rc.d/user/contents.d/iibot
-COPY --chmod=0755 cont-init.d/05-iibot-seed /etc/cont-init.d/05-iibot-seed
-COPY --chmod=0755 cmd.sh /opt/iibot/cmd.sh
+# 不用 COPY --chmod（那是 BuildKit 专有）：本机只装了经典构建器时也能构建
+COPY cont-init.d/05-iibot-seed /etc/cont-init.d/05-iibot-seed
+COPY cmd.sh /opt/iibot/cmd.sh
+RUN chmod +x /etc/cont-init.d/05-iibot-seed /opt/iibot/cmd.sh
 
 ENV IIBOT_DATA_DIR=/opt/iibot/data \
     IIBOT_CONFIG=/opt/iibot/data/bot.json
