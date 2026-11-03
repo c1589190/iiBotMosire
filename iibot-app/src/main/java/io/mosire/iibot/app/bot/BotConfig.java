@@ -343,7 +343,9 @@ public record BotConfig(
     }
 
     public record MessageBoard(long summaryDebounceMillis, int maxPreviewMessages,
-                               int inlineMaxChars, Outbox outbox, Weighting weighting) {
+                               int inlineMaxChars, int contextMessages,
+                               int contextMaxChars, int summaryMaxChars,
+                               Outbox outbox, Weighting weighting) {
         public MessageBoard {
             if (summaryDebounceMillis < 0L || summaryDebounceMillis > 86_400_000L) {
                 throw new IllegalArgumentException(
@@ -356,13 +358,32 @@ public record BotConfig(
             if (inlineMaxChars < 0) {
                 throw new IllegalArgumentException("messageBoard.inlineMaxChars 不能为负");
             }
+            if (contextMessages < 0 || contextMessages > 200) {
+                throw new IllegalArgumentException(
+                        "messageBoard.contextMessages 必须在 0..200");
+            }
+            if (contextMaxChars < 0 || contextMaxChars > 200_000) {
+                throw new IllegalArgumentException(
+                        "messageBoard.contextMaxChars 必须在 0..200000");
+            }
+            if (summaryMaxChars < 16 || summaryMaxChars > 20_000) {
+                throw new IllegalArgumentException(
+                        "messageBoard.summaryMaxChars 必须在 16..20000");
+            }
             outbox = outbox == null ? Outbox.defaults() : outbox;
             weighting = weighting == null ? Weighting.defaults() : weighting;
         }
 
+        /** 兼容未显式传窗口参数的旧调用：沿用历史默认（6 条 / 1200 字符 / 每条 1000 字符）。 */
+        public MessageBoard(long summaryDebounceMillis, int maxPreviewMessages,
+                            int inlineMaxChars, Outbox outbox, Weighting weighting) {
+            this(summaryDebounceMillis, maxPreviewMessages, inlineMaxChars,
+                    6, 1200, 1000, outbox, weighting);
+        }
+
         public static MessageBoard defaults() {
-            return new MessageBoard(2_000L, 20, 512, Outbox.defaults(),
-                    Weighting.defaults());
+            return new MessageBoard(2_000L, 20, 512, 6, 1200, 1000,
+                    Outbox.defaults(), Weighting.defaults());
         }
     }
 

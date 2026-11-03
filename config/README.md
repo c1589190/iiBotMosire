@@ -121,6 +121,11 @@ config/
 - `messageBoard.summaryDebounceMillis` 是所有来源共用的 digest 合并窗口，默认 `5000` 毫秒；
 - `messageBoard.inlineMaxChars` 默认 `512`，`0` 关闭短正文完整内联；实际仍受
   Inbox `summary` 的 512 字符存储边界约束；
+- `messageBoard.contextMessages`（默认 `6`）、`messageBoard.contextMaxChars`（默认 `1200`）
+  控制未读窗口前带多少条上文；这两个数就是「滚动窗口」的长度，调大后 Agent 看到的上下文更连续；
+- `messageBoard.summaryMaxChars`（默认 `1000`，范围 16..20000）是板里每条消息的正文长度上限。
+  调大能让唤醒消息里的对话接近原文，但 digest 塞进 Inbox `content` 有 256KiB 硬上限，
+  超预算时 iiBot 会丢最老的未读并置 `hasMoreUnread`，而不是让 push 失败；
 - `logging.levels` 只接受 `io.mosire.iibot.connect` / `bot` / `app` / `inbox`
   及其子包、`iibot.ops`，级别只接受 `TRACE/DEBUG/INFO/WARN/ERROR/OFF`。
 

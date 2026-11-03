@@ -104,6 +104,9 @@ public final class EffectiveConfigPrinter {
         boardNode.put("summaryDebounceMillis", board.summaryDebounceMillis());
         boardNode.put("maxPreviewMessages", board.maxPreviewMessages());
         boardNode.put("inlineMaxChars", board.inlineMaxChars());
+        boardNode.put("contextMessages", board.contextMessages());
+        boardNode.put("contextMaxChars", board.contextMaxChars());
+        boardNode.put("summaryMaxChars", board.summaryMaxChars());
         ObjectNode outbox = boardNode.putObject("outbox");
         outbox.put("sendTimeoutSeconds", board.outbox().sendTimeoutSeconds());
         outbox.put("minSendIntervalMillis", board.outbox().minSendIntervalMillis());

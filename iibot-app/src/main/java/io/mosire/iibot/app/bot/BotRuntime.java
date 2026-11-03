@@ -222,8 +222,9 @@ public final class BotRuntime implements AutoCloseable {
                     options.weighting().maxMessagesPerDigest());
             InboxDigestService digestService = new InboxDigestService(
                     board, notes, digestStates, inboxRuntime.digestPort(),
-                    new MessageSummaryBuilder(), digestLimit,
-                    inboxAudit, clock, weightService, options.inlineMaxChars());
+                    new MessageSummaryBuilder(options.summaryMaxChars()), digestLimit,
+                    inboxAudit, clock, weightService, options.inlineMaxChars(),
+                    options.contextMessages(), options.contextMaxChars());
             InboxDigestScheduler scheduler = new InboxDigestScheduler(
                     digestService, Duration.ofMillis(options.digestDebounceMillis()));
             digestScheduler = scheduler;

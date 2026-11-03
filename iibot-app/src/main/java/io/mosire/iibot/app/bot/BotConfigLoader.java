@@ -46,7 +46,9 @@ public final class BotConfigLoader {
             "apiHost", "apiPort", "mcpHost", "mcpPort", "mcpPath",
             "heartbeatMillis", "claimSweepIntervalMillis");
     private static final Set<String> MESSAGE_BOARD_FIELDS = Set.of(
-            "summaryDebounceMillis", "maxPreviewMessages", "inlineMaxChars", "outbox", "weighting");
+            "summaryDebounceMillis", "maxPreviewMessages", "inlineMaxChars",
+            "contextMessages", "contextMaxChars", "summaryMaxChars",
+            "outbox", "weighting");
     private static final Set<String> OUTBOX_FIELDS = Set.of(
             "sendTimeoutSeconds", "minSendIntervalMillis");
     private static final Set<String> WEIGHTING_FIELDS = Set.of(
@@ -431,10 +433,14 @@ public final class BotConfigLoader {
             long debounce = optionalLong(node, "summaryDebounceMillis", pointer, 5_000L);
             int maxPreview = optionalInt(node, "maxPreviewMessages", pointer, 20);
             int inlineMaxChars = optionalInt(node, "inlineMaxChars", pointer, 512);
+            int contextMessages = optionalInt(node, "contextMessages", pointer, 6);
+            int contextMaxChars = optionalInt(node, "contextMaxChars", pointer, 1200);
+            int summaryMaxChars = optionalInt(node, "summaryMaxChars", pointer, 1000);
             BotConfig.Outbox outbox = parseOutbox(node, pointer);
             BotConfig.Weighting weighting = parseWeighting(node, pointer);
             try {
                 return new BotConfig.MessageBoard(debounce, maxPreview, inlineMaxChars,
+                        contextMessages, contextMaxChars, summaryMaxChars,
                         outbox, weighting);
             } catch (IllegalArgumentException invalid) {
                 throw error(pointer, "valid messageBoard config", "object",

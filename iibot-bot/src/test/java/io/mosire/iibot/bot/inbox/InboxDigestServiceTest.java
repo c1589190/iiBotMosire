@@ -274,6 +274,52 @@ class InboxDigestServiceTest {
     }
 
     @Test
+    void contextWindowHonoursConfiguredMessageCount() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(
+                board, notes, states, port, new MessageSummaryBuilder(), 100,
+                null, CLOCK, null, 512, 2, 100_000);
+        for (int i = 1; i <= 5; i++) {
+            board.append(inbound("m-" + i, "qq-1", "Alice", "第" + i + "条"));
+        }
+        InboxDigestService.FlushResult first = service.flushThread(GROUP.threadId());
+        service.markHandled(GROUP.threadId(), first.itemId(),
+                states.find(GROUP.threadId()).orElseThrow().revision());
+        board.append(inbound("m-6", "qq-1", "Alice", "第六条"));
+
+        service.flushThread(GROUP.threadId());
+
+        // contextMessages=2：只带上未读窗口之前最近的两条（4、5），不是最老的两条。
+        assertThat(port.lastDigest.context()).extracting(MessageSummary::localSeq)
+                .containsExactly(4L, 5L);
+        assertThat(port.lastDigest.messages()).extracting(MessageSummary::localSeq)
+                .containsExactly(6L);
+    }
+
+    @Test
+    void contentBudgetDropsOldestUnreadInsteadOfFailingThePush() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(
+                board, notes, states, port, new MessageSummaryBuilder(500), 100,
+                null, CLOCK, null, 0, 0, 0, 1_200);
+        for (int i = 1; i <= 6; i++) {
+            board.append(inbound("m-" + i, "qq-1", "Alice", "字".repeat(400)));
+        }
+
+        service.flushThread(GROUP.threadId());
+
+        assertThat(port.lastDigest.messages()).hasSizeBetween(1, 2);
+        assertThat(port.lastDigest.hasMoreUnread()).isTrue();
+        assertThat(port.lastDigest.messages().getLast().localSeq()).isEqualTo(6L);
+    }
+
+    @Test
     void ackArchivesInboundItemEvenWhenOwnOutboundMessageFollows() {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);

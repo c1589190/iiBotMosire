@@ -29,6 +29,9 @@ public record BotRuntimeOptions(
         long digestDebounceMillis,
         int maxMessagesPerDigest,
         int inlineMaxChars,
+        int contextMessages,
+        int contextMaxChars,
+        int summaryMaxChars,
         Duration outboxTimeout,
         String privateTempGroupId,
         Duration minSendInterval,
@@ -56,6 +59,15 @@ public record BotRuntimeOptions(
         }
         if (inlineMaxChars < 0) {
             throw new IllegalArgumentException("inlineMaxChars 不能为负");
+        }
+        if (contextMessages < 0 || contextMessages > 200) {
+            throw new IllegalArgumentException("contextMessages 必须在 0..200");
+        }
+        if (contextMaxChars < 0 || contextMaxChars > 200_000) {
+            throw new IllegalArgumentException("contextMaxChars 必须在 0..200000");
+        }
+        if (summaryMaxChars < 16 || summaryMaxChars > 20_000) {
+            throw new IllegalArgumentException("summaryMaxChars 必须在 16..20000");
         }
         outboxTimeout = positive(outboxTimeout, "outboxTimeout");
         minSendInterval = Objects.requireNonNull(minSendInterval, "minSendInterval");
@@ -95,7 +107,7 @@ public record BotRuntimeOptions(
             String privateTempGroupId, Duration minSendInterval,
             WeightSettings weighting, List<AccountOptions> accounts) {
         this(dataDir, accountId, controlHost, controlPort, controlPath, controlToken,
-                inbox, digestDebounceMillis, maxMessagesPerDigest, 512,
+                inbox, digestDebounceMillis, maxMessagesPerDigest, 512, 6, 1200, 1000,
                 outboxTimeout, privateTempGroupId, minSendInterval, weighting, accounts);
     }
 
@@ -110,7 +122,7 @@ public record BotRuntimeOptions(
             String privateTempGroupId, Duration minSendInterval,
             WeightSettings weighting) {
         this(dataDir, accountId, controlHost, controlPort, controlPath, controlToken,
-                inbox, digestDebounceMillis, maxMessagesPerDigest, 512,
+                inbox, digestDebounceMillis, maxMessagesPerDigest, 512, 6, 1200, 1000,
                 outboxTimeout, privateTempGroupId, minSendInterval, weighting,
                 List.of(new AccountOptions(accountId, accountId, privateTempGroupId)));
     }

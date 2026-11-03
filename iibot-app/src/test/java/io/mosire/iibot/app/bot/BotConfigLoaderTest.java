@@ -42,6 +42,9 @@ class BotConfigLoaderTest {
         assertThat(loaded.messageBoard().summaryDebounceMillis()).isEqualTo(5_000L);
         assertThat(loaded.messageBoard().maxPreviewMessages()).isEqualTo(20);
         assertThat(loaded.messageBoard().inlineMaxChars()).isEqualTo(512);
+        assertThat(loaded.messageBoard().contextMessages()).isEqualTo(6);
+        assertThat(loaded.messageBoard().contextMaxChars()).isEqualTo(1200);
+        assertThat(loaded.messageBoard().summaryMaxChars()).isEqualTo(1000);
         assertThat(loaded.messageBoard().outbox().minSendIntervalMillis()).isEqualTo(150);
         assertThat(loaded.messageBoard().weighting().toSettings(20)
                 .defaultPrivateSourceWeight()).isEqualTo(300);
@@ -404,6 +407,39 @@ class BotConfigLoaderTest {
                 .isInstanceOf(ConfigException.class)
                 .hasMessageContaining("jsonPointer: /logging")
                 .hasMessageContaining("TRACE/DEBUG/INFO/WARN/ERROR/OFF");
+    }
+
+    @Test
+    void loadsConfigurableDigestWindow() throws Exception {
+        String json = validConfig("main", "10001", true).replace(
+                """
+                            "maxPreviewMessages": 20,""",
+                """
+                            "maxPreviewMessages": 20,
+                            "contextMessages": 40,
+                            "contextMaxChars": 9000,
+                            "summaryMaxChars": 4000,""");
+        Path config = write("window.json", json);
+
+        BotConfig loaded = BotConfigLoader.load(config, SECRETS);
+
+        assertThat(loaded.messageBoard().contextMessages()).isEqualTo(40);
+        assertThat(loaded.messageBoard().contextMaxChars()).isEqualTo(9000);
+        assertThat(loaded.messageBoard().summaryMaxChars()).isEqualTo(4000);
+    }
+
+    @Test
+    void rejectsOutOfRangeDigestWindow() throws Exception {
+        String json = validConfig("main", "10001", true).replace(
+                """
+                            "maxPreviewMessages": 20,""",
+                """
+                            "maxPreviewMessages": 20,
+                            "summaryMaxChars": 5,""");
+        Path config = write("window-bad.json", json);
+
+        assertThatThrownBy(() -> BotConfigLoader.load(config, SECRETS))
+                .hasMessageContaining("messageBoard.summaryMaxChars");
     }
 
     private Path write(String name, String json) throws Exception {

@@ -310,6 +310,27 @@
           "default": 512,
           "description": "digest 完整短文本内联目标长度；0 关闭。实际仍受 Inbox summary 512 字符存储边界约束"
         },
+        "contextMessages": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200,
+          "default": 6,
+          "description": "未读窗口之前附带多少条上文（滚动窗口长度）；0 不带上文"
+        },
+        "contextMaxChars": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200000,
+          "default": 1200,
+          "description": "上文总字符预算；超预算从最老的开始丢"
+        },
+        "summaryMaxChars": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 20000,
+          "default": 1000,
+          "description": "板里每条消息的正文长度上限（MessageSummaryBuilder）；调大能让 Agent 一次看全，但受 Inbox content 256KiB 约束"
+        },
         "outbox": {
           "type": "object",
           "additionalProperties": false,

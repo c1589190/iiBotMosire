@@ -4,7 +4,32 @@
 > **本文是唯一实时状态入口。** 历史状态和文游文档由 Git 保留，不再作为当前设计依据。
 > 当前事实与设计/维护裁定冲突时：设计/维护裁定优先；本文只记录“现在实际是什么”。
 
-## 0. 最新更新：D-037 群邀请/入群申请与群目录检索
+## 0. 最新更新：滚动窗口可配（messageBoard.contextMessages / contextMaxChars / summaryMaxChars）
+
+- **2026-11-03 板内滚动窗口三条参数可配置（code-level，未提交）**：
+  - `messageBoard.contextMessages`（默认 6，0..200）、`messageBoard.contextMaxChars`
+    （默认 1200，0..200000）、`messageBoard.summaryMaxChars`（默认 16..20000，默认 1000）
+    进 `bot.json`、`config/schema/bot-config.schema.json`、`EffectiveConfigPrinter` 与
+    `config/README.md`；三者分别对应 `InboxDigestService` 的上文条数/字符与
+    `MessageSummaryBuilder` 的单条正文上限。
+  - `InboxDigestService` 新增 12/13 参构造器（`contextMessages`/`contextMaxChars`/
+    `contentBudgetChars`），旧构造器按历史默认（6/1200/1000）委托，行为不变。
+  - **payload 回退**：digest 进 Inbox `content` 前按 `DEFAULT_CONTENT_BUDGET_CHARS=192000`
+    （Inbox 硬上限 256KiB 的 3/4）裁最老的未读，`hasMoreUnread=true`；不再让
+    push/update 因 payload 过大整条失败。
+  - **板里带 `messageKey`**：`MessageSummary` 新增 `messageKey` 组件（保留 11 参兼容构造器），
+    `MessageSummaryBuilder` 在非纯文本消息的摘要尾部追加 ` (messageKey=…)`。
+    这样 Agent 从唤醒正文就能直接调 `qq_media_get(messageKey=…)` 取图，
+    不必先 `qq_conversation_read` 再猜键；纯文本消息不附加该提示。
+  - 整板条目（一个 inbox 一条 active item）只有设计草案：
+    [`2026-11-03-single-board-item.md`](../superpowers/specs/2026-11-03-single-board-item.md)，
+    未实现；单来源场景 Hermes 一次唤醒已经能看全多条 item，暂不需要。
+  - `tools/gate.sh full` PASS：**379 tests / 0 failures / 0 errors / 0 skipped**
+    （较 D-037 基线 +6：`BotConfigLoaderTest` 2 例、`InboxDigestServiceTest` 2 例、
+    `MessageSummaryBuilderTest` 2 例）。
+  - 真实 QQ 联调与线上 jar 替换 `NOT_RUN`；运行中的 jar 仍是旧版本。
+
+## 0.1 上一版：D-037 群邀请/入群申请与群目录检索
 
 - **2026-11-02 D-037 群邀请可操作性已完成（code-level）**，设计见
   [`../superpowers/specs/2026-11-02-qq-group-invite-and-catalogue.md`](../superpowers/specs/2026-11-02-qq-group-invite-and-catalogue.md)：

@@ -36,6 +36,12 @@ public final class InboxDigestService {
     public static final int DEFAULT_CONTEXT_MESSAGES = 6;
     public static final int DEFAULT_CONTEXT_MAX_CHARS = 1200;
     private static final int INBOX_SUMMARY_MAX_CHARS = 512;
+    /**
+     * digest 落进 Inbox ``content`` 的字符预算。Inbox 侧 ``MAX_PAYLOAD`` 是 256KiB（Java
+     * String 长度），这里留出四分之一余量给 JSON 信封与转义；超预算时丢最老的未读消息
+     * 并把 ``hasMoreUnread`` 置真，而不是让 push 直接失败。
+     */
+    public static final int DEFAULT_CONTENT_BUDGET_CHARS = 192_000;
 
     private final MessageBoardStore board;
     private final UserNoteStore notes;
@@ -47,6 +53,9 @@ public final class InboxDigestService {
     private final Clock clock;
     private final SourceWeightService weights;
     private final int inlineMaxChars;
+    private final int contextMessages;
+    private final int contextMaxChars;
+    private final int contentBudgetChars;
 
     public InboxDigestService(
             MessageBoardStore board,
@@ -106,6 +115,44 @@ public final class InboxDigestService {
             Clock clock,
             SourceWeightService weights,
             int inlineMaxChars) {
+        this(board, notes, states, port, summaryBuilder, maxMessagesPerFlush, auditStore,
+                clock, weights, inlineMaxChars,
+                DEFAULT_CONTEXT_MESSAGES, DEFAULT_CONTEXT_MAX_CHARS);
+    }
+
+    /** 完整构造器：窗口条数/字符与正文预算都可配（对应 bot.json 的 messageBoard.*）。 */
+    public InboxDigestService(
+            MessageBoardStore board,
+            UserNoteStore notes,
+            InboxDigestStateStore states,
+            InboxDigestPort port,
+            MessageSummaryBuilder summaryBuilder,
+            int maxMessagesPerFlush,
+            InboxDigestAuditStore auditStore,
+            Clock clock,
+            SourceWeightService weights,
+            int inlineMaxChars,
+            int contextMessages,
+            int contextMaxChars) {
+        this(board, notes, states, port, summaryBuilder, maxMessagesPerFlush, auditStore,
+                clock, weights, inlineMaxChars, contextMessages, contextMaxChars,
+                DEFAULT_CONTENT_BUDGET_CHARS);
+    }
+
+    public InboxDigestService(
+            MessageBoardStore board,
+            UserNoteStore notes,
+            InboxDigestStateStore states,
+            InboxDigestPort port,
+            MessageSummaryBuilder summaryBuilder,
+            int maxMessagesPerFlush,
+            InboxDigestAuditStore auditStore,
+            Clock clock,
+            SourceWeightService weights,
+            int inlineMaxChars,
+            int contextMessages,
+            int contextMaxChars,
+            int contentBudgetChars) {
         this.board = Objects.requireNonNull(board, "board");
         this.notes = Objects.requireNonNull(notes, "notes");
         this.states = Objects.requireNonNull(states, "states");
@@ -122,6 +169,18 @@ public final class InboxDigestService {
             throw new IllegalArgumentException("inlineMaxChars 不能为负");
         }
         this.inlineMaxChars = inlineMaxChars;
+        if (contextMessages < 0 || contextMessages > 200) {
+            throw new IllegalArgumentException("contextMessages 必须在 0..200");
+        }
+        if (contextMaxChars < 0 || contextMaxChars > 200_000) {
+            throw new IllegalArgumentException("contextMaxChars 必须在 0..200000");
+        }
+        if (contentBudgetChars < 1024) {
+            throw new IllegalArgumentException("contentBudgetChars 至少 1024");
+        }
+        this.contextMessages = contextMessages;
+        this.contextMaxChars = contextMaxChars;
+        this.contentBudgetChars = contentBudgetChars;
     }
 
     /** 处理一个 thread 自上次 flush 后的消息；同一来源追加到 active 未读桶。 */
@@ -338,9 +397,28 @@ public final class InboxDigestService {
             summaries = new ArrayList<>(summaries.subList(
                     summaries.size() - previewLimit, summaries.size()));
         }
+        // Inbox 的 content 有 256KiB 硬上限：宁可在本地丢最老的几条并标记 hasMoreUnread，
+        // 也不要让 port.push/update 因为 payload 过大直接失败（那样整条唤醒都发不出去）。
+        summaries = capToChars(summaries, contentBudgetChars);
         int unreadCount = (int) Math.min(Integer.MAX_VALUE, count);
         return new UnreadWindow(fromSeq, toSeq, unreadCount,
                 count > summaries.size(), summaries, inbound);
+    }
+
+    /** 保留最新的若干条，使 summary 总字符不超过 *budget*（budget<=0 表示不设限）。 */
+    private static List<MessageSummary> capToChars(List<MessageSummary> summaries, int budget) {
+        if (budget <= 0 || summaries.isEmpty()) {
+            return summaries;
+        }
+        int total = 0;
+        for (MessageSummary summary : summaries) {
+            total += summary.summary().length();
+        }
+        int first = 0;
+        while (total > budget && first < summaries.size() - 1) {
+            total -= summaries.get(first++).summary().length();
+        }
+        return first == 0 ? summaries : List.copyOf(summaries.subList(first, summaries.size()));
     }
 
     private record UnreadWindow(long fromSeq, long toSeq, int unreadCount,
@@ -519,8 +597,11 @@ public final class InboxDigestService {
     }
 
     private List<MessageSummary> contextBefore(String threadId, long beforeSeq) {
+        if (contextMessages <= 0) {
+            return List.of();
+        }
         List<ChatMessage> previous = board.readThreadBefore(
-                threadId, beforeSeq, DEFAULT_CONTEXT_MESSAGES);
+                threadId, beforeSeq, contextMessages);
         List<MessageSummary> summaries = new ArrayList<>();
         for (ChatMessage message : previous) {
             UserNote note = notes.find(message.source().accountId(), message.senderId())
@@ -531,7 +612,7 @@ public final class InboxDigestService {
                 .mapToInt(summary -> summary.summary().length())
                 .sum();
         int first = 0;
-        while (totalChars > DEFAULT_CONTEXT_MAX_CHARS && first < summaries.size()) {
+        while (totalChars > contextMaxChars && first < summaries.size()) {
             totalChars -= summaries.get(first++).summary().length();
         }
         return first == 0 ? List.copyOf(summaries)

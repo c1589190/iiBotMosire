@@ -33,6 +33,11 @@
 ### 3.2 Summary 边界
 
 - `MessageSummaryBuilder.DEFAULT_MAX_CHARS` 从 240 提升到 1000，让 digest content 携带更多原始文本。
+- **2026-11-03 修订**：这个 1000 与 `InboxDigestService` 的上文窗口（6 条 / 1200 字符）不再是常量，
+  改由 `messageBoard.summaryMaxChars` / `messageBoard.contextMessages` /
+  `messageBoard.contextMaxChars` 配置；同时 digest content 落盘前按 192000 字符预算回退
+  （`DEFAULT_CONTENT_BUDGET_CHARS`），超预算丢最老未读并置 `hasMoreUnread`，保证
+  Inbox `MAX_PAYLOAD=256KiB` 不会把整条 push 打回。
 - `InboxDigestService` 在构造 `InboxDigest` 前把 `summary` 截到 511 字符加 `…`，保证不超过 Inbox 的 512 字符边界；detail content 不受这个 512 限制，受 3.1 的独立预算限制。
 - `messageBoard.summaryDebounceMillis` 默认从 2000 改为 5000，作为所有来源共用的合并窗口；不新增 per-source 窗口。
 

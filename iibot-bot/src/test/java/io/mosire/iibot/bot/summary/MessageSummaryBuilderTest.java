@@ -43,4 +43,28 @@ class MessageSummaryBuilderTest {
         assertThat(builder.build(inbound, null).summary()).contains("Alice", "[图片×1]");
         assertThat(builder.build(outbound, null).summary()).contains("我", "收到");
     }
+
+    @Test
+    void mediaMessagesCarryTheBoardKeySoAgentsCanFetchTheImage() {
+        ChatMessage inbound = ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, "", "[图片×2]", "").withLocalSeq(1L);
+        MessageSummaryBuilder builder = new MessageSummaryBuilder(64);
+
+        MessageSummary summary = builder.build(inbound, null);
+
+        assertThat(summary.messageKey()).isEqualTo("in:thread:group:Ym90LTE:Z3JvdXAtOQ:m-1");
+        assertThat(summary.summary()).endsWith("(messageKey=" + summary.messageKey() + ")");
+        assertThat(summary.summary().length()).isLessThanOrEqualTo(64);
+    }
+
+    @Test
+    void textOnlyMessagesDoNotCarryABoardKeyHint() {
+        ChatMessage inbound = ChatMessage.inbound(GROUP, "m-1", "qq-1", "Alice",
+                T0, T0, "纯文本", "", "").withLocalSeq(1L);
+
+        MessageSummary summary = new MessageSummaryBuilder().build(inbound, null);
+
+        assertThat(summary.messageKey()).isNotEmpty();
+        assertThat(summary.summary()).doesNotContain("messageKey=");
+    }
 }

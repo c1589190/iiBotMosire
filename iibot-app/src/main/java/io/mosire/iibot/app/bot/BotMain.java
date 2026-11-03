@@ -153,6 +153,9 @@ public final class BotMain {
                     board.summaryDebounceMillis(),
                     board.maxPreviewMessages(),
                     board.inlineMaxChars(),
+                    board.contextMessages(),
+                    board.contextMaxChars(),
+                    board.summaryMaxChars(),
                     Duration.ofSeconds(board.outbox().sendTimeoutSeconds()),
                     activeAccount.oneBot() == null ? null
                             : activeAccount.oneBot().privateTempGroupId().orElse(null),
@@ -162,12 +165,15 @@ public final class BotMain {
             OpsLog.info("event=config_loaded sources={} enabledAccounts={} activeAlias={} "
                             + "accountId={} dataDir={} controlHost={} controlPort={} "
                             + "controlPath={} inboxId={} digestDebounceMs={} "
-                            + "maxPreviewMessages={} inlineMaxChars={}",
+                            + "maxPreviewMessages={} inlineMaxChars={} "
+                            + "contextMessages={} contextMaxChars={} summaryMaxChars={}",
                     configSources.size(), enabledAccounts.size(), activeAlias,
                     activeAccount.accountId(), config.dataDir(), config.control().host(),
                     config.control().port(), config.control().path(),
                     config.inbox().inboxId(), board.summaryDebounceMillis(),
-                    board.maxPreviewMessages(), board.inlineMaxChars());
+                    board.maxPreviewMessages(), board.inlineMaxChars(),
+                    board.contextMessages(), board.contextMaxChars(),
+                    board.summaryMaxChars());
             runtime = BotRuntime.start(accountRegistry, options,
                     BotToolCatalog.withVideoAccounts(biliVideoAccounts, config.video()),
                     java.time.Clock.systemUTC());

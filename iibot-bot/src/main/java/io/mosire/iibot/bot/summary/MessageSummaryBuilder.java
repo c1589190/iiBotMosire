@@ -60,11 +60,19 @@ public final class MessageSummaryBuilder {
             raw.append("（备注：").append(noteText).append('）');
         }
         raw.append("：").append(flatten(body));
-        String summary = truncate(raw.toString(), maxChars);
+        // 非纯文本消息把消息板键附在摘要末尾：Agent 只有拿到 messageKey 才能调
+        // qq_media_get/qq_media_inspect 取图，而 digest 里的 messageId 是平台消息号，不可用。
+        String mediaHint = message.nonTextSummary() == null || message.nonTextSummary().isBlank()
+                ? ""
+                : " (messageKey=" + message.messageKey() + ")";
+        String summary = mediaHint.isEmpty()
+                ? truncate(raw.toString(), maxChars)
+                : truncate(raw.toString(), Math.max(16, maxChars - mediaHint.length())) + mediaHint;
         return new MessageSummary(
                 message.source().threadId(),
                 message.localSeq(),
                 message.messageId(),
+                message.messageKey(),
                 message.direction(),
                 message.senderId(),
                 message.senderName(),
