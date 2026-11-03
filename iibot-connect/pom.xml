@@ -6,7 +6,7 @@
   <parent>
     <groupId>io.mosire.iibot</groupId>
     <artifactId>iibot-parent</artifactId>
-    <version>Alpha20261103</version>
+    <version>Alpha20261103.2</version>
   </parent>
   <artifactId>iibot-connect</artifactId>
   <name>iibot-connect</name>

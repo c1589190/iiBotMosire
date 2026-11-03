@@ -6,7 +6,7 @@
 
   <groupId>io.mosire.iibot</groupId>
   <artifactId>iibot-parent</artifactId>
-  <version>Alpha20261103</version>
+  <version>Alpha20261103.2</version>
   <packaging>pom</packaging>
 
   <name>iiBotMosire</name>
