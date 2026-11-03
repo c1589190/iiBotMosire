@@ -59,6 +59,27 @@ docker exec hermes-iibot python3 /opt/hermes-reference/check-vision.py
 curl -s -H "Authorization: Bearer $(cat …)" 127.0.0.1:46500/v1/inboxes/iibot-bot/status
 ```
 
+## 两个 MCP 的 Bearer 从哪来
+
+| 端口 | 用途 | 凭据 | 会变吗 |
+|---|---|---|---|
+| 8765 | 业务工具面（`qq_*`） | 环境变量 `IIBOT_CONTROL_TOKEN`（`bot/config` 的 `control.bearerTokenEnv`） | 不会，运维侧常量 |
+| 46501 | Inbox MCP（`inbox_*`） | `<data>/inbox/program-mcp.token`，iiBot 每次启动重签 | **每次重启都变** |
+
+所以 `.env` 里只需要给 `IIBOT_CONTROL_TOKEN`；`cmd.sh` 在起 gateway 前会：
+
+```sh
+export MCP_IIBOT_API_KEY="$IIBOT_CONTROL_TOKEN"
+export MCP_INBOX_MOSIRE_API_KEY="$(cat /opt/iibot/data/inbox/program-mcp.token)"
+```
+
+裸机上的等价取值：
+
+```bash
+grep '^IIBOT_CONTROL_TOKEN=' ~/.config/iibot/control.env | cut -d= -f2-   # 8765
+cat bot2/data/inbox/program-mcp.token                                     # 46501（每次重启后要重取）
+```
+
 ## 两个卷
 
 | 卷 | 挂载点 | 装什么 |

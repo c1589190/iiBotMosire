@@ -21,4 +21,20 @@ if [ "$i" -ge "$WAIT" ]; then
     echo "[cmd] 警告：${WAIT}s 内没等到 $URL，仍然启动 gateway（工具会在后续回合补进来）" >&2
 fi
 
+# 两个 MCP 的 Bearer 从哪来（compose 的 .env 只需给 NEWAPI_API_KEY + IIBOT_CONTROL_TOKEN）：
+#   8765 业务工具面：iiBot 读 IIBOT_CONTROL_TOKEN，所以直接复用同一个值
+#   46501 Inbox MCP ：iiBot 每次启动重签 program-mcp.token，只能启动后从文件里取
+DATA="${IIBOT_DATA_DIR:-/opt/iibot/data}"
+if [ -z "${MCP_IIBOT_API_KEY:-}" ] && [ -n "${IIBOT_CONTROL_TOKEN:-}" ]; then
+    export MCP_IIBOT_API_KEY="$IIBOT_CONTROL_TOKEN"
+    echo "[cmd] MCP_IIBOT_API_KEY ← IIBOT_CONTROL_TOKEN"
+fi
+if [ -z "${MCP_INBOX_MOSIRE_API_KEY:-}" ] && [ -s "$DATA/inbox/program-mcp.token" ]; then
+    export MCP_INBOX_MOSIRE_API_KEY="$(cat "$DATA/inbox/program-mcp.token")"
+    echo "[cmd] MCP_INBOX_MOSIRE_API_KEY ← $DATA/inbox/program-mcp.token"
+fi
+if [ -z "${MCP_INBOX_MOSIRE_API_KEY:-}" ]; then
+    echo "[cmd] 警告：拿不到 $DATA/inbox/program-mcp.token，inbox_* 工具会 401" >&2
+fi
+
 exec hermes gateway run "$@"
