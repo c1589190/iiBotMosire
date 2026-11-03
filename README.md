@@ -2,6 +2,137 @@
 
 面向各类 Agent 软件的**统一 QQ / B 站会话客户端**：通过 OneBot 11 接入 QQ、通过 B 站 Web API 接入私信与评论，把消息写入统一消息板，提供统一 MCP 工具，并用 Inbox 唤醒外部 Agent。B 站视频阅读/抽帧是独立的通用只读工具；抽帧默认需要本机 `ffmpeg`（可用 `IIBOT_FFMPEG` 指定），启用 `video.browser.*` 时可用 Playwright embedded 或 remote-cdp 作为失败补帧。
 
+
+## 快速开始（5 分钟）
+
+> 只想让 Agent 能用 QQ？按这里做，不需要读后面的设计与阶段说明。
+> 要把这一步交给 Agent 自己执行，直接粘 [`docs/ONBOARD.md`](docs/ONBOARD.md) 里的提示词。
+
+### 1. 前置
+
+| 需要 | 说明 |
+|---|---|
+| JDK 21 | `java -version` 要 ≥ 21 |
+| NapCat（或 LLBot） | QQ 端的 OneBot 11 实现，独立进程；iiBot 只连它的 WebSocket/HTTP |
+| 一个 QQ 号 | 由 NapCat 登录，iiBot 本身不碰 QQ 密码 |
+
+### 2. 下载并校验
+
+从 [Releases](https://github.com/c1589190/iiBotMosire/releases) 下载 `iibot-app-<版本>.jar`
+与 `SHA256SUMS`，校验后放到运行目录：
+
+```bash
+mkdir -p ~/bot && cd ~/bot
+curl -LO https://github.com/c1589190/iiBotMosire/releases/download/<版本>/iibot-app-<版本>.jar
+curl -LO https://github.com/c1589190/iiBotMosire/releases/download/<版本>/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+> jar 是 **shaded 全依赖包**，类在 `io/mosire/...` 根路径（不是 Spring Boot 的 `BOOT-INF/`），
+> 不需要额外 classpath；只要 JDK，不需要 Maven。
+
+### 3. 写配置
+
+运行目录只需要三样东西：`config/bot/bot.json`、`data/`（自动创建）、`logs/`。
+
+```json
+{
+  "dataDir": "./data",
+  "accounts": {
+    "main": {
+      "enabled": true,
+      "adapter": "onebot11",
+      "accountId": "<QQ号>",
+      "oneBot": {
+        "eventWebSocketUri": "ws://127.0.0.1:3001/",
+        "httpBaseUri": "http://127.0.0.1:3000/",
+        "accessTokenEnv": "IIBOT_NAPCAT_ACCESS_TOKEN"
+      }
+    }
+  },
+  "control": { "host": "127.0.0.1", "port": 8765, "path": "/mcp/bot",
+               "bearerTokenEnv": "IIBOT_CONTROL_TOKEN" },
+  "inbox":   { "inboxId": "iibot-bot", "channels": ["qq"],
+               "bindingTtlHours": 0,
+               "apiHost": "127.0.0.1", "apiPort": 46500,
+               "mcpHost": "127.0.0.1", "mcpPort": 46501 },
+  "messageBoard": { "maxPreviewMessages": 50, "summaryMaxChars": 4000,
+                    "contextMessages": 0, "contextMaxChars": 0 }
+}
+```
+
+- `bindingTtlHours: 0` = wake token **永不过期**；填正数就按小时过期。
+- `messageBoard.contextMessages: 0` = 唤醒正文只放**未读**，不再补历史（历史让 Agent 自己 `qq_conversation_read`）。
+- 完整字段见 [`config/README.md`](config/README.md) 与 [`config/schema/bot-config.schema.json`](config/schema/bot-config.schema.json)。
+
+### 4. 凭据走环境变量（不进配置文件）
+
+```bash
+mkdir -p ~/.config/iibot && chmod 700 ~/.config/iibot
+cat > ~/.config/iibot/control.env <<'EOF'
+IIBOT_CONTROL_TOKEN=<随机长串，MCP 的 Bearer>
+EOF
+chmod 600 ~/.config/iibot/control.env
+# NapCat 的 access token（如果它开了鉴权）
+echo 'IIBOT_NAPCAT_ACCESS_TOKEN=<NapCat 的 token>' >> ~/.config/iibot/control.env
+```
+
+启动器（`run/boot-env.sh`）负责 `set -a; . ~/.config/iibot/*.env; set +a` 再 `exec java -jar`，
+**不要**直接裸 `java -jar`，否则环境变量缺失、token 为空。
+
+### 5. 起服务
+
+```bash
+cd ~/bot
+nohup ./run/boot-env.sh > run/console.log 2>&1 &
+# 或者用仓库里的 systemd 封装（崩溃 5 秒自愈）
+./start-bot.sh start
+```
+
+### 6. 确认活着
+
+```bash
+ss -lnt | grep -E '8765|46500|46501'      # 三个端口都在听
+curl -s localhost:46500/healthz           # 200
+curl -s -H "Authorization: Bearer $IIBOT_CONTROL_TOKEN"      localhost:46500/v1/inboxes/iibot-bot/status   # 有 revision
+grep inbox_embedded_started logs/*.log    # event=inbox_embedded_started ... apiPort=46500
+```
+
+### 7. 接 Agent
+
+iiBot 一次启动同时提供三个面：
+
+| 面 | 地址 | 用途 | Bearer 从哪来 |
+|---|---|---|---|
+| 业务工具面 | `http://127.0.0.1:8765/mcp/bot` | `qq_*` 工具（读消息、发消息、取图） | `IIBOT_CONTROL_TOKEN`（固定） |
+| Inbox HTTP | `http://127.0.0.1:46500` | 通知板读写、SSE 事件 | `data/inbox/dsh-wake.token` |
+| Inbox MCP | `http://127.0.0.1:46501/mcp` | `inbox_*` 工具（认领/查看/更新板条目） | `data/inbox/program-mcp.token` |
+
+以 Hermes 为例：
+
+```bash
+hermes mcp add iibot --url http://127.0.0.1:8765/mcp/bot --auth header
+hermes mcp add inbox-mosire --url http://127.0.0.1:46501/mcp --auth header
+```
+
+两个 Bearer 分别填上面的值；唤醒插件（`inbox-wake`）的安装见
+[InboxMosire-Hermes](https://github.com/c1589190/InboxMosire-Hermes)。
+DSH 侧见 [`docs/upstream/DSH-HANDOFF.md`](docs/upstream/DSH-HANDOFF.md)。
+
+> 两个 token 都是**文件即配置**：`data/inbox/*.token` 存在且有效就复用，重启不变；
+> 想彻底固定，用 `inbox.programTokenEnv` / `inbox.wakeTokenEnv` 指定环境变量名（见 `config/README.md`）。
+
+### 8. 常见问题
+
+| 症状 | 原因 |
+|---|---|
+| 8765 返回 401 | `IIBOT_CONTROL_TOKEN` 没进进程环境（裸 `java -jar` 起的） |
+| Agent 说「读不了图」/只看到 `MEDIA:` 路径 | 宿主没声明视觉：`hermes config set model.supports_vision true` 后重启 gateway |
+| 唤醒一直 401 | `dsh-wake.token` 与运行实例不匹配，或 `bindingTtlHours` 正数且已过期 |
+| 端口被占 | 同一台机器跑了两份 iiBot（`bot/` 与 `bot2/` 之类），停掉其中一份 |
+
+## 当前阶段
+
 > **当前阶段**：D-036 已完成 code-level 的唤醒正文注入（DSH `wakeContent=bounded`）、摘要 512 边界、5 秒合并窗口，以及媒体 source 去重、图片备注和 `qq_media_inspect` 首帧/分块检查；D-035 V6 已完成显式、单次、可审计的 B 站评论写入与点赞/投币/收藏/关注 interaction（范围 B；写入仍默认关闭）；V5 已完成 Playwright `remote-cdp` 浏览器 backend，V4 已完成 embedded backend 与 ffmpeg 失败 fallback，V3 已完成视频质量/精确时间/评论查询，V2 已完成 app 单一 `BotToolCatalog`/tool packs，V1 已完成 `iibot-video-connect` 第 4 个模块抽取。默认 4 个模块；下一步是 D-036 真实 DSH reload/大图样本验收与 D-035 V7 真实验收。真实 QQ/B站/DSH/OpenCode 外部联调、真实 B 站写入/浏览器抽帧、服务器部署与 AgentLib 0.2.4 公开发布仍待办。当前事实以 [`docs/agents/STATUS.md`](docs/agents/STATUS.md) 为准。
 
 ## 当前模块
