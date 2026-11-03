@@ -1,0 +1,57 @@
+# 容器内首启 seed 到 $HERMES_HOME/config.yaml（已存在则不动）。
+# 路径全是容器视角：/opt/iibot/data 是 iibot 卷，/opt/data 是 HERMES_HOME 卷。
+model:
+  provider: "custom:newapi"
+  default: "deepseek-flash"
+  # 宿主只认这个声明；custom:<name> 上的模型查不到视觉能力时，MCP 图片只剩 MEDIA: 路径
+  supports_vision: true
+
+providers:
+  newapi:
+    api: "http://121.40.130.178:3000/v1"
+    key_env: NEWAPI_API_KEY
+    transport: chat_completions
+
+agent:
+  # 极简 system：宿主补丁读这个键，命中后整段替换 system prompt
+  system_prompt_override: "You are a helpful software engineer assistant."
+  max_turns: 150
+
+plugins:
+  enabled:
+    - persona-mode
+    - inbox-wake
+  entries:
+    persona-mode:
+      settings:
+        enabled: true
+        # 绝对路径：persona-mode 相对路径是相对「会话 cwd」的，容器里不可靠
+        personaFile: /opt/iibot/PERSONA.md
+        maxChars: 4000
+        outboundGuard: true
+    inbox-wake:
+      settings:
+        enabled: true
+        apiUrl: http://127.0.0.1:46500
+        inboxId: iibot-bot
+        # iiBot 每次启动重签这个文件；插件会跟着 binding-descriptor.json 自愈
+        adapterTokenFile: file:/opt/iibot/data/inbox/dsh-wake.token
+        wakeMode: view-ack
+        wakeProfile: iibot
+        autoBind: true
+        summaryMaxItems: 20
+        summaryMaxTotalChars: 6000
+        wakeContent: bounded
+        wakeContentMaxChars: 30000
+        wakeContentTotalChars: 60000
+      allow_gateway_injection: true
+
+mcp_servers:
+  iibot:
+    url: http://127.0.0.1:8765/mcp/bot
+    headers:
+      Authorization: "Bearer ${MCP_IIBOT_API_KEY}"
+  inbox-mosire:
+    url: http://127.0.0.1:46501/mcp
+    headers:
+      Authorization: "Bearer ${MCP_INBOX_MOSIRE_API_KEY}"

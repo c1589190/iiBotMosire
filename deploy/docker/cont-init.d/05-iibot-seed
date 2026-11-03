@@ -1,0 +1,34 @@
+#!/command/with-contenv sh
+# 首启播种：只在目标文件/目录不存在时落盘，绝不覆盖用户改过的配置。
+# 顺序：s6 cont-init.d 在 user 服务之前跑（宿主本身也用它 seed .env / config.yaml / SOUL.md）。
+set -e
+
+DATA="${IIBOT_DATA_DIR:-/opt/iibot/data}"
+HOME_DIR="${HERMES_HOME:-/opt/data}"
+DEFAULTS=/opt/hermes-defaults/deploy
+
+mkdir -p "$DATA" "$DATA/logs" "$DATA/inbox" "$DATA/media"
+
+if [ ! -f "$DATA/bot.json" ]; then
+    cp "$DEFAULTS/iibot-bot.json" "$DATA/bot.json"
+    echo "[seed] iibot 配置 -> $DATA/bot.json（改完要重启容器才生效）"
+fi
+
+mkdir -p "$HOME_DIR"
+if [ ! -f "$HOME_DIR/config.yaml" ]; then
+    cp "$DEFAULTS/hermes-config.yaml" "$HOME_DIR/config.yaml"
+    echo "[seed] hermes 配置 -> $HOME_DIR/config.yaml"
+fi
+
+mkdir -p "$HOME_DIR/plugins"
+for id in persona-mode inbox-wake; do
+    if [ ! -d "$HOME_DIR/plugins/$id" ]; then
+        cp -a "/opt/hermes-defaults/plugins/$id" "$HOME_DIR/plugins/$id"
+        echo "[seed] 插件 -> $HOME_DIR/plugins/$id"
+    fi
+done
+
+if [ ! -f /opt/iibot/PERSONA.md ]; then
+    cp "$DEFAULTS/PERSONA.md.example" /opt/iibot/PERSONA.md
+    echo "[seed] 人设占位 -> /opt/iibot/PERSONA.md（换成你的，或把它挂进来）"
+fi

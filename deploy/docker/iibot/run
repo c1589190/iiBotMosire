@@ -1,0 +1,18 @@
+#!/command/with-contenv sh
+# iiBot 长驻服务：单进程自带三张面孔
+#   8765 /mcp/bot  业务工具（qq_*）
+#   46500/healthz  + /v1/inboxes/...  内嵌 Inbox HTTP（inbox-wake 走这条）
+#   46501 /mcp     内嵌 Inbox MCP（inbox_* 工具走这条）
+# 崩溃由 s6 拉起；日志走 s6 的 logger（docker logs 可见）。
+set -e
+
+CONFIG="${IIBOT_CONFIG:-/opt/iibot/data/bot.json}"
+JAR="${IIBOT_JAR:-/opt/iibot/iibot-app.jar}"
+
+if [ ! -f "$CONFIG" ]; then
+    echo "[iibot] 缺少配置 $CONFIG（首启应由 05-iibot-seed 生成）" >&2
+    exit 1
+fi
+
+exec /usr/bin/java ${JAVA_OPTS:--Xms256m -Xmx1g -XX:+ExitOnOutOfMemoryError} \
+    -jar "$JAR" --config "$CONFIG"

@@ -1,0 +1,35 @@
+{
+  "control": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "path": "/mcp/bot"
+  },
+  "inbox": {
+    "inboxId": "iibot-bot",
+    "apiHost": "127.0.0.1",
+    "apiPort": 46500,
+    "mcpHost": "127.0.0.1",
+    "mcpPort": 46501,
+    "mcpPath": "/mcp"
+  },
+  "accounts": {
+    "main": {
+      "oneBot": {
+        "eventWebSocketUri": "ws://NAPCAT_HOST:3001/",
+        "httpBaseUri": "http://NAPCAT_HOST:3000/"
+      }
+    }
+  },
+  "dataDir": "/opt/iibot/data",
+  "logging": {
+    "directory": "/opt/iibot/data/logs"
+  },
+  "messageBoard": {
+    "summaryDebounceMillis": 2000,
+    "maxPreviewMessages": 50,
+    "inlineMaxChars": 512,
+    "contextMessages": 0,
+    "contextMaxChars": 0,
+    "summaryMaxChars": 4000
+  }
+}
