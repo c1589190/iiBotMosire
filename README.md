@@ -6,7 +6,7 @@
 ## 快速开始（5 分钟）
 
 > 只想让 Agent 能用 QQ？按这里做，不需要读后面的设计与阶段说明。
-> 要把这一步交给 Agent 自己执行，直接粘 [`docs/ONBOARD.md`](docs/ONBOARD.md) 里的提示词。
+> 要把这一步交给 Agent 自己执行，直接粘 [Hermes 对接提示词](https://github.com/c1589190/InboxMosire-Hermes/blob/main/docs/ONBOARD.md) 里的提示词。
 
 ### 1. 前置
 
@@ -117,7 +117,7 @@ hermes mcp add inbox-mosire --url http://127.0.0.1:46501/mcp --auth header
 
 两个 Bearer 分别填上面的值；唤醒插件（`inbox-wake`）的安装见
 [InboxMosire-Hermes](https://github.com/c1589190/InboxMosire-Hermes)。
-DSH 侧见 [`docs/upstream/DSH-HANDOFF.md`](docs/upstream/DSH-HANDOFF.md)。
+DSH 侧见 [InboxMosire 的 upstream 契约](https://github.com/c1589190/InboxMosire/tree/main/docs/upstream)（`wake-adapter-contract.md`、`DSH-HANDOFF.md`）。
 
 > 两个 token 都是**文件即配置**：`data/inbox/*.token` 存在且有效就复用，重启不变；
 > 想彻底固定，用 `inbox.programTokenEnv` / `inbox.wakeTokenEnv` 指定环境变量名（见 `config/README.md`）。
