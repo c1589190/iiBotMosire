@@ -242,6 +242,16 @@
             "qq"
           ]
         },
+        "programTokenEnv": {
+          "type": "string",
+          "default": "",
+          "description": "固定 program MCP token 的环境变量名（留空=服务端随机签发）。值只在进程环境里，配置文件不含明文。"
+        },
+        "wakeTokenEnv": {
+          "type": "string",
+          "default": "",
+          "description": "固定 wake/adapter token 的环境变量名（留空=服务端随机签发）。固定值可写进部署清单，重启不变。"
+        },
         "bindingTtlHours": {
           "type": "integer",
           "minimum": 0,

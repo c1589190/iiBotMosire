@@ -26,7 +26,9 @@ public record BotInboxRuntimeOptions(
         int mcpPort,
         String mcpPath,
         Duration heartbeat,
-        Duration claimSweepInterval) {
+        Duration claimSweepInterval,
+        String programToken,
+        String wakeToken) {
 
     public static final String DEFAULT_HOST = "127.0.0.1";
     public static final int DEFAULT_PORT = 0;
@@ -52,6 +54,17 @@ public record BotInboxRuntimeOptions(
         mcpPath = requireMcpPath(mcpPath);
         heartbeat = positive(heartbeat, "heartbeat");
         claimSweepInterval = positive(claimSweepInterval, "claimSweepInterval");
+        programToken = programToken == null ? "" : programToken.trim();
+        wakeToken = wakeToken == null ? "" : wakeToken.trim();
+    }
+
+    /** 兼容旧调用：不指定固定 token（由服务端随机签发并写入 data 目录）。 */
+    public BotInboxRuntimeOptions(
+            Path dataDir, String inboxId, String bindingLabel, Set<String> channels,
+            long bindingTtlHours, String apiHost, int apiPort, String mcpHost, int mcpPort,
+            String mcpPath, Duration heartbeat, Duration claimSweepInterval) {
+        this(dataDir, inboxId, bindingLabel, channels, bindingTtlHours, apiHost, apiPort,
+                mcpHost, mcpPort, mcpPath, heartbeat, claimSweepInterval, "", "");
     }
 
     /** 旧调用使用的默认网络参数。 */

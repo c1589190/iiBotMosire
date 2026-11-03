@@ -44,7 +44,8 @@ public final class BotConfigLoader {
     private static final Set<String> INBOX_FIELDS = Set.of(
             "dataDir", "inboxId", "bindingLabel", "channels", "bindingTtlHours",
             "apiHost", "apiPort", "mcpHost", "mcpPort", "mcpPath",
-            "heartbeatMillis", "claimSweepIntervalMillis");
+            "heartbeatMillis", "claimSweepIntervalMillis",
+            "programTokenEnv", "wakeTokenEnv");
     private static final Set<String> MESSAGE_BOARD_FIELDS = Set.of(
             "summaryDebounceMillis", "maxPreviewMessages", "inlineMaxChars",
             "contextMessages", "contextMaxChars", "summaryMaxChars",
@@ -341,7 +342,9 @@ public final class BotConfigLoader {
             try {
                 return new BotConfig.Inbox(inboxDir, inboxId, bindingLabel, channels,
                         ttlHours, apiHost, apiPort, mcpHost, mcpPort, mcpPath,
-                        heartbeatMillis, claimSweepMillis);
+                        heartbeatMillis, claimSweepMillis,
+                        optionalText(node, "programTokenEnv", pointer).orElse(""),
+                        optionalText(node, "wakeTokenEnv", pointer).orElse(""));
             } catch (IllegalArgumentException invalid) {
                 throw error(pointer, "valid inbox config", "object", invalid.getMessage());
             }

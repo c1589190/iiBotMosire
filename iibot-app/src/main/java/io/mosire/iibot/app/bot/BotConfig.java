@@ -310,7 +310,9 @@ public record BotConfig(
             int mcpPort,
             String mcpPath,
             long heartbeatMillis,
-            long claimSweepIntervalMillis) {
+            long claimSweepIntervalMillis,
+            String programTokenEnv,
+            String wakeTokenEnv) {
 
         public static final String DEFAULT_HOST = "127.0.0.1";
         public static final int DEFAULT_PORT = 0;

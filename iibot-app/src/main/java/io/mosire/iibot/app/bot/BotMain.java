@@ -140,7 +140,9 @@ public final class BotMain {
                     config.inbox().mcpPort(),
                     config.inbox().mcpPath(),
                     Duration.ofMillis(config.inbox().heartbeatMillis()),
-                    Duration.ofMillis(config.inbox().claimSweepIntervalMillis()));
+                    Duration.ofMillis(config.inbox().claimSweepIntervalMillis()),
+                    tokenFromEnv(secrets, config.inbox().programTokenEnv()),
+                    tokenFromEnv(secrets, config.inbox().wakeTokenEnv()));
             BotConfig.MessageBoard board = config.messageBoard();
             BotRuntimeOptions options = new BotRuntimeOptions(
                     config.dataDir(),
@@ -235,5 +237,16 @@ public final class BotMain {
             builder.accessToken(accessToken);
         }
         return builder.build();
+    }
+
+    /** 固定 token：配置里只写环境变量名，值由 SecretProvider 解析（绝不落日志/配置）。 */
+    private static String tokenFromEnv(SecretProvider secrets, String envName) {
+        if (envName == null || envName.isBlank()) {
+            return "";
+        }
+        return secrets.lookup(envName)
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .orElse("");
     }
 }

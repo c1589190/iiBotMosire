@@ -131,6 +131,11 @@ config/
   正数 = 到期即失效（`dsh-wake.token` 文件还在，但服务端会拒）。
   token 文件（`<dataDir>/inbox/{program-mcp.token,dsh-wake.token}`）是**配置**：
   iiBot 启动时先用 `whoami` 校验，仍然有效就复用，只有缺失/失效/换 inbox 才重新签发；
+- `inbox.programTokenEnv` / `inbox.wakeTokenEnv` 可以指定**固定 token**：配置里只写
+  *环境变量名*，值由 `run/boot-env.sh` 注入（和 `IIBOT_CONTROL_TOKEN` 一样对待）。
+  留空 = 服务端随机签发并写入 `<dataDir>/inbox/*.token`。固定值的意义：token 可写进
+  部署清单、重启与换机器都不变，Hermes 侧不用跟着改；代价是它出现在环境变量里，
+  所以要像控制面 token 一样保管（0600 的 env 文件 + 不提交）。
 - `logging.levels` 只接受 `io.mosire.iibot.connect` / `bot` / `app` / `inbox`
   及其子包、`iibot.ops`，级别只接受 `TRACE/DEBUG/INFO/WARN/ERROR/OFF`。
 

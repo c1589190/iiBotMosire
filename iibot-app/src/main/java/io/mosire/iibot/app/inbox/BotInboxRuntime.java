@@ -123,14 +123,28 @@ public final class BotInboxRuntime implements AutoCloseable {
             // token 是配置文件（data 目录下的 0600 文件），不是每次启动生成的临时物：
             // 文件里的凭据仍然有效就直接复用，只有缺失/失效/换 inbox 时才重新签发。
             // 这样重启 iiBot 不会让 Hermes 侧的 adapterTokenRef 变成死值。
+            // 配置里给了固定 token（token 值来自环境变量）就先落到 0600 文件，
+            // 之后按"文件里的凭据是否仍然有效"决定复用还是重新登记。
+            if (!options.programToken().isEmpty()) {
+                ensureTokenFile(programTokenPath, options.programToken());
+            }
             if (!reuseCredential(server, inboxId, programTokenPath, PROGRAM_SCOPES,
                     "program_token")) {
-                LOG.debug("event=inbox_client_action action=issue_credential inboxId={} "
-                                + "scopeCount={}", inboxId, PROGRAM_SCOPES.size());
-                InboxModels.IssuedCredentialView issued = server.client().issueCredential(
-                        inboxId,
-                        new InboxModels.CredentialIssueRequest(
-                                PROGRAM_CREDENTIAL_LABEL, PROGRAM_SCOPES, Set.of(), null));
+                InboxModels.IssuedCredentialView issued;
+                if (!options.programToken().isEmpty()) {
+                    LOG.debug("event=inbox_client_action action=register_fixed_program_token "
+                            + "inboxId={}", inboxId);
+                    issued = server.client().issueCredentialWithToken(
+                            inboxId, PROGRAM_CREDENTIAL_LABEL, PROGRAM_SCOPES, Set.of(),
+                            options.programToken(), null);
+                } else {
+                    LOG.debug("event=inbox_client_action action=issue_credential inboxId={} "
+                                    + "scopeCount={}", inboxId, PROGRAM_SCOPES.size());
+                    issued = server.client().issueCredential(
+                            inboxId,
+                            new InboxModels.CredentialIssueRequest(
+                                    PROGRAM_CREDENTIAL_LABEL, PROGRAM_SCOPES, Set.of(), null));
+                }
                 if (issued == null || issued.token() == null || issued.token().isBlank()) {
                     throw new IllegalStateException("Inbox program MCP token 签发结果缺少 token");
                 }
@@ -141,15 +155,28 @@ public final class BotInboxRuntime implements AutoCloseable {
             verifyOwnerOnlyFile(programTokenPath, "program MCP token");
 
             long ttlHours = options.bindingTtlHours();
+            if (!options.wakeToken().isEmpty()) {
+                ensureTokenFile(wakeTokenPath, options.wakeToken());
+            }
             InboxModels.BindingDescriptor descriptor =
                     reuseBinding(server, options, wakeTokenPath);
             if (descriptor == null) {
-                LOG.debug("event=inbox_client_action action=issue_binding inboxId={} "
-                                + "channelCount={} ttlHours={}", inboxId,
-                        options.channels().size(), ttlHours);
-                descriptor = server.client().issueBinding(
-                        inboxId, options.bindingLabel(), options.channels(), wakeTokenPath,
-                        ttlHours <= 0L ? Duration.ZERO : Duration.ofHours(ttlHours));
+                if (!options.wakeToken().isEmpty()) {
+                    LOG.debug("event=inbox_client_action action=register_fixed_wake_token "
+                                    + "inboxId={} ttlHours={}", inboxId, ttlHours);
+                    server.client().issueCredentialWithToken(
+                            inboxId, options.bindingLabel(), InboxClient.WAKE_SCOPES,
+                            options.channels(), options.wakeToken(),
+                            ttlHours <= 0L ? null : ttlHours * 3600L);
+                    descriptor = descriptorOf(server, options, wakeTokenPath);
+                } else {
+                    LOG.debug("event=inbox_client_action action=issue_binding inboxId={} "
+                                    + "channelCount={} ttlHours={}", inboxId,
+                            options.channels().size(), ttlHours);
+                    descriptor = server.client().issueBinding(
+                            inboxId, options.bindingLabel(), options.channels(), wakeTokenPath,
+                            ttlHours <= 0L ? Duration.ZERO : Duration.ofHours(ttlHours));
+                }
             }
             if (descriptor == null) {
                 throw new IllegalStateException("Inbox wake binding descriptor 签发结果为空");
@@ -180,6 +207,30 @@ public final class BotInboxRuntime implements AutoCloseable {
                 server.close();
             }
             throw failure;
+        }
+    }
+
+    private static InboxModels.BindingDescriptor descriptorOf(
+            EmbeddedInboxServer server, BotInboxRuntimeOptions options, Path wakeTokenPath) {
+        return new InboxModels.BindingDescriptor(
+                options.inboxId(),
+                server.apiUrl().toString(),
+                "file:" + wakeTokenPath.toAbsolutePath().normalize(),
+                options.channels(),
+                options.bindingLabel());
+    }
+
+    /** 把配置里的固定 token 写到 0600 文件（内容相同则不重写，保留 mtime）。 */
+    private static void ensureTokenFile(Path path, String token) {
+        try {
+            if (Files.isRegularFile(path) && Files.readString(path).trim().equals(token)) {
+                return;
+            }
+            TokenStore.writeAtomic(path, token);
+            OpsLog.info("event=inbox_fixed_token_written path={} length={}",
+                    path, token.length());
+        } catch (IOException failure) {
+            throw new IllegalStateException("写入固定 token 文件失败: " + path, failure);
         }
     }
 
@@ -217,12 +268,7 @@ public final class BotInboxRuntime implements AutoCloseable {
                 InboxClient.WAKE_SCOPES, "wake")) {
             return null;
         }
-        return new InboxModels.BindingDescriptor(
-                options.inboxId(),
-                server.apiUrl().toString(),
-                "file:" + wakeTokenPath.toAbsolutePath().normalize(),
-                options.channels(),
-                options.bindingLabel());
+        return descriptorOf(server, options, wakeTokenPath);
     }
 
     private static boolean notExpired(String expiresAt) {

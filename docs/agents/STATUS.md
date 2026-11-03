@@ -689,3 +689,13 @@ V4 embedded 浏览器 backend、V5 remote-cdp/服务器部署草案、V6 显式�
   也可以把别处签好的授权文件放进来直接用。
 - 测试：`BotInboxRuntimeTest` 新增「重启复用 token」「ttl=0 凭据不过期」「ttl>0 仍过期」，
   `BotConfigLoaderTest` 新增「ttl 缺省为 0」「显式 0 可读」「负数被拒」；`tools/gate.sh full` PASS。
+
+### 2026-11-03 15:52 固定 token（配置文件化收尾）
+
+- `inbox.programTokenEnv` / `inbox.wakeTokenEnv`：配置里只写**环境变量名**，值由
+  `run/boot-env.sh` 注入；给了固定值就写进 `<dataDir>/inbox/*.token`（0600）并向服务端
+  登记（`issueCredentialWithToken`），重启逐字节不变。留空保持原行为（服务端随机签发）。
+- 固定值优先于自动签发，但仍先 `whoami` 复用：文件里的凭据有效就直接用，避免重复登记
+  撞 `token_hash UNIQUE`。
+- 测试：`BotInboxRuntimeTest.fixedTokensFromConfigAreUsedVerbatimAndSurviveRestarts`
+  （两次启动 token 值都是配置给的、且 wake/program 凭据可用）；`tools/gate.sh full` PASS。

@@ -74,6 +74,30 @@ class BotInboxRuntimeTest {
     }
 
     @Test
+    void fixedTokensFromConfigAreUsedVerbatimAndSurviveRestarts() throws Exception {
+        Path dataDir = tempDir.resolve("inbox-fixed");
+        String program = "inbox_fixed_program_token_0001";
+        String wake = "inbox_fixed_wake_token_0000001";
+        BotInboxRuntimeOptions options = new BotInboxRuntimeOptions(
+                dataDir, "bot-fixed", "dsh-fixed", Set.of("qq"), 0L,
+                "127.0.0.1", 0, "127.0.0.1", 0, "/mcp",
+                Duration.ofSeconds(15), Duration.ofSeconds(5), program, wake);
+
+        try (BotInboxRuntime runtime = BotInboxRuntime.start(options)) {
+            assertThat(Files.readString(runtime.programTokenPath())).isEqualTo(program);
+            assertThat(Files.readString(runtime.wakeTokenPath())).isEqualTo(wake);
+            // 固定 token 被登记成不过期凭据，且真的能用
+            assertThat(runtime.programClient().whoAmI().expiresAt()).isNull();
+            assertThat(wakeClient(runtime).whoAmI().inbox()).isEqualTo("bot-fixed");
+        }
+        // 再启动一次：token 值仍然是我们给的那个（不是服务端重新生成的）
+        try (BotInboxRuntime runtime = BotInboxRuntime.start(options)) {
+            assertThat(Files.readString(runtime.programTokenPath())).isEqualTo(program);
+            assertThat(Files.readString(runtime.wakeTokenPath())).isEqualTo(wake);
+        }
+    }
+
+    @Test
     void zeroTtlMeansAPermanentWakeCredential() throws Exception {
         try (BotInboxRuntime runtime = BotInboxRuntime.start(
                 tempDir.resolve("inbox-perm"), "bot-perm", "dsh-perm", Set.of("qq"), 0L)) {
