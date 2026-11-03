@@ -1,15 +1,17 @@
 # 容器内首启 seed 到 $HERMES_HOME/config.yaml（已存在则不动）。
 # 路径全是容器视角：/opt/iibot/data 是 iibot 卷，/opt/data 是 HERMES_HOME 卷。
+# 模型三件套由首启播种时按 .env 渲染（@@LLM_*@@ 占位）：镜像不绑定任何厂商。
 model:
-  provider: "custom:newapi"
-  default: "deepseek-flash"
+  provider: "@@LLM_PROVIDER@@"
+  default: "@@LLM_MODEL@@"
   # 宿主只认这个声明；custom:<name> 上的模型查不到视觉能力时，MCP 图片只剩 MEDIA: 路径
   supports_vision: true
 
 providers:
-  newapi:
-    api: "http://121.40.130.178:3000/v1"
-    key_env: NEWAPI_API_KEY
+  # 任何 OpenAI 兼容端点都能填这里；用宿主原生的 provider id 时这块留着不影响
+  llm:
+    api: "@@LLM_BASE_URL@@"
+    key_env: LLM_API_KEY
     transport: chat_completions
 
 agent:

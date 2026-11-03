@@ -59,6 +59,23 @@ docker exec hermes-iibot python3 /opt/hermes-reference/check-vision.py
 curl -s -H "Authorization: Bearer $(cat …)" 127.0.0.1:46500/v1/inboxes/iibot-bot/status
 ```
 
+## 模型是可配的（镜像不绑定厂商）
+
+`defaults/hermes-config.yaml.tmpl` 里模型相关全是占位，首启时按 `.env` 渲染：
+
+| `.env` | 渲染到 | 说明 |
+|---|---|---|
+| `LLM_PROVIDER` | `model.provider` | 默认 `custom:llm`；用宿主原生 provider 就填它的 id（`deepseek` / `openai` / `anthropic` …） |
+| `LLM_BASE_URL` | `providers.llm.api` | 任何 OpenAI 兼容端点 |
+| `LLM_MODEL` | `model.default` | 模型名 |
+| `LLM_API_KEY` | 不进配置 | 配置里只写 `key_env: LLM_API_KEY`，值由进程环境给 |
+
+只替换 `@@LLM_*@@` 三个占位；配置里的 `${MCP_...}` 是宿主**运行期**插值，必须原样留着——`verify.sh` 会检查这一点。
+
+播种只在 `$HERMES_HOME/config.yaml` 不存在时发生：改了 `.env` 想重新播种，删掉卷里的
+`config.yaml` 重启即可（`docker compose down && docker volume rm hermes-iibot_hermes-state` 太狠，
+推荐 `docker compose run --rm --entrypoint sh hermes-iibot -c 'rm /opt/data/config.yaml'`）。
+
 ## 两个 MCP 的 Bearer 从哪来
 
 | 端口 | 用途 | 凭据 | 会变吗 |

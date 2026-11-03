@@ -16,8 +16,24 @@ fi
 
 mkdir -p "$HOME_DIR"
 if [ ! -f "$HOME_DIR/config.yaml" ]; then
-    cp "$DEFAULTS/hermes-config.yaml" "$HOME_DIR/config.yaml"
-    echo "[seed] hermes 配置 -> $HOME_DIR/config.yaml"
+    # 模型三件套从环境渲染进来，镜像不绑定任何厂商：
+    #   LLM_PROVIDER  （默认 custom:llm；用宿主原生 provider 就填它的 id，如 deepseek）
+    #   LLM_BASE_URL  OpenAI 兼容端点，如 https://api.deepseek.com/v1
+    #   LLM_MODEL     模型名
+    # 密钥不落配置：配置里只写 key_env: LLM_API_KEY，值由 .env 进进程环境。
+    # 注意只替换 @@LLM_*@@ 占位，配置里的 ${MCP_...} 是宿主运行期插值，必须原样保留。
+    provider="${LLM_PROVIDER:-custom:llm}"
+    base_url="${LLM_BASE_URL:-}"
+    model="${LLM_MODEL:-}"
+    if [ -z "$base_url" ] || [ -z "$model" ]; then
+        echo "[seed] 警告：LLM_BASE_URL / LLM_MODEL 没设，先写空值；聊天前请在 .env 里补上并删掉卷里的 config.yaml 重新播种" >&2
+    fi
+    esc() { printf '%s' "$1" | sed -e 's/[&|]/\\&/g'; }
+    sed -e "s|@@LLM_PROVIDER@@|$(esc "$provider")|g" \
+        -e "s|@@LLM_BASE_URL@@|$(esc "$base_url")|g" \
+        -e "s|@@LLM_MODEL@@|$(esc "$model")|g" \
+        "$DEFAULTS/hermes-config.yaml.tmpl" > "$HOME_DIR/config.yaml"
+    echo "[seed] hermes 配置 -> $HOME_DIR/config.yaml（provider=$provider model=${model:-空}）"
 fi
 
 mkdir -p "$HOME_DIR/plugins"
