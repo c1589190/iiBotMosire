@@ -1,3 +1,17 @@
+## 2026-11-03 release 形态与版本号
+
+- 版本号改为 `Alpha<YYYYMMDD>`（同日第二个 release 用 `.2`/`.3`），根 pom 与 4 个模块的
+  `<parent>`/自身 `<version>` 同步；`<inbox.version>` 保持 `0.1.0-SNAPSHOT`（那是 InboxMosire 的版本）。
+- 新增 `tools/release.sh`：`-v <版本>` / `--with-tests` / `--no-build`，产物落 `dist/`（不入库）+ `SHA256SUMS`。
+- 新增 `docs/agents/RELEASE.md`：产物形态（shade 全依赖内置、类在 jar 根路径、入口 `io.mosire.iibot.app.Main`）、
+  发布/部署/回滚/核查表。
+- 已发 `Alpha20261103`：`dist/iibot-app-Alpha20261103.jar`，227,074,362 字节，
+  sha256 `a362b0e5475ff345e45dca1f3b001875d1377b0203c67e0fc62b3bc181c8ded6`（`mvn -o -B -DskipTests package`）。
+- 运行目录 `bot/` 已切到该 jar：`run/boot-env.sh`、`start-bot.sh` 引用改名（旧脚本备份 `.bak-20261103`），
+  旧 `iibot-app-0.1.0-SNAPSHOT.jar` 已删（Nov-1 构建仍留有 `.bak-20261103`）。
+- 未验证：`--with-tests` 路径（本次用 `-DskipTests` 打包，`tools/gate.sh full` 上次 PASS 在 `3c6610c`）、
+  真实 QQ 闭环仍 `NOT_RUN`。
+
 # iiBotMosire 当前状态
 
 > **更新时间**：2026-11-02 19:50（Asia/Shanghai）
