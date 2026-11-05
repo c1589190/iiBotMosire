@@ -15,7 +15,9 @@ import io.mosire.iibot.bot.store.MessageBoardStore;
 import io.mosire.iibot.bot.group.GroupCatalogueStore;
 import io.mosire.iibot.connect.core.ForwardCapability;
 import io.mosire.iibot.connect.core.GroupRequestCapability;
+import io.mosire.iibot.connect.core.MediaCapability;
 import io.mosire.iibot.connect.core.RecentQqProvider;
+import io.mosire.iibot.bot.media.MediaAssetSink;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -218,6 +220,36 @@ public final class BotMcpTools {
             AccountRegistry accounts,
             Map<String, GroupRequestCapability> groupRequestServices,
             GroupCatalogueStore groupCatalogue) {
+        return allForAccounts(board, notes, inboxDigests, replies, defaultAccountId,
+                forwardProviders, recentProviders, friendRequestServices, inboxAuditStore,
+                historyProviders, sourceWeights, consumers, accounts,
+                groupRequestServices, groupCatalogue, null, null);
+    }
+
+    /**
+     * 附带媒体能力与资产落库端口的完整装配入口。
+     *
+     * <p>{@code mediaProviders} 与 {@code mediaSink} 用于让 {@code qq_message_get} 默认附带
+     * 图片资产；任一为 null 时保持纯文本返回形状。</p>
+     */
+    public static List<AgentTool> allForAccounts(
+            MessageBoardStore board,
+            UserNoteStore notes,
+            InboxDigestService inboxDigests,
+            BotReplyService replies,
+            String defaultAccountId,
+            Map<String, ForwardCapability> forwardProviders,
+            Map<String, RecentQqProvider> recentProviders,
+            Map<String, FriendRequestService> friendRequestServices,
+            InboxDigestAuditStore inboxAuditStore,
+            Map<String, ChatHistoryProvider> historyProviders,
+            SourceWeightService sourceWeights,
+            ConsumerConversationStore consumers,
+            AccountRegistry accounts,
+            Map<String, GroupRequestCapability> groupRequestServices,
+            GroupCatalogueStore groupCatalogue,
+            Map<String, MediaCapability> mediaProviders,
+            MediaAssetSink mediaSink) {
         Objects.requireNonNull(board, "board");
         Objects.requireNonNull(notes, "notes");
         Objects.requireNonNull(inboxDigests, "inboxDigests");
@@ -240,14 +272,15 @@ public final class BotMcpTools {
         tools.addAll(List.of(
                 new BotThreadListTool(board, sourceWeights),
                 new BotThreadHistoryTool(board),
-                new BotMessageGetTool(board),
+                new BotMessageGetTool(board, mediaProviders, mediaSink),
                 new BotMessageThreadTool(board),
                 new BotReplyTool(replies),
                 new BotReplyTool(replies, "conversation_send"),
                 new BotQqConversationReadTool(board, consumers),
                 new BotQqConversationReadTool("conversation_read", board, consumers),
-                new BotQqConversationAckTool(consumers, inboxDigests),
-                new BotQqConversationAckTool("conversation_ack", consumers, inboxDigests),
+                new BotQqConversationAckTool(board, consumers, inboxDigests),
+                new BotQqConversationAckTool(
+                        "conversation_ack", board, consumers, inboxDigests),
                 new BotUserNoteGetTool(notes, noteScope),
                 new BotUserNoteListTool(notes, noteScope),
                 new BotUserNoteUpsertTool(notes, noteScope)));

@@ -3,6 +3,7 @@ package io.mosire.iibot.bot.ingest;
 import io.mosire.iibot.bot.chat.ChatMessage;
 import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.chat.ChatThread;
+import io.mosire.iibot.bot.media.MediaPrewarm;
 import io.mosire.iibot.bot.store.MessageAppendResult;
 import io.mosire.iibot.bot.store.MessageBoardStore;
 import io.mosire.iibot.bot.weight.MessageWeightDecision;
@@ -29,16 +30,23 @@ public final class BotIngestionService {
     private final MessageBoardStore board;
     private final DigestTrigger digestTrigger;
     private final SourceWeightService weights;
+    private final MediaPrewarm mediaPrewarm;
 
     public BotIngestionService(MessageBoardStore board, Consumer<String> digestTrigger) {
-        this(board, (threadId, delayMillis) -> digestTrigger.accept(threadId), null);
+        this(board, (threadId, delayMillis) -> digestTrigger.accept(threadId), null, null);
     }
 
     public BotIngestionService(MessageBoardStore board, DigestTrigger digestTrigger,
                                SourceWeightService weights) {
+        this(board, digestTrigger, weights, null);
+    }
+
+    public BotIngestionService(MessageBoardStore board, DigestTrigger digestTrigger,
+                               SourceWeightService weights, MediaPrewarm mediaPrewarm) {
         this.board = Objects.requireNonNull(board, "board");
         this.digestTrigger = Objects.requireNonNull(digestTrigger, "digestTrigger");
         this.weights = weights;
+        this.mediaPrewarm = mediaPrewarm;
     }
 
     /**
@@ -108,7 +116,9 @@ public final class BotIngestionService {
                 MessageWeightDecision decision = weights.evaluate(
                         message, result.message(), policy);
                 weights.saveDecision(decision);
-                delayMillis = weights.enqueueDelayMillis(policy, decision);
+                delayMillis = weights.enqueueDelayMillis(policy, decision,
+                        result.message().source().accountId(),
+                        result.message().senderId());
             }
             OpsLog.info("event=inbound_ingest threadId={} messageKey={} localSeq={} "
                             + "chatType={} outcome=accepted delayMs={}",
@@ -116,6 +126,17 @@ public final class BotIngestionService {
                     result.message().localSeq(), source.chatType(), delayMillis);
             LOG.debug("event=inbound_digest_scheduled threadId={} delayMs={}",
                     source.threadId(), delayMillis);
+            if (mediaPrewarm != null) {
+                // 直链会过期：入站后立刻把字节抓进本地媒体库，供日后回看/看图。
+                try {
+                    mediaPrewarm.prewarm(result.message());
+                } catch (RuntimeException failure) {
+                    OpsLog.warn("event=inbound_media_prewarm_failed threadId={} "
+                                    + "messageKey={} errorType={}", source.threadId(),
+                            result.message().messageKey(),
+                            failure.getClass().getSimpleName());
+                }
+            }
             try {
                 digestTrigger.enqueue(result.message().source().threadId(), delayMillis);
             } catch (RuntimeException failure) {

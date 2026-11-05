@@ -12,6 +12,7 @@ import io.mosire.iibot.app.media.BotMediaInspectTool;
 import io.mosire.iibot.app.media.BotMediaNoteStore;
 import io.mosire.iibot.app.media.BotMediaNoteTool;
 import io.mosire.iibot.app.media.BotMediaUploadTool;
+import io.mosire.iibot.app.media.MediaDownloadSink;
 import io.mosire.iibot.app.reply.BotGroupFileUploadTool;
 import io.mosire.iibot.app.reply.BotMessageRecallTool;
 
@@ -25,10 +26,12 @@ public final class MediaToolPack {
     private final BotToolContext context;
     private final BotGroupFileHandles groupFileHandles = new BotGroupFileHandles();
     private final BotMediaNoteStore mediaNotes;
+    private final MediaDownloadSink downloadSink;
 
     public MediaToolPack(BotToolContext context) {
         this.context = Objects.requireNonNull(context, "context");
         this.mediaNotes = new BotMediaNoteStore(context.dataDir());
+        this.downloadSink = new MediaDownloadSink(context.dataDir());
     }
 
     /** 无条件可用的媒体上传工具。 */
@@ -41,26 +44,26 @@ public final class MediaToolPack {
         List<AgentTool> tools = new ArrayList<>();
         if (hasCapability(context.mediaByAccount())) {
             tools.add(new BotMediaGetTool(context.board(), context.mediaByAccount(),
-                    context.mediaStore()));
+                    context.mediaStore(), downloadSink));
             tools.add(new BotMediaInspectTool(context.board(), context.mediaByAccount(),
                     context.mediaStore()));
             tools.add(new BotMediaNoteTool(context.mediaStore(), mediaNotes));
         }
         if (hasCapability(context.audioByAccount())) {
             tools.add(new BotAudioGetTool(context.board(), context.audioByAccount(),
-                    context.mediaStore()));
+                    context.mediaStore(), downloadSink));
         }
         if (hasCapability(context.mediaByAccount())
                 && hasCapability(context.forwardByAccount())) {
             tools.add(new BotForwardMediaGetTool(context.board(),
                     context.forwardByAccount(), context.mediaByAccount(),
-                    context.mediaStore()));
+                    context.mediaStore(), downloadSink));
         }
         if (hasCapability(context.groupFilesByAccount())) {
             tools.add(new BotGroupFilesTool(context.groupFilesByAccount(),
                     groupFileHandles));
             tools.add(new BotGroupFileGetTool(context.groupFilesByAccount(),
-                    groupFileHandles, context.mediaStore()));
+                    groupFileHandles, context.mediaStore(), downloadSink));
         }
         if (hasCapability(context.groupFileUploadByAccount())) {
             tools.add(new BotGroupFileUploadTool(context.board(),

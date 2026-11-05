@@ -42,7 +42,10 @@ public final class BotForwardMediaGetTool implements AgentTool {
                             "description", "顶层转发节点下标；省略时顺序扫描"),
                     "limit", Map.of("type", "integer", "minimum", 1,
                             "maximum", MAX_IMAGES,
-                            "description", "最多返回图片数，默认 4")),
+                            "description", "最多返回图片数，默认 4"),
+                    "saveTo", Map.of("type", "string", "maxLength", 512,
+                            "description", "相对 downloads 的目录/文件名；提供时把图片落盘"
+                                    + "并返回 saved（省略则不落盘）")),
             "required", List.of("messageKey"),
             "additionalProperties", false);
 
@@ -50,11 +53,20 @@ public final class BotForwardMediaGetTool implements AgentTool {
     private final Map<String, ForwardCapability> forwardProviders;
     private final Map<String, MediaCapability> mediaProviders;
     private final BotMediaStore mediaStore;
+    private final MediaDownloadSink downloadSink;
 
     public BotForwardMediaGetTool(MessageBoardStore board,
                                   Map<String, ForwardCapability> forwardProviders,
                                   Map<String, MediaCapability> mediaProviders,
                                   BotMediaStore mediaStore) {
+        this(board, forwardProviders, mediaProviders, mediaStore, null);
+    }
+
+    public BotForwardMediaGetTool(MessageBoardStore board,
+                                  Map<String, ForwardCapability> forwardProviders,
+                                  Map<String, MediaCapability> mediaProviders,
+                                  BotMediaStore mediaStore,
+                                  MediaDownloadSink downloadSink) {
         this.board = Objects.requireNonNull(board, "board");
         Objects.requireNonNull(forwardProviders, "forwardProviders");
         Objects.requireNonNull(mediaProviders, "mediaProviders");
@@ -63,6 +75,7 @@ public final class BotForwardMediaGetTool implements AgentTool {
         this.mediaProviders = Collections.unmodifiableMap(
                 new LinkedHashMap<>(mediaProviders));
         this.mediaStore = Objects.requireNonNull(mediaStore, "mediaStore");
+        this.downloadSink = downloadSink;
     }
 
     @Override public String name() { return NAME; }
@@ -89,6 +102,17 @@ public final class BotForwardMediaGetTool implements AgentTool {
             if (forwardProvider == null || mediaProvider == null) {
                 return ToolResult.error("ACCOUNT_UNAVAILABLE",
                         "该消息所属账号当前不可用或未提供转发媒体能力");
+            }
+
+            boolean saveRequested = context.arguments() != null
+                    && context.arguments().containsKey("saveTo");
+            if (saveRequested && downloadSink == null) {
+                return ToolResult.error("FORWARD_MEDIA_UNAVAILABLE", "下载落点当前不可用");
+            }
+            String saveTo = saveRequested
+                    ? optionalText(context.arguments(), "saveTo") : "";
+            if (saveRequested) {
+                downloadSink.validate(saveTo);
             }
 
             List<MessageSegment> segments = board.segments(messageKey);
@@ -136,6 +160,7 @@ public final class BotForwardMediaGetTool implements AgentTool {
             List<String> assetIds = new ArrayList<>();
             List<Map<String, Object>> metadata = new ArrayList<>();
             List<Map<String, Object>> errors = new ArrayList<>();
+            List<String> saved = new ArrayList<>();
             for (Candidate candidate : candidates) {
                 try {
                     MediaAsset asset = mediaProvider.image(candidate.segment())
@@ -148,6 +173,11 @@ public final class BotForwardMediaGetTool implements AgentTool {
                     item.put("mediaType", asset.mediaType());
                     item.put("size", asset.size());
                     metadata.add(item);
+                    if (saveRequested) {
+                        String fileName = MediaDownloadSink.defaultFileName(
+                                messageKey, candidate.segment().index(), asset.mediaType());
+                        saved.add(downloadSink.save(saveTo, fileName, asset.bytes()).toString());
+                    }
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     return ToolResult.error("MEDIA_UNAVAILABLE", "转发图片读取被中断");
@@ -172,7 +202,12 @@ public final class BotForwardMediaGetTool implements AgentTool {
             data.put("nestedUnsupported", nestedUnsupported);
             data.put("images", metadata);
             data.put("errors", errors);
+            if (saveRequested) {
+                data.put("saved", saved);
+            }
             return ToolResult.ok(JSON.writeValueAsString(data), assetIds);
+        } catch (MediaDownloadSink.InvalidSaveToException invalid) {
+            return ToolResult.error("INVALID_ARGUMENTS", invalid.getMessage());
         } catch (InvalidArgumentsException invalid) {
             return ToolResult.error("INVALID_ARGUMENTS", invalid.getMessage());
         } catch (InterruptedException interrupted) {
@@ -207,6 +242,21 @@ public final class BotForwardMediaGetTool implements AgentTool {
             throw new InvalidArgumentsException(name + " 不能为空");
         }
         return text.trim();
+    }
+
+    private static String optionalText(Map<String, Object> args, String name) {
+        Object value = args == null ? null : args.get(name);
+        if (value == null) {
+            return "";
+        }
+        if (!(value instanceof String text)) {
+            throw new InvalidArgumentsException(name + " 必须是字符串");
+        }
+        String normalized = text.trim();
+        if (normalized.length() > 512) {
+            throw new InvalidArgumentsException(name + " 超过长度上限");
+        }
+        return normalized;
     }
 
     private static int optionalInt(Map<String, Object> args, String name, int fallback,

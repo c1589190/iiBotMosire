@@ -4,12 +4,15 @@ import io.mosire.iibot.app.bot.BotConfig;
 import io.mosire.iibot.app.bot.BotConfigBootstrap;
 import io.mosire.iibot.app.bot.BotConfigLoader;
 import io.mosire.iibot.app.bot.BotMain;
+import io.mosire.iibot.app.config.BotConfigDoctor;
 import io.mosire.iibot.app.config.ConfigArguments;
 import io.mosire.iibot.app.config.ConfigException;
 import io.mosire.iibot.app.config.EffectiveConfigPrinter;
+import io.mosire.iibot.app.config.JsonConfigBundle;
 import io.mosire.iibot.app.config.SecretProvider;
 import io.mosire.iibot.app.logging.LoggingConfigurer;
 
+import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.util.List;
@@ -72,6 +75,8 @@ public final class Main {
             }
         }
 
+        repairConfig(parsed, err);
+
         BotConfigLoader.LoadResult result;
         try {
             result = BotConfigLoader.loadDetailed(parsed.sources(), secrets);
@@ -101,6 +106,42 @@ public final class Main {
             return result.secretReady() ? 0 : 1;
         }
         return BotMain.runLoaded(result.config(), parsed.sources(), secrets);
+    }
+
+    /**
+     * 配置医生：按 schema 自动修掉「未知键」与「过时键」，写回前备份。
+     *
+     * <p>只修这两类**安全且可逆**的问题；类型/范围/必填仍交给 loader fail-closed，
+     * 自动把非法值改成默认值只会掩盖真实错误。</p>
+     */
+    private static void repairConfig(ConfigArguments.ParseResult parsed, PrintStream err) {
+        List<Path> files;
+        try {
+            files = JsonConfigBundle.load(parsed.sources()).files();
+        } catch (ConfigException ignored) {
+            // 连 JSON 都读不出来时由 loader 给出更准确的报错，这里不抢它的活。
+            return;
+        }
+        BotConfigDoctor.Report report;
+        try {
+            report = new BotConfigDoctor().repairFiles(files, parsed.autoFixConfig());
+        } catch (IOException failure) {
+            err.println("[config-doctor] 自动修复失败：" + failure.getMessage());
+            return;
+        }
+        if (report.findings().isEmpty()) {
+            return;
+        }
+        for (BotConfigDoctor.Finding finding : report.findings()) {
+            err.println("[config-doctor] " + BotConfigDoctor.describe(finding));
+        }
+        for (BotConfigDoctor.FileReport changed : report.changed()) {
+            err.println("[config-doctor] 已写回 " + changed.file().toAbsolutePath()
+                    + "（备份 " + changed.backup().getFileName() + "）");
+        }
+        if (!parsed.autoFixConfig()) {
+            err.println("[config-doctor] 仅报告，未改动文件（--no-fix-config）");
+        }
     }
 
     private static void printCheckResult(List<Path> sources,
@@ -173,6 +214,8 @@ public final class Main {
         stream.println("  --config <file-or-dir>          可重复；目录内 *.json 按文件名排序深合并");
         stream.println("  --check-config                  加载+校验配置，不启动网络；rc=0/1");
         stream.println("  --print-effective-config        输出脱敏有效 JSON；secret 只显示 SET/MISSING");
+        stream.println("  --fix-config                    启动前按 schema 自动修掉未知键/过时键（默认开启，写回前备份）");
+        stream.println("  --no-fix-config                 只报告不修改");
         stream.println("  --log-level <LEVEL>             TRACE|DEBUG|INFO|WARN|ERROR|OFF，覆盖 root/ops");
         stream.println("  -h, --help                      显示帮助");
         stream.println("省略 --config 时读取 config/bot/；首次没有 JSON 会生成单一 bot.json 后退出 rc=2。");

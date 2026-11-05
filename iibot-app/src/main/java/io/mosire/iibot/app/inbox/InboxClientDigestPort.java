@@ -9,6 +9,7 @@ import io.mosire.inbox.client.InboxClient;
 import io.mosire.inbox.client.InboxClientException;
 import io.mosire.inbox.client.InboxModels;
 import io.mosire.iibot.bot.inbox.InboxDigest;
+import io.mosire.iibot.bot.summary.MessageSummary;
 import io.mosire.iibot.bot.inbox.InboxDigestConflictException;
 import io.mosire.iibot.bot.inbox.InboxDigestException;
 import io.mosire.iibot.bot.inbox.InboxDigestItem;
@@ -57,7 +58,7 @@ public final class InboxClientDigestPort implements InboxDigestPort {
                     .builder(channel)
                     .kind(digestKind(digest))
                     .summary(digest.summary())
-                    .content(contentJson(digest))
+                    .content(contentText(digest))
                     .contentRef(contentRef(digest))
                     .dedupeKey(requireText(dedupeKey, "dedupeKey"))
                     .priority(digest.priority())
@@ -111,7 +112,7 @@ public final class InboxClientDigestPort implements InboxDigestPort {
                     requireText(itemId, "itemId"),
                     new InboxModels.UpdateItem(
                             digest.summary(),
-                            contentJson(digest),
+                            contentText(digest),
                             contentRef(digest),
                             digestKind(digest),
                             digest.priority(),
@@ -175,12 +176,23 @@ public final class InboxClientDigestPort implements InboxDigestPort {
         return digest.summaryComplete() ? DIGEST_COMPLETE_KIND : DIGEST_KIND;
     }
 
-    private static String contentJson(InboxDigest digest) {
-        try {
-            return JSON.writeValueAsString(digest);
-        } catch (JsonProcessingException failure) {
-            throw new IllegalStateException("Inbox digest content 序列化失败", failure);
+    /**
+     * Inbox 的 content 只放服务端渲染好的正文（D-002 / D-015）：
+     * 单条消息的时间、发送者、备注标签、引用与媒体占位都已由
+     * {@code MessageSummaryBuilder} 拼好，这里只按顺序连成一段文本。
+     *
+     * <p>机器可读的窗口信息（fromSeq/toSeq/unreadCount）落在本地
+     * {@code inbox_digest_state}，不再塞进 content，Agent 也就看不到这些元素。</p>
+     */
+    private static String contentText(InboxDigest digest) {
+        StringBuilder text = new StringBuilder();
+        for (MessageSummary message : digest.messages()) {
+            if (text.length() > 0) {
+                text.append("\n");
+            }
+            text.append(message.summary());
         }
+        return text.toString();
     }
 
     private static String contentRef(InboxDigest digest) {

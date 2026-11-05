@@ -45,6 +45,13 @@
     },
     "video": {
       "$ref": "#/$defs/video"
+    },
+    "media": {
+      "$ref": "#/$defs/media"
+    },
+    "x-unknown": {
+      "type": "object",
+      "description": "配置医生（--fix-config）把不认识的键搬到这里，保留内容但不生效；确认后可删除。"
     }
   },
   "$defs": {
@@ -434,8 +441,34 @@
               "maximum": 86400000,
               "default": 60000,
               "description": "保留字段；当前全唤醒下不参与 wake gate/调度"
+            },
+            "normalDelayMillis": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600000,
+              "default": 30000,
+              "description": "普通消息的唤醒延迟（差序激活慢档）"
+            },
+            "importantDelayMillis": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 600000,
+              "default": 1000,
+              "description": "重要消息的唤醒延迟（差序激活快档）"
             }
           }
+        },
+        "contextNeighbors": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 1,
+          "description": "每条消息内联的上下文条数（上文/下文各至多 N 条）；0 关闭"
+        },
+        "mergeSameSender": {
+          "type": "boolean",
+          "default": true,
+          "description": "窗口内连续同一发送者（5 分钟内）合并为一段，只保留一次时间与人名"
         }
       }
     },
@@ -658,6 +691,31 @@
               }
             }
           ]
+        }
+      }
+    },
+    "media": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "retentionDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 365,
+          "default": 7,
+          "description": "媒体临时区保留天数；超过即由 iibot-media-sweeper 清理，0 = 不清理"
+        },
+        "prewarm": {
+          "type": "boolean",
+          "default": true,
+          "description": "入站即抓字节落盘（先存后看）；关闭后只能靠平台直链现拉"
+        },
+        "prewarmMaxBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1073741824,
+          "default": 5242880,
+          "description": "语音/文件预热上限；图片始终预热，超限的等 Agent 真要时再拉"
         }
       }
     }

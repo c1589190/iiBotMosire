@@ -343,8 +343,10 @@ class BotMcpToolsTest {
                 "第三条", "", ""));
         JsonNode ack = call(tool(tools, "qq_conversation_ack"),
                 Map.of("source", "qq_group/bot-1/group-9"));
-        assertThat(ack.size()).isEqualTo(1);
         assertThat(ack.path("more").asBoolean()).isTrue();
+        assertThat(ack.path("ackedUpToSeq").asLong()).isEqualTo(1L);
+        // m-2 与 read/ack 之间到达的 m-3 仍未确认。
+        assertThat(ack.path("remaining").asLong()).isEqualTo(2L);
         assertThat(consumers.find(ConsumerConversationStore.DEFAULT_CONSUMER_ID,
                 GROUP.threadId()).orElseThrow().readSeq()).isEqualTo(1L);
         assertThat(board.readThread(GROUP.threadId(), 0L, 10))
@@ -523,7 +525,7 @@ class BotMcpToolsTest {
         BotQqConversationReadTool read = new BotQqConversationReadTool(
                 board, consumers, CLOCK);
         BotQqConversationAckTool ack = new BotQqConversationAckTool(
-                consumers, digestService, CLOCK);
+                board, consumers, digestService, CLOCK);
 
         call(read, Map.of("threadId", GROUP.threadId()));
         call(ack, Map.of("threadId", GROUP.threadId()));
@@ -575,7 +577,7 @@ class BotMcpToolsTest {
         assertThat(JSON.valueToTree(send.jsonSchema()).path("properties")
                 .has("replyToSeq")).isTrue();
         assertThat(JSON.valueToTree(read.jsonSchema()).path("properties")
-                .has("limit")).isFalse();
+                .has("limit")).isTrue();
         assertThat(schema).doesNotContain("expectedRevision", "snapshotToSeq", "itemId",
                 "localSeq", "afterSeq");
         assertThat(read.description()).contains(

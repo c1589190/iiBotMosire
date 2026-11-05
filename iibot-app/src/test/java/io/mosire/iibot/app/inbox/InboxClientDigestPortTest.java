@@ -71,8 +71,9 @@ class InboxClientDigestPortTest {
                     .list("app-inline", Set.of("qq"), 10).items().getFirst();
             assertThat(item.kind()).isEqualTo(InboxClientDigestPort.DIGEST_COMPLETE_KIND);
             assertThat(item.summary()).isEqualTo("Alice: 第一条 | Bob: 第二条");
-            JsonNode content = (JsonNode) inbox.client().view("app-inline", item.itemId()).content();
-            assertThat(content.path("summaryComplete").asBoolean()).isTrue();
+            // content 现在就是渲染好的正文（D-002/D-015），不再是 digest JSON。
+            assertThat((String) inbox.client().view("app-inline", item.itemId()).content())
+                    .contains("第一条").contains("第二条");
 
             board.append(ChatMessage.inbound(GROUP, "m-3", "qq-1", "Alice", T0, T0,
                     "长".repeat(513), "", ""));
@@ -85,7 +86,7 @@ class InboxClientDigestPortTest {
     }
 
     @Test
-    void inboxContentCarriesRecentContext() throws Exception {
+    void inboxContentIsRenderedTextWithoutMachineMetadata() throws Exception {
         try (EmbeddedInboxServer inbox = EmbeddedInboxServer.start(
                 EmbeddedInboxOptions.builder()
                         .dataDir(tempDir.resolve("inbox-context"))
@@ -111,17 +112,16 @@ class InboxClientDigestPortTest {
                     "第三条", "", ""));
             InboxDigestService.FlushResult second = service.flushThread(GROUP.threadId());
 
-            JsonNode content = (JsonNode) inbox.client()
+            String content = (String) inbox.client()
                     .view("app-context", second.itemId()).content();
-            assertThat(content.path("context")).hasSize(3);
-            assertThat(content.path("context").get(2).path("direction").asText())
-                    .isEqualTo("OUT");
-            assertThat(content.path("messages")).hasSize(1);
+            assertThat(content).contains("第三条").doesNotContain("第一条")
+                    .doesNotContain("\"toSeq\"").doesNotContain("\"context\"");
+            assertThat(states.find(GROUP.threadId()).orElseThrow().unreadCount()).isEqualTo(1);
         }
     }
 
     @Test
-    void ackUsesItemContentCursorWhenLocalDigestStateLags() throws Exception {
+    void ackFallsBackToLocalStateWindowWhenStateLastSeqLags() throws Exception {
         try (EmbeddedInboxServer inbox = EmbeddedInboxServer.start(
                 EmbeddedInboxOptions.builder()
                         .dataDir(tempDir.resolve("inbox-ack-lag"))
@@ -140,8 +140,7 @@ class InboxClientDigestPortTest {
                     "第二条", "", ""));
             InboxDigestService.FlushResult first = service.flushThread(GROUP.threadId());
             InboxDigestState active = states.find(GROUP.threadId()).orElseThrow();
-            states.save(new InboxDigestState(
-                    active.threadId(), active.itemId(), active.revision(), 1L));
+            states.save(active.withLastSeq(1L));
 
             service.markHandled(GROUP.threadId(), first.itemId(), active.revision());
 
@@ -191,7 +190,7 @@ class InboxClientDigestPortTest {
     }
 
     @Test
-    void usesItemContentCursorWhenLocalDigestStateLags() throws Exception {
+    void flushCatchesUpFromLocalWindowWhenLastSeqLags() throws Exception {
         try (EmbeddedInboxServer inbox = EmbeddedInboxServer.start(
                 EmbeddedInboxOptions.builder()
                         .dataDir(tempDir.resolve("inbox-lag"))
@@ -209,8 +208,7 @@ class InboxClientDigestPortTest {
                     "第二条", "", ""));
             InboxDigestService.FlushResult first = service.flushThread(GROUP.threadId());
             InboxDigestState active = states.find(GROUP.threadId()).orElseThrow();
-            states.save(new InboxDigestState(
-                    active.threadId(), active.itemId(), active.revision(), 1L));
+            states.save(active.withLastSeq(1L));
             InboxDigestService.FlushResult caughtUp = service.flushThread(GROUP.threadId());
             assertThat(caughtUp.published()).isFalse();
             assertThat(states.find(GROUP.threadId()).orElseThrow().lastSeq()).isEqualTo(2L);
@@ -226,11 +224,9 @@ class InboxClientDigestPortTest {
                     states.find(GROUP.threadId()).orElseThrow().revision(), 2L);
             InboxDigestState remaining = states.find(GROUP.threadId()).orElseThrow();
             assertThat(remaining.itemId()).isEqualTo(first.itemId());
-            JsonNode content = (JsonNode) inbox.client()
-                    .view("app-lag", remaining.itemId()).content();
-            assertThat(content.path("messages")).hasSize(1);
-            assertThat(content.path("messages").get(0).path("summary").asText())
-                    .contains("第三条");
+            assertThat((String) inbox.client()
+                    .view("app-lag", remaining.itemId()).content())
+                    .contains("第三条").doesNotContain("第一条");
         }
     }
 
@@ -261,13 +257,10 @@ class InboxClientDigestPortTest {
             assertThat(partial.archived()).isFalse();
             InboxDigestState remaining = states.find(GROUP.threadId()).orElseThrow();
             assertThat(remaining.itemId()).isEqualTo(first.itemId());
-            JsonNode partialContent = (JsonNode) inbox.client()
-                    .view("app-ack-through", remaining.itemId()).content();
-            assertThat(partialContent.path("messages"))
-                    .extracting(value -> value.path("summary").asText())
-                    .anyMatch(value -> value.contains("第二条"))
-                    .anyMatch(value -> value.contains("第三条"));
-            assertThat(partialContent.path("unreadCount").asInt()).isEqualTo(2);
+            assertThat((String) inbox.client()
+                    .view("app-ack-through", remaining.itemId()).content())
+                    .contains("第二条").contains("第三条");
+            assertThat(remaining.unreadCount()).isEqualTo(2);
 
             InboxDigestService.AckResult complete = service.ackThrough(GROUP.threadId(), 3L);
 
@@ -280,7 +273,9 @@ class InboxClientDigestPortTest {
     }
 
     @Test
-    void readsLegacyContentWithoutNewUnreadMetadata() throws Exception {
+    void opaqueLegacyContentDoesNotBreakFlush() throws Exception {
+        // content 已改成渲染文本（D-002/D-015），旧库里遗留的 JSON 正文不再被解析；
+        // 解析不到时就退回本地 inbox_digest_state 的窗口，flush 必须照常工作。
         try (EmbeddedInboxServer inbox = EmbeddedInboxServer.start(
                 EmbeddedInboxOptions.builder()
                         .dataDir(tempDir.resolve("inbox-legacy"))
@@ -297,28 +292,25 @@ class InboxClientDigestPortTest {
             board.append(ChatMessage.inbound(GROUP, "m-2", "qq-1", "Alice", T0, T0,
                     "第二条", "", ""));
             InboxDigestService.FlushResult current = service.flushThread(GROUP.threadId());
-            ObjectNode legacy = (ObjectNode) ((JsonNode) inbox.client()
-                    .view("app-legacy", current.itemId()).content()).deepCopy();
-            legacy.remove(List.of("source", "trigger", "unreadCount", "hasMoreUnread",
-                    "summaryComplete"));
-            InboxModels.PushResult pushed = inbox.client().push("app-legacy",
+            inbox.client().push("app-legacy",
                     InboxModels.PushItem.builder("qq")
                             .kind("digest")
                             .summary("旧版摘要")
-                            .content(legacy.toString())
+                            .content("{\"threadId\":\"legacy\"}")
                             .contentRef("message-board://legacy")
                             .dedupeKey("legacy-item")
                             .priority(0)
                             .build());
 
-            InboxDigestItem viewed = port.view(pushed.itemId()).orElseThrow();
+            InboxDigestItem viewed = port.view(current.itemId()).orElseThrow();
 
-            assertThat(viewed.digest()).isNotNull();
-            assertThat(viewed.digest().unreadCount()).isEqualTo(2);
-            assertThat(viewed.digest().hasMoreUnread()).isFalse();
-            assertThat(viewed.digest().summaryComplete()).isFalse();
-            assertThat(viewed.digest().source()).isNull();
-            assertThat(viewed.digest().trigger()).isNull();
+            assertThat(viewed.digest()).isNull();
+            board.append(ChatMessage.inbound(GROUP, "m-3", "qq-1", "Alice", T0, T0,
+                    "第三条", "", ""));
+            InboxDigestService.FlushResult next = service.flushThread(GROUP.threadId());
+            assertThat(next.published()).isTrue();
+            assertThat((String) inbox.client().view("app-legacy", current.itemId()).content())
+                    .contains("第三条");
         }
     }
 
@@ -353,15 +345,14 @@ class InboxClientDigestPortTest {
             InboxModels.ItemDetail detail = inbox.client().view("app-a", first.itemId());
             assertThat(detail.summary()).contains("第二条", "#vip");
             assertThat(detail.source()).isEqualTo("qq_group/bot-1/group-9");
-            assertThat(detail.content()).isInstanceOf(JsonNode.class);
-            JsonNode content = (JsonNode) detail.content();
-            assertThat(content.path("threadId").asText()).isEqualTo(GROUP.threadId());
-            assertThat(content.path("messages")).hasSize(2);
-            assertThat(content.path("unreadCount").asInt()).isEqualTo(2);
-            assertThat(content.path("source").path("chatType").asText()).isEqualTo("group");
-            assertThat(content.path("source").path("targetId").asText()).isEqualTo("group-9");
-            assertThat(content.path("trigger").path("messageId").asText()).isEqualTo("m-2");
-            long revision = states.find(GROUP.threadId()).orElseThrow().revision();
+            assertThat(detail.content()).isInstanceOf(String.class);
+            String content = (String) detail.content();
+            assertThat(content).contains("第一条").contains("第二条").contains("#vip");
+            InboxDigestState published = states.find(GROUP.threadId()).orElseThrow();
+            assertThat(published.unreadCount()).isEqualTo(2);
+            assertThat(published.fromSeq()).isEqualTo(1L);
+            assertThat(published.toSeq()).isEqualTo(2L);
+            long revision = published.revision();
 
             board.append(ChatMessage.inbound(GROUP, "m-3", "qq-1", "Alice", T0, T0,
                     "第三条", "", ""));
@@ -371,15 +362,17 @@ class InboxClientDigestPortTest {
             InboxModels.ItemDetail updated = inbox.client().view("app-a", first.itemId());
             assertThat(updated.summary()).contains("第三条");
             assertThat(updated.revision()).isGreaterThan(revision);
-            assertThat(((JsonNode) updated.content()).path("messages")).hasSize(3);
-            assertThat(((JsonNode) updated.content()).path("unreadCount").asInt()).isEqualTo(3);
+            assertThat((String) updated.content()).contains("第三条");
+            assertThat(states.find(GROUP.threadId()).orElseThrow().unreadCount())
+                    .isEqualTo(3);
 
             service.markHandled(GROUP.threadId(), first.itemId(),
                     states.find(GROUP.threadId()).orElseThrow().revision(), 2L);
             InboxDigestState remaining = states.find(GROUP.threadId()).orElseThrow();
             InboxModels.ItemDetail partial = inbox.client().view("app-a", remaining.itemId());
             assertThat(partial.summary()).contains("第三条");
-            assertThat(((JsonNode) partial.content()).path("messages")).hasSize(1);
+            assertThat((String) partial.content()).contains("第三条")
+                    .doesNotContain("第一条");
 
             service.markHandled(GROUP.threadId(), remaining.itemId(), remaining.revision());
             assertThat(inbox.client().list("app-a", Set.of("qq"), 10).items()).isEmpty();

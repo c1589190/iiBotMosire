@@ -8,6 +8,7 @@ import io.mosire.iibot.bot.inbox.InboxDigestException;
 import io.mosire.iibot.bot.inbox.InboxDigestService;
 import io.mosire.iibot.bot.store.ConsumerConversationState;
 import io.mosire.iibot.bot.store.ConsumerConversationStore;
+import io.mosire.iibot.bot.store.MessageBoardStore;
 
 import java.time.Clock;
 import java.util.LinkedHashMap;
@@ -35,29 +36,35 @@ public final class BotQqConversationAckTool implements AgentTool {
             "required", List.of("source"),
             "additionalProperties", false);
 
+    private final MessageBoardStore board;
     private final ConsumerConversationStore consumers;
     private final InboxDigestService inboxDigests;
     private final Clock clock;
     private final String name;
 
-    public BotQqConversationAckTool(ConsumerConversationStore consumers,
+    public BotQqConversationAckTool(MessageBoardStore board,
+                                    ConsumerConversationStore consumers,
                                     InboxDigestService inboxDigests) {
-        this(consumers, inboxDigests, Clock.systemUTC());
+        this(NAME, board, consumers, inboxDigests, Clock.systemUTC());
     }
 
-    public BotQqConversationAckTool(ConsumerConversationStore consumers,
+    public BotQqConversationAckTool(MessageBoardStore board,
+                                    ConsumerConversationStore consumers,
                                     InboxDigestService inboxDigests, Clock clock) {
-        this(NAME, consumers, inboxDigests, clock);
+        this(NAME, board, consumers, inboxDigests, clock);
     }
 
-    public BotQqConversationAckTool(String name, ConsumerConversationStore consumers,
+    public BotQqConversationAckTool(String name, MessageBoardStore board,
+                                    ConsumerConversationStore consumers,
                                     InboxDigestService inboxDigests) {
-        this(name, consumers, inboxDigests, Clock.systemUTC());
+        this(name, board, consumers, inboxDigests, Clock.systemUTC());
     }
 
-    public BotQqConversationAckTool(String name, ConsumerConversationStore consumers,
+    public BotQqConversationAckTool(String name, MessageBoardStore board,
+                                    ConsumerConversationStore consumers,
                                     InboxDigestService inboxDigests, Clock clock) {
         this.name = Objects.requireNonNull(name, "name");
+        this.board = Objects.requireNonNull(board, "board");
         this.consumers = Objects.requireNonNull(consumers, "consumers");
         this.inboxDigests = Objects.requireNonNull(inboxDigests, "inboxDigests");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -66,7 +73,8 @@ public final class BotQqConversationAckTool implements AgentTool {
     @Override public String name() { return name; }
 
     @Override public String description() {
-        return "确认 source 当前已投递批次处理完毕。返回 more=true 表示同一 active item "
+        return "确认 source 当前已投递批次处理完毕。返回 ackedUpToSeq（本次确认到哪条 seq）"
+                + " 与 remaining（该 seq 之后仍未确认的入站消息条数）；more=true 表示"
                 + "还有未读，应在同一回合继续 read(source)（qq_conversation_read 或 "
                 + "conversation_read）。未 read 时"
                 + "调用会直接消费当前 active item；若只想消费已看到的批次，应先 read。"
@@ -107,7 +115,13 @@ public final class BotQqConversationAckTool implements AgentTool {
                         ackedSeq, clock.instant());
             }
             Map<String, Object> data = new LinkedHashMap<>();
-            data.put("more", inboxAck.remainingToSeq() > 0L);
+            long remainingAfter = ackedSeq > 0L
+                    ? ackedSeq
+                    : found.map(ConsumerConversationState::readSeq).orElse(0L);
+            long remaining = board.countInboundAfter(threadId, remainingAfter);
+            data.put("more", inboxAck.remainingToSeq() > 0L || remaining > 0L);
+            data.put("remaining", remaining);
+            data.put("ackedUpToSeq", ackedSeq);
             return ToolResult.ok(BotToolSupport.json(data));
         } catch (BotToolSupport.InvalidArgumentsException invalid) {
             return BotToolSupport.failure("INVALID_ARGUMENTS", invalid.getMessage());

@@ -8,7 +8,17 @@ import java.util.Objects;
  * <p>{@code itemId} 为空表示只有游标、没有 active item；此时 {@code revision=0}。
  * 该形状允许 Bot 自己的出站消息推进 lastSeq 而不产生自我唤醒。</p>
  */
-public record InboxDigestState(String threadId, String itemId, long revision, long lastSeq) {
+public record InboxDigestState(String threadId, String itemId, long revision, long lastSeq,
+                               long fromSeq, long toSeq, int unreadCount) {
+
+    /**
+     * 兼容旧调用点：只带游标，窗口信息留 0。
+     * 窗口信息（fromSeq/toSeq/unreadCount）是本地权威副本，
+     * 这样 Inbox 的 content 换成渲染文本后仍能不解析正文就推进游标。
+     */
+    public InboxDigestState(String threadId, String itemId, long revision, long lastSeq) {
+        this(threadId, itemId, revision, lastSeq, 0L, 0L, 0);
+    }
 
     public InboxDigestState {
         threadId = requireText(threadId, "threadId");
@@ -28,17 +38,29 @@ public record InboxDigestState(String threadId, String itemId, long revision, lo
         return new InboxDigestState(threadId, "", 0L, lastSeq);
     }
 
+    /** 记录当前 active item 覆盖的窗口与未读数。 */
+    public InboxDigestState withWindow(long newFromSeq, long newToSeq, int newUnreadCount) {
+        return new InboxDigestState(threadId, itemId, revision, lastSeq,
+                newFromSeq, newToSeq, newUnreadCount);
+    }
+
+    public boolean hasWindow() {
+        return toSeq > 0L && toSeq >= fromSeq;
+    }
+
     public boolean hasActiveItem() {
         return !itemId.isEmpty();
     }
 
     public InboxDigestState withItem(Item item, long newLastSeq) {
         Objects.requireNonNull(item, "item");
-        return new InboxDigestState(threadId, item.itemId(), item.revision(), newLastSeq);
+        return new InboxDigestState(threadId, item.itemId(), item.revision(), newLastSeq,
+                fromSeq, toSeq, unreadCount);
     }
 
     public InboxDigestState withLastSeq(long newLastSeq) {
-        return new InboxDigestState(threadId, itemId, revision, newLastSeq);
+        return new InboxDigestState(threadId, itemId, revision, newLastSeq,
+                fromSeq, toSeq, unreadCount);
     }
 
     /** 只用于与 Inbox 返回对象组合的内部形状。 */

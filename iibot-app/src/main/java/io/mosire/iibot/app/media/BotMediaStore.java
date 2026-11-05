@@ -2,6 +2,7 @@ package io.mosire.iibot.app.media;
 
 import io.mosire.agentlib.llm.ToolAsset;
 import io.mosire.agentlib.llm.ToolAssetResolver;
+import io.mosire.iibot.bot.media.MediaAssetSink;
 import io.mosire.iibot.connect.core.MediaAsset;
 
 import java.io.IOException;
@@ -23,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 受控图片资产库：文件落在 dataDir/media，MCP 只拿 assetId，不拿 URL/字节。
  */
-public final class BotMediaStore implements ToolAssetResolver {
+public final class BotMediaStore implements ToolAssetResolver, MediaAssetSink {
 
     private final Path directory;
     private final Path sourcesDirectory;
@@ -131,6 +132,47 @@ public final class BotMediaStore implements ToolAssetResolver {
         } catch (IOException failure) {
             // Cache bookkeeping must never fail media retrieval.
         }
+    }
+
+    /**
+     * 清理早于 {@code cutoff} 的媒体资产与来源映射，返回删除的文件数。
+     *
+     * <p>媒体区是**临时区**：QQ 的直链与 NapCat 缓存本来就有生存期，这里按天滚动清理，
+     * 默认保留 7 天（{@code media.retentionDays}）。清理只删文件，不动消息板。</p>
+     */
+    public int purgeOlderThan(java.time.Instant cutoff) {
+        Objects.requireNonNull(cutoff, "cutoff");
+        int removed = purgeDirectory(directory, cutoff);
+        removed += purgeDirectory(sourcesDirectory, cutoff);
+        return removed;
+    }
+
+    private int purgeDirectory(Path root, java.time.Instant cutoff) {
+        int removed = 0;
+        try (var files = Files.list(root)) {
+            for (Path path : files.toList()) {
+                if (Files.isDirectory(path)) {
+                    continue;
+                }
+                try {
+                    if (!Files.getLastModifiedTime(path).toInstant().isBefore(cutoff)) {
+                        continue;
+                    }
+                    Files.deleteIfExists(path);
+                    removed++;
+                    String name = path.getFileName().toString();
+                    int dot = name.indexOf('.');
+                    if (dot > 0) {
+                        cache.remove(name.substring(0, dot));
+                    }
+                } catch (IOException | RuntimeException ignored) {
+                    // 单个文件删不掉不影响其它文件；下一轮再试。
+                }
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // 目录不存在或不可读：当作没有可清理的内容。
+        }
+        return removed;
     }
 
     private Path sourceMarker(String sourceKey) {

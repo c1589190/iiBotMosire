@@ -35,9 +35,15 @@ public final class SqliteInboxDigestStateStore implements InboxDigestStateStore,
                           thread_id TEXT PRIMARY KEY,
                           item_id TEXT NOT NULL,
                           revision INTEGER NOT NULL,
-                          last_seq INTEGER NOT NULL
+                          last_seq INTEGER NOT NULL,
+                          from_seq INTEGER NOT NULL DEFAULT 0,
+                          to_seq INTEGER NOT NULL DEFAULT 0,
+                          unread_count INTEGER NOT NULL DEFAULT 0
                         )
                         """);
+                addColumnIfMissing(statement, "from_seq");
+                addColumnIfMissing(statement, "to_seq");
+                addColumnIfMissing(statement, "unread_count");
             }
         } catch (IOException | SQLException failure) {
             throw new IllegalStateException("打开 SQLite digest 游标失败", failure);
@@ -51,7 +57,8 @@ public final class SqliteInboxDigestStateStore implements InboxDigestStateStore,
             return Optional.empty();
         }
         try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT thread_id, item_id, revision, last_seq
+                SELECT thread_id, item_id, revision, last_seq,
+                       from_seq, to_seq, unread_count
                 FROM inbox_digest_state
                 WHERE thread_id = ?
                 """)) {
@@ -64,7 +71,10 @@ public final class SqliteInboxDigestStateStore implements InboxDigestStateStore,
                         result.getString("thread_id"),
                         result.getString("item_id"),
                         result.getLong("revision"),
-                        result.getLong("last_seq")));
+                        result.getLong("last_seq"),
+                        result.getLong("from_seq"),
+                        result.getLong("to_seq"),
+                        result.getInt("unread_count")));
             }
         } catch (SQLException failure) {
             throw new IllegalStateException("读取 SQLite digest 游标失败", failure);
@@ -76,20 +86,42 @@ public final class SqliteInboxDigestStateStore implements InboxDigestStateStore,
         ensureOpen();
         Objects.requireNonNull(state, "state");
         try (PreparedStatement statement = connection.prepareStatement("""
-                INSERT INTO inbox_digest_state (thread_id, item_id, revision, last_seq)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO inbox_digest_state (thread_id, item_id, revision, last_seq,
+                                                from_seq, to_seq, unread_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(thread_id) DO UPDATE SET
                   item_id = excluded.item_id,
                   revision = excluded.revision,
-                  last_seq = excluded.last_seq
+                  last_seq = excluded.last_seq,
+                  from_seq = excluded.from_seq,
+                  to_seq = excluded.to_seq,
+                  unread_count = excluded.unread_count
                 """)) {
             statement.setString(1, state.threadId());
             statement.setString(2, state.itemId());
             statement.setLong(3, state.revision());
             statement.setLong(4, state.lastSeq());
+            statement.setLong(5, state.fromSeq());
+            statement.setLong(6, state.toSeq());
+            statement.setInt(7, state.unreadCount());
             statement.executeUpdate();
         } catch (SQLException failure) {
             throw new IllegalStateException("写入 SQLite digest 游标失败", failure);
+        }
+    }
+
+    /** SQLite 没有 ADD COLUMN IF NOT EXISTS，重复列名只能靠捕获异常吃掉。 */
+    private static void addColumnIfMissing(Statement statement, String column) {
+        String definition = switch (column) {
+            case "from_seq", "to_seq" -> "INTEGER NOT NULL DEFAULT 0";
+            case "unread_count" -> "INTEGER NOT NULL DEFAULT 0";
+            default -> throw new IllegalArgumentException("未知列 " + column);
+        };
+        try {
+            statement.execute("ALTER TABLE inbox_digest_state ADD COLUMN "
+                    + column + " " + definition);
+        } catch (SQLException alreadyThere) {
+            // 列已存在：迁移幂等。
         }
     }
 

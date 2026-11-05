@@ -34,7 +34,12 @@ public final class BotQqConversationReadTool implements AgentTool {
             "type", "object",
             "properties", Map.of(
                     "source", Map.of("type", "string", "minLength", 1,
-                            "description", "统一来源地址")),
+                            "description", "统一来源地址"),
+                    "limit", Map.of("type", "integer", "minimum", 1, "maximum", MAX_LIMIT,
+                            "default", DEFAULT_LIMIT,
+                            "description", "本次最多返回多少条消息（1.." + MAX_LIMIT
+                                    + "，默认 " + DEFAULT_LIMIT
+                                    + "）；超出时 more=true，剩余留到下一批")),
             "required", List.of("source"),
             "additionalProperties", false);
 
@@ -69,11 +74,13 @@ public final class BotQqConversationReadTool implements AgentTool {
     @Override public String name() { return name; }
 
     @Override public String description() {
-        return "读取 source 当前未 ack 的入站消息批次。每条消息返回 seq、messageId、"
+        return "读取 source 当前未 ack 的入站消息批次。limit 控制单批条数"
+                + "（默认 " + DEFAULT_LIMIT + "，最大 " + MAX_LIMIT + "）。"
+                + "每条消息返回 seq、messageId、"
                 + "发送者、text 和必要媒体段；messageId/seq 可直接用于 qq_conversation_send "
                 + "的 replyToMessageId/replyToSeq。more=true 表示本次批次之后仍有未读，"
-                + "处理完当前批次应调用 qq_conversation_ack(source)，再按 ack.more 决定"
-                + "是否同轮继续 read。若本轮 wake 的 kind=digest_complete 或"
+                + "处理完当前批次应调用 qq_conversation_ack(source)，再按 ack.remaining "
+                + "决定是否同轮继续 read。若本轮 wake 的 kind=digest_complete 或"
                 + " complete=true，并且没有 truncated=true，正文已完整，不需要先 read，"
                 + "可直接 ack(source)；truncated=true 表示摘要被截断，必须先 read。";
     }

@@ -7,8 +7,8 @@ import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolResult;
 import io.mosire.iibot.bot.chat.ChatMessage;
+import io.mosire.iibot.bot.media.MessageImageAssets;
 import io.mosire.iibot.bot.store.MessageBoardStore;
-import io.mosire.iibot.connect.core.MediaAsset;
 import io.mosire.iibot.connect.core.MediaCapability;
 import io.mosire.iibot.connect.core.MessageSegment;
 
@@ -18,9 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 /** 按需把消息中的图片取回为 MCP ImageContent。 */
 public final class BotMediaGetTool implements AgentTool {
@@ -33,7 +31,10 @@ public final class BotMediaGetTool implements AgentTool {
             "properties", Map.of(
                     "messageKey", Map.of("type", "string", "minLength", 1),
                     "limit", Map.of("type", "integer", "minimum", 1, "maximum", 4,
-                            "description", "最多返回图片数，默认 4")),
+                            "description", "最多返回图片数，默认 4"),
+                    "saveTo", Map.of("type", "string", "maxLength", 512,
+                            "description", "相对 downloads 的目录/文件名；提供时把图片落盘并"
+                                    + "返回 saved（省略则只返回资产，不落盘）")),
             "required", List.of("messageKey"),
             "additionalProperties", false);
 
@@ -41,14 +42,22 @@ public final class BotMediaGetTool implements AgentTool {
     private final MediaCapability singleMediaProvider;
     private final Map<String, MediaCapability> mediaProviders;
     private final BotMediaStore mediaStore;
+    private final MediaDownloadSink downloadSink;
 
     /** 单账号兼容构造器。 */
     public BotMediaGetTool(MessageBoardStore board, MediaCapability mediaProvider,
                            BotMediaStore mediaStore) {
+        this(board, mediaProvider, mediaStore, null);
+    }
+
+    /** 单账号构造器，允许显式指定下载落点。 */
+    public BotMediaGetTool(MessageBoardStore board, MediaCapability mediaProvider,
+                           BotMediaStore mediaStore, MediaDownloadSink downloadSink) {
         this.board = Objects.requireNonNull(board, "board");
         this.singleMediaProvider = Objects.requireNonNull(mediaProvider, "mediaProvider");
         this.mediaProviders = Map.of();
         this.mediaStore = Objects.requireNonNull(mediaStore, "mediaStore");
+        this.downloadSink = downloadSink;
     }
 
     /**
@@ -57,12 +66,20 @@ public final class BotMediaGetTool implements AgentTool {
     public BotMediaGetTool(MessageBoardStore board,
                            Map<String, MediaCapability> mediaProviders,
                            BotMediaStore mediaStore) {
+        this(board, mediaProviders, mediaStore, null);
+    }
+
+    /** 多账号构造器，允许显式指定下载落点。 */
+    public BotMediaGetTool(MessageBoardStore board,
+                           Map<String, MediaCapability> mediaProviders,
+                           BotMediaStore mediaStore, MediaDownloadSink downloadSink) {
         this.board = Objects.requireNonNull(board, "board");
         Objects.requireNonNull(mediaProviders, "mediaProviders");
         this.singleMediaProvider = null;
         this.mediaProviders = Collections.unmodifiableMap(
                 new LinkedHashMap<>(mediaProviders));
         this.mediaStore = Objects.requireNonNull(mediaStore, "mediaStore");
+        this.downloadSink = downloadSink;
     }
 
     @Override public String name() { return NAME; }
@@ -88,73 +105,57 @@ public final class BotMediaGetTool implements AgentTool {
                         "该消息所属账号当前不可用或未提供媒体读取能力");
             }
             int limit = optionalInt(context.arguments(), "limit", 4);
-            List<MessageSegment> images = board.segments(messageKey).stream()
-                    .filter(segment -> segment.type() == MessageSegment.Type.IMAGE)
-                    .limit(limit)
-                    .toList();
-            boolean fallbackUsed = false;
-            if (images.isEmpty() && message.messageId() != null
-                    && !message.messageId().isBlank()) {
-                try {
-                    images = mediaProvider.imageSegmentsForMessage(message.messageId())
-                            .toCompletableFuture().get(20, TimeUnit.SECONDS).stream()
-                            .filter(segment -> segment.type() == MessageSegment.Type.IMAGE)
-                            .limit(limit)
-                            .toList();
-                    fallbackUsed = true;
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    return ToolResult.error("MEDIA_UNAVAILABLE", "图片回退读取被中断");
-                } catch (Exception failure) {
-                    return ToolResult.error("MEDIA_UNAVAILABLE",
-                            "OneBot 图片回退失败（内部原因已脱敏）");
-                }
+            boolean saveRequested = context.arguments() != null
+                    && context.arguments().containsKey("saveTo");
+            if (saveRequested && downloadSink == null) {
+                return ToolResult.error("MEDIA_UNAVAILABLE", "下载落点当前不可用");
             }
-            if (images.isEmpty()) {
-                return ToolResult.error("MEDIA_NOT_FOUND", "消息中没有图片段");
+            String saveTo = saveRequested
+                    ? optionalText(context.arguments(), "saveTo", 512)
+                    : "";
+            if (saveRequested) {
+                downloadSink.validate(saveTo);
+            }
+
+            MessageImageAssets.Result result = MessageImageAssets.read(
+                    board, mediaProvider, mediaStore, message, limit);
+            if (result.failed()) {
+                return ToolResult.error(result.failureCode(), result.failureMessage());
             }
             List<String> assetIds = new ArrayList<>();
             List<Map<String, Object>> metadata = new ArrayList<>();
             List<Map<String, Object>> errors = new ArrayList<>();
-            for (MessageSegment image : images) {
-                try {
-                    String sourceKey = sourceKey(messageKey, image);
-                    Optional<String> cachedId = mediaStore.findBySource(sourceKey);
-                    if (cachedId.isPresent()) {
-                        Optional<ToolAsset> cached = mediaStore.resolve(cachedId.orElseThrow());
-                        if (cached.isPresent()) {
-                            ToolAsset asset = cached.orElseThrow();
-                            String assetId = cachedId.orElseThrow();
-                            assetIds.add(assetId);
-                            metadata.add(mediaMetadata(image, assetId, asset, true));
-                            continue;
-                        }
+            for (MessageImageAssets.Image image : result.images()) {
+                assetIds.add(image.assetId());
+                metadata.add(mediaMetadata(image));
+            }
+            for (MessageImageAssets.Error error : result.errors()) {
+                errors.add(error(error.segmentIndex(), error.code()));
+            }
+            List<String> saved = new ArrayList<>();
+            if (saveRequested) {
+                for (MessageImageAssets.Image image : result.images()) {
+                    ToolAsset asset = mediaStore.resolve(image.assetId()).orElse(null);
+                    if (asset == null) {
+                        errors.add(error(image.segmentIndex(), "MEDIA_UNAVAILABLE"));
+                        continue;
                     }
-                    MediaAsset asset = mediaProvider.image(image)
-                            .toCompletableFuture().get(20, TimeUnit.SECONDS);
-                    String assetId = mediaStore.store(asset);
-                    mediaStore.rememberSource(sourceKey, assetId);
-                    assetIds.add(assetId);
-                    metadata.add(mediaMetadata(image, assetId,
-                            new ToolAsset(asset.mediaType(), asset.bytes()), false));
-                } catch (Exception failure) {
-                    Map<String, Object> item = new LinkedHashMap<>();
-                    item.put("segmentIndex", image.index());
-                    item.put("code", "MEDIA_UNAVAILABLE");
-                    errors.add(item);
+                    String fileName = MediaDownloadSink.defaultFileName(
+                            messageKey, image.segmentIndex(), image.mediaType());
+                    saved.add(downloadSink.save(saveTo, fileName, asset.bytes()).toString());
                 }
             }
-            if (assetIds.isEmpty()) {
-                return ToolResult.error("MEDIA_UNAVAILABLE", "图片读取失败（内部原因已脱敏）");
-            }
+
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("source", message.source().sourceAddress().canonical());
             data.put("threadId", message.source().threadId());
             data.put("messageKey", messageKey);
             data.put("count", assetIds.size());
-            data.put("retrievalSource", fallbackUsed ? "onebot_get_msg" : "local_segments");
+            data.put("retrievalSource",
+                    result.fallbackUsed() ? "onebot_get_msg" : "local_segments");
             data.put("images", metadata);
             data.put("errors", errors);
+            data.put("saved", saved);
             return ToolResult.ok(JSON.writeValueAsString(data), assetIds);
         } catch (IllegalArgumentException invalid) {
             return ToolResult.error("INVALID_ARGUMENTS", invalid.getMessage());
@@ -163,26 +164,22 @@ public final class BotMediaGetTool implements AgentTool {
         }
     }
 
-    private static Map<String, Object> mediaMetadata(MessageSegment image, String assetId,
-                                                      ToolAsset asset, boolean cached) {
+    private static Map<String, Object> mediaMetadata(MessageImageAssets.Image image) {
         Map<String, Object> item = new LinkedHashMap<>();
-        item.put("segmentIndex", image.index());
-        item.put("assetId", assetId);
-        item.put("sha256", sha256Of(assetId));
-        item.put("mediaType", asset.mediaType());
-        item.put("size", asset.bytes().length);
-        item.put("cached", cached);
+        item.put("segmentIndex", image.segmentIndex());
+        item.put("assetId", image.assetId());
+        item.put("sha256", sha256Of(image.assetId()));
+        item.put("mediaType", image.mediaType());
+        item.put("size", image.size());
+        item.put("cached", image.cached());
         return item;
     }
 
-    private static String sourceKey(String messageKey, MessageSegment image) {
-        if (!image.fileId().isBlank()) {
-            return "file:" + image.fileId();
-        }
-        if (!image.url().isBlank()) {
-            return "url:" + image.url();
-        }
-        return "message:" + messageKey + ":" + image.index();
+    private static Map<String, Object> error(int segmentIndex, String code) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("segmentIndex", segmentIndex);
+        item.put("code", code);
+        return item;
     }
 
     private static String sha256Of(String assetId) {
@@ -208,6 +205,21 @@ public final class BotMediaGetTool implements AgentTool {
             throw new IllegalArgumentException(name + " 不能为空");
         }
         return text;
+    }
+
+    private static String optionalText(Map<String, Object> args, String name, int maxLength) {
+        Object value = args == null ? null : args.get(name);
+        if (value == null) {
+            return "";
+        }
+        if (!(value instanceof String text)) {
+            throw new IllegalArgumentException(name + " 必须是字符串");
+        }
+        String normalized = text.trim();
+        if (normalized.length() > maxLength) {
+            throw new IllegalArgumentException(name + " 超过长度上限");
+        }
+        return normalized;
     }
 
     private static int optionalInt(Map<String, Object> args, String name, int fallback) {

@@ -4,6 +4,8 @@ import io.mosire.iibot.bot.chat.ChatDirection;
 import io.mosire.iibot.bot.chat.ChatMessage;
 import io.mosire.iibot.bot.chat.ChatSourceKey;
 import io.mosire.iibot.bot.chat.ChatThread;
+import io.mosire.iibot.bot.note.UserNote;
+import io.mosire.iibot.bot.note.UserNoteStore;
 import io.mosire.iibot.bot.store.MessageBoardStore;
 import io.mosire.iibot.connect.core.InboundMessage;
 import io.mosire.iibot.connect.ops.OpsLog;
@@ -25,13 +27,23 @@ public final class SourceWeightService {
 
     private final SourceWeightStore store;
     private final MessageBoardStore board;
+    private final UserNoteStore notes;
     private final WeightSettings settings;
     private final Clock clock;
 
     public SourceWeightService(SourceWeightStore store, MessageBoardStore board,
                                WeightSettings settings, Clock clock) {
+        this(store, board, null, settings, clock);
+    }
+
+    /**
+     * @param notes 人群一级标签的来源；为 null 时只按来源权重判档
+     */
+    public SourceWeightService(SourceWeightStore store, MessageBoardStore board,
+                               UserNoteStore notes, WeightSettings settings, Clock clock) {
         this.store = Objects.requireNonNull(store, "store");
         this.board = Objects.requireNonNull(board, "board");
+        this.notes = notes;
         this.settings = Objects.requireNonNull(settings, "settings");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
@@ -202,13 +214,35 @@ public final class SourceWeightService {
     }
 
     /**
-     * 全唤醒模式下所有入站消息使用同一个调度窗口，不再按 actionable(@/阈值)
-     * 区分快慢；具体防抖时长由 {@code InboxDigestScheduler} 的
-     * {@code digestDebounceMillis} 决定。返回 0 表示“使用调度器默认窗口”。
+     * 差序激活：普通消息用 {@code normalDelayMillis}（默认 30s）批量推送，
+     * 重要消息用 {@code importantDelayMillis}（默认 1s）立即推送。
+     *
+     * <p>判档只看"这个来源重不重要"：{@code max(一级=人 UserNote.priority,
+     * 二级=群/会话 SourceWeightPolicy.sourceWeight)} 达到
+     * {@code notifyThreshold}（默认 200）即为重要。私聊默认权重 300，
+     * 因此私聊必定即时注入；群默认 0，需要 Agent 把人或群标为重要才会即时。</p>
      */
     public synchronized long enqueueDelayMillis(SourceWeightPolicy policy,
                                                 MessageWeightDecision decision) {
-        return 0L;
+        return enqueueDelayMillis(policy, decision, null, null);
+    }
+
+    /** 带发送者身份的重载；{@code accountId/senderId} 用于读一级（人）标签。 */
+    public synchronized long enqueueDelayMillis(SourceWeightPolicy policy,
+                                                MessageWeightDecision decision,
+                                                String accountId, String senderId) {
+        if (policy == null) {
+            return settings.normalDelayMillis();
+        }
+        int personPriority = 0;
+        if (notes != null && accountId != null && !accountId.isBlank()
+                && senderId != null && !senderId.isBlank()) {
+            personPriority = notes.find(accountId, senderId)
+                    .map(UserNote::priority).orElse(0);
+        }
+        int priority = Math.max(policy.sourceWeight(), personPriority);
+        boolean important = priority >= policy.notifyThreshold();
+        return important ? settings.importantDelayMillis() : settings.normalDelayMillis();
     }
 
     private boolean containsAlias(String lowerText) {

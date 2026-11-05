@@ -30,7 +30,10 @@ public final class BotConfigLoader {
 
     private static final Set<String> ROOT_FIELDS = Set.of(
             "$schema", "dataDir", "accounts", "control", "inbox", "messageBoard",
-            "logging", "video");
+            "logging", "video", "media",
+            // 配置医生搬运未知键的落点：内容保留、明确不生效（见 BotConfigDoctor）。
+            "x-unknown");
+    private static final Set<String> MEDIA_FIELDS = Set.of("retentionDays", "prewarm", "prewarmMaxBytes");
     private static final Set<String> ACCOUNT_FIELDS = Set.of(
             "enabled", "adapter", "accountId", "oneBot", "bilibili");
     private static final Set<String> ONEBOT_FIELDS = Set.of(
@@ -55,7 +58,8 @@ public final class BotConfigLoader {
     private static final Set<String> WEIGHTING_FIELDS = Set.of(
             "defaultPrivateSourceWeight", "defaultGroupSourceWeight",
             "defaultNotifyThreshold", "signalWeights", "keywordWeights",
-            "aliases", "commandPrefixes", "quietMillis", "cooldownMillis");
+            "aliases", "commandPrefixes", "quietMillis", "cooldownMillis",
+            "normalDelayMillis", "importantDelayMillis");
     private static final Set<String> LOGGING_FIELDS = Set.of(
             "directory", "console", "file", "rootLevel", "opsLevel", "levels",
             "maxFileSize", "maxHistory");
@@ -155,11 +159,12 @@ public final class BotConfigLoader {
             BotConfig.MessageBoard messageBoard = parseMessageBoard(root);
             BotConfig.Logging logging = parseLogging(root, baseDir);
             BotConfig.Video video = parseVideo(root);
+            BotConfig.Media media = parseMedia(root);
 
             BotConfig config;
             try {
                 config = new BotConfig(dataDir, accounts, control, inbox, messageBoard,
-                        logging, video);
+                        logging, video, media);
             } catch (IllegalArgumentException invalid) {
                 throw error("/", "valid bot config", "object", invalid.getMessage());
             }
@@ -426,6 +431,24 @@ public final class BotConfigLoader {
             }
         }
 
+        private BotConfig.Media parseMedia(JsonNode root) {
+            JsonNode node = optionalObject(root, "media", "/");
+            if (node == null) {
+                return BotConfig.Media.defaults();
+            }
+            String pointer = "/media";
+            rejectUnknown(node, MEDIA_FIELDS, pointer, "media");
+            int retentionDays = optionalInt(node, "retentionDays", "/media", 7);
+            boolean prewarm = optionalBoolean(node, "prewarm", "/media", true);
+            long prewarmMaxBytes = optionalLong(node, "prewarmMaxBytes", "/media",
+                    BotConfig.Media.DEFAULT_PREWARM_MAX_BYTES);
+            try {
+                return new BotConfig.Media(retentionDays, prewarm, prewarmMaxBytes);
+            } catch (IllegalArgumentException invalid) {
+                throw error(pointer, "valid media config", "object", invalid.getMessage());
+            }
+        }
+
         private BotConfig.MessageBoard parseMessageBoard(JsonNode root) {
             JsonNode node = optionalObject(root, "messageBoard", "/");
             if (node == null) {
@@ -476,9 +499,11 @@ public final class BotConfigLoader {
             rejectUnknown(node, WEIGHTING_FIELDS, pointer, "weighting");
             int privateWeight = optionalInt(node, "defaultPrivateSourceWeight", pointer, 300);
             int groupWeight = optionalInt(node, "defaultGroupSourceWeight", pointer, 0);
-            int threshold = optionalInt(node, "defaultNotifyThreshold", pointer, 100);
+            int threshold = optionalInt(node, "defaultNotifyThreshold", pointer, 200);
             long quiet = optionalLong(node, "quietMillis", pointer, 180_000L);
             long cooldown = optionalLong(node, "cooldownMillis", pointer, 60_000L);
+            long normalDelay = optionalLong(node, "normalDelayMillis", pointer, 30_000L);
+            long importantDelay = optionalLong(node, "importantDelayMillis", pointer, 1_000L);
             Map<String, Integer> signals = optionalWeightMap(node, "signalWeights", pointer,
                     Map.of("DM", 200, "MENTION", 200, "REPLY_TO_BOT", 180,
                             "NAME", 120, "COMMAND", 250));
@@ -489,7 +514,8 @@ public final class BotConfigLoader {
                     .orElse(Set.of("/", "!"));
             try {
                 return new BotConfig.Weighting(privateWeight, groupWeight, threshold,
-                        signals, keywords, aliases, commands, quiet, cooldown);
+                        signals, keywords, aliases, commands, quiet, cooldown,
+                        normalDelay, importantDelay);
             } catch (IllegalArgumentException invalid) {
                 throw error(pointer, "valid weighting config", "object",
                         invalid.getMessage());

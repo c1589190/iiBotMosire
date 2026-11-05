@@ -28,12 +28,20 @@ public record BotConfig(
         Inbox inbox,
         MessageBoard messageBoard,
         Logging logging,
-        Video video) {
+        Video video,
+        Media media) {
 
-    /** 兼容 V2 及之前没有 video 配置的调用方。 */
+    /** 兼容 V2 及之前没有 video / media 配置的调用方。 */
     public BotConfig(Path dataDir, Map<String, Account> accounts, Control control,
                      Inbox inbox, MessageBoard messageBoard, Logging logging) {
-        this(dataDir, accounts, control, inbox, messageBoard, logging, Video.defaults());
+        this(dataDir, accounts, control, inbox, messageBoard, logging, Video.defaults(),
+                Media.defaults());
+    }
+
+    /** 兼容没有 media 配置的调用方。 */
+    public BotConfig(Path dataDir, Map<String, Account> accounts, Control control,
+                     Inbox inbox, MessageBoard messageBoard, Logging logging, Video video) {
+        this(dataDir, accounts, control, inbox, messageBoard, logging, video, Media.defaults());
     }
 
     public BotConfig {
@@ -50,6 +58,7 @@ public record BotConfig(
         messageBoard = messageBoard == null ? MessageBoard.defaults() : messageBoard;
         logging = logging == null ? Logging.defaults(dataDir.getParent()) : logging;
         video = video == null ? Video.defaults() : video;
+        media = media == null ? Media.defaults() : media;
         if (accounts.values().stream().noneMatch(Account::enabled)) {
             throw new IllegalArgumentException("accounts 至少需要一个 enabled=true 的账号");
         }
@@ -347,6 +356,38 @@ public record BotConfig(
         }
     }
 
+    /**
+     * 媒体临时区（D-019）。
+     *
+     * <p>所有入站媒体先落盘再被读取；直链会过期，等待事后下载必然失败。</p>
+     *
+     * @param retentionDays 保留天数，默认 7；0 表示不自动清理
+     * @param prewarm       是否在入站时异步抓取字节，默认 true
+     */
+    public record Media(int retentionDays, boolean prewarm, long prewarmMaxBytes) {
+
+        public Media {
+            if (retentionDays < 0 || retentionDays > 365) {
+                throw new IllegalArgumentException("media.retentionDays 必须在 0..365");
+            }
+            if (prewarmMaxBytes < 0L || prewarmMaxBytes > 1_073_741_824L) {
+                throw new IllegalArgumentException("media.prewarmMaxBytes 必须在 0..1073741824");
+            }
+        }
+
+        /** 兼容只有保留天数与开关的调用方。 */
+        public Media(int retentionDays, boolean prewarm) {
+            this(retentionDays, prewarm, DEFAULT_PREWARM_MAX_BYTES);
+        }
+
+        /** 语音/文件默认只预热到这个大小（5 MiB），再大就等 Agent 真要时拉。 */
+        public static final long DEFAULT_PREWARM_MAX_BYTES = 5L * 1024L * 1024L;
+
+        public static Media defaults() {
+            return new Media(7, true, DEFAULT_PREWARM_MAX_BYTES);
+        }
+    }
+
     public record MessageBoard(long summaryDebounceMillis, int maxPreviewMessages,
                                int inlineMaxChars, int contextMessages,
                                int contextMaxChars, int summaryMaxChars,
@@ -418,14 +459,16 @@ public record BotConfig(
             Set<String> aliases,
             Set<String> commandPrefixes,
             long quietMillis,
-            long cooldownMillis) {
+            long cooldownMillis,
+            long normalDelayMillis,
+            long importantDelayMillis) {
 
         public static Weighting defaults() {
-            return new Weighting(300, 0, 100,
+            return new Weighting(300, 0, 200,
                     Map.of("DM", 200, "MENTION", 200,
                             "REPLY_TO_BOT", 180, "NAME", 120, "COMMAND", 250),
                     Map.of(), Set.of(), Set.of("/", "!"),
-                    180_000L, 60_000L);
+                    180_000L, 60_000L, 30_000L, 1_000L);
         }
 
         public Weighting {
@@ -450,6 +493,14 @@ public record BotConfig(
                     || cooldownMillis < 0L || cooldownMillis > 86_400_000L) {
                 throw new IllegalArgumentException("weighting quiet/cooldown 超出范围");
             }
+            // 缺省 JSON 里没有这两个键时 Jackson 传 0：回落到默认值而不是立即唤醒。
+            if (normalDelayMillis <= 0L) {
+                normalDelayMillis = 30_000L;
+            }
+            if (normalDelayMillis > 600_000L || importantDelayMillis > 600_000L
+                    || importantDelayMillis < 0L) {
+                throw new IllegalArgumentException("weighting 推送间隔必须在 0..600000");
+            }
         }
 
         public io.mosire.iibot.bot.weight.WeightSettings toSettings(int maxMessagesPerDigest) {
@@ -460,7 +511,8 @@ public record BotConfig(
             return new io.mosire.iibot.bot.weight.WeightSettings(
                     defaultPrivateSourceWeight, defaultGroupSourceWeight,
                     defaultNotifyThreshold, signals, keywordWeights, aliases,
-                    commandPrefixes, maxMessagesPerDigest, quietMillis, cooldownMillis);
+                    commandPrefixes, maxMessagesPerDigest, quietMillis, cooldownMillis,
+                    normalDelayMillis, importantDelayMillis);
         }
 
         private static Map<String, Integer> normalizeWeightMap(

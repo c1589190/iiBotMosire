@@ -23,7 +23,9 @@ public record MessageSummary(
         String note,
         int priority,
         String summary,
-        Instant sentAt) {
+        Instant sentAt,
+        String replyToMessageId,
+        String replyToSummary) {
 
     public MessageSummary {
         threadId = requireText(threadId, "threadId");
@@ -41,6 +43,17 @@ public record MessageSummary(
             throw new IllegalArgumentException("priority 必须在 -1000..1000");
         }
         summary = requireText(summary, "summary");
+        replyToMessageId = replyToMessageId == null ? "" : replyToMessageId.trim();
+        replyToSummary = replyToSummary == null ? "" : replyToSummary.trim();
+    }
+
+    /** 兼容构造器：不带引用信息（旧内容反解与旧调用点）。 */
+    public MessageSummary(
+            String threadId, long localSeq, String messageId, String messageKey,
+            ChatDirection direction, String senderId, String senderName, Set<String> tags,
+            String note, int priority, String summary, Instant sentAt) {
+        this(threadId, localSeq, messageId, messageKey, direction, senderId, senderName,
+                tags, note, priority, summary, sentAt, "", "");
     }
 
     /**
@@ -54,7 +67,7 @@ public record MessageSummary(
             String senderId, String senderName, Set<String> tags, String note,
             int priority, String summary, Instant sentAt) {
         this(threadId, localSeq, messageId, "", direction, senderId, senderName, tags,
-                note, priority, summary, sentAt);
+                note, priority, summary, sentAt, "", "");
     }
 
     private static String requireText(String value, String name) {

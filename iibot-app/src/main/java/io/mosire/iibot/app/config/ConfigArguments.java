@@ -8,7 +8,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-/** 配置/诊断 CLI 参数：--config、--check-config、--print-effective-config、--log-level。 */
+/**
+ * 配置/诊断 CLI 参数：--config、--check-config、--print-effective-config、--log-level，
+ * 以及配置医生的 --fix-config / --no-fix-config。 */
 public final class ConfigArguments {
 
     public static final Set<String> LOG_LEVELS =
@@ -24,6 +26,7 @@ public final class ConfigArguments {
         boolean explicitConfig = false;
         boolean checkConfig = false;
         boolean printEffectiveConfig = false;
+        boolean autoFixConfig = true;
         String logLevel = null;
         if (args != null) {
             for (int index = 0; index < args.length; index++) {
@@ -58,6 +61,14 @@ public final class ConfigArguments {
                     printEffectiveConfig = true;
                     continue;
                 }
+                if ("--fix-config".equals(arg)) {
+                    autoFixConfig = true;
+                    continue;
+                }
+                if ("--no-fix-config".equals(arg)) {
+                    autoFixConfig = false;
+                    continue;
+                }
                 if ("--log-level".equals(arg)) {
                     if (index + 1 >= args.length || args[index + 1].isBlank()
                             || args[index + 1].startsWith("--")) {
@@ -85,7 +96,8 @@ public final class ConfigArguments {
             sources.add(defaultSource);
         }
         return new ParseResult(List.copyOf(sources), help, explicitConfig,
-                checkConfig, printEffectiveConfig, Optional.ofNullable(logLevel));
+                checkConfig, printEffectiveConfig, autoFixConfig,
+                Optional.ofNullable(logLevel));
     }
 
     private static String normalizeLevel(String value) {
@@ -98,7 +110,7 @@ public final class ConfigArguments {
 
     public record ParseResult(List<Path> sources, boolean helpRequested,
                               boolean explicitConfig, boolean checkConfig,
-                              boolean printEffectiveConfig,
+                              boolean printEffectiveConfig, boolean autoFixConfig,
                               Optional<String> logLevel) {
         public ParseResult {
             sources = List.copyOf(Objects.requireNonNull(sources, "sources"));

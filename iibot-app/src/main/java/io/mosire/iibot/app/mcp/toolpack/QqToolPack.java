@@ -28,6 +28,8 @@ public final class QqToolPack {
                 context.consumerStates(),
                 context.accountRegistry(),
                 context.groupRequestByAccount(),
-                context.groupCatalogue());
+                context.groupCatalogue(),
+                context.mediaByAccount(),
+                context.mediaStore());
     }
 }

@@ -19,7 +19,9 @@ public record WeightSettings(
         Set<String> commandPrefixes,
         int maxMessagesPerDigest,
         long quietMillis,
-        long cooldownMillis) {
+        long cooldownMillis,
+        long normalDelayMillis,
+        long importantDelayMillis) {
 
     public WeightSettings {
         checkWeight(defaultPrivateSourceWeight, "defaultPrivateSourceWeight");
@@ -36,13 +38,19 @@ public record WeightSettings(
                 || cooldownMillis < 0L || cooldownMillis > 86_400_000L) {
             throw new IllegalArgumentException("quietMillis/cooldownMillis 超出范围");
         }
+        if (normalDelayMillis <= 0L || normalDelayMillis > 600_000L) {
+            throw new IllegalArgumentException("normalDelayMillis 必须在 1..600000");
+        }
+        if (importantDelayMillis < 0L || importantDelayMillis > 600_000L) {
+            throw new IllegalArgumentException("importantDelayMillis 必须在 0..600000");
+        }
     }
 
     public static WeightSettings defaults() {
         return new WeightSettings(
                 300,
                 0,
-                100,
+                200,
                 Map.of(
                         WeightSignal.DM, 200,
                         WeightSignal.MENTION, 200,
@@ -54,7 +62,9 @@ public record WeightSettings(
                 Set.of("/", "!"),
                 20,
                 180_000L,
-                60_000L);
+                60_000L,
+                30_000L,
+                1_000L);
     }
 
     public int defaultSourceWeight(ChatType chatType) {

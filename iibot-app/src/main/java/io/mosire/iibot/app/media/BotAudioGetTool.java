@@ -6,6 +6,7 @@ import io.mosire.agentlib.tool.AgentTool;
 import io.mosire.agentlib.tool.ToolContext;
 import io.mosire.agentlib.tool.ToolResult;
 import io.mosire.iibot.bot.chat.ChatMessage;
+import io.mosire.iibot.bot.media.MediaSourceKeys;
 import io.mosire.iibot.bot.store.MessageBoardStore;
 import io.mosire.iibot.connect.core.AudioCapability;
 import io.mosire.iibot.connect.core.MediaAsset;
@@ -35,21 +36,33 @@ public final class BotAudioGetTool implements AgentTool {
                     "segmentIndex", Map.of("type", "integer", "minimum", 0,
                             "description", "可选；指定 audio 段下标"),
                     "limit", Map.of("type", "integer", "minimum", 1, "maximum", MAX_AUDIO,
-                            "description", "最多返回语音数，默认 1")),
+                            "description", "最多返回语音数，默认 1"),
+                    "saveTo", Map.of("type", "string", "maxLength", 512,
+                            "description", "相对 downloads 的目录/文件名；提供时把语音落盘"
+                                    + "并返回 saved（省略则不落盘）")),
             "required", List.of("messageKey"),
             "additionalProperties", false);
 
     private final MessageBoardStore board;
     private final Map<String, AudioCapability> providers;
     private final BotMediaStore mediaStore;
+    private final MediaDownloadSink downloadSink;
 
     public BotAudioGetTool(MessageBoardStore board,
                            Map<String, AudioCapability> providers,
                            BotMediaStore mediaStore) {
+        this(board, providers, mediaStore, null);
+    }
+
+    public BotAudioGetTool(MessageBoardStore board,
+                           Map<String, AudioCapability> providers,
+                           BotMediaStore mediaStore,
+                           MediaDownloadSink downloadSink) {
         this.board = Objects.requireNonNull(board, "board");
         Objects.requireNonNull(providers, "providers");
         this.providers = Collections.unmodifiableMap(new LinkedHashMap<>(providers));
         this.mediaStore = Objects.requireNonNull(mediaStore, "mediaStore");
+        this.downloadSink = downloadSink;
     }
 
     @Override public String name() { return NAME; }
@@ -75,6 +88,16 @@ public final class BotAudioGetTool implements AgentTool {
                 return ToolResult.error("ACCOUNT_UNAVAILABLE",
                         "该消息所属账号当前不可用或未提供音频提取能力");
             }
+            boolean saveRequested = context.arguments() != null
+                    && context.arguments().containsKey("saveTo");
+            if (saveRequested && downloadSink == null) {
+                return ToolResult.error("AUDIO_UNAVAILABLE", "下载落点当前不可用");
+            }
+            String saveTo = saveRequested
+                    ? optionalText(context.arguments(), "saveTo") : "";
+            if (saveRequested) {
+                downloadSink.validate(saveTo);
+            }
             int segmentIndex = optionalInt(context.arguments(), "segmentIndex", -1);
             int limit = optionalInt(context.arguments(), "limit", 1);
             List<MessageSegment> audios = board.segments(messageKey).stream()
@@ -87,17 +110,41 @@ public final class BotAudioGetTool implements AgentTool {
             }
             List<Map<String, Object>> rows = new ArrayList<>();
             List<Map<String, Object>> errors = new ArrayList<>();
+            List<String> saved = new ArrayList<>();
             for (MessageSegment audio : audios) {
                 try {
-                    MediaAsset asset = provider.audio(audio)
-                            .toCompletableFuture().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                    String audioRef = mediaStore.storeUpload(asset);
+                    // 先查入站预热的本地副本：QQ 语音直链几小时就过期，两天前的语音只能靠这份。
+                    String sourceKey = MediaSourceKeys.of(messageKey, audio);
+                    String audioRef = null;
+                    MediaAsset asset = null;
+                    java.util.Optional<String> cachedId = mediaStore.findBySource(sourceKey);
+                    if (cachedId.isPresent()) {
+                        io.mosire.agentlib.llm.ToolAsset cached =
+                                mediaStore.resolve(cachedId.orElseThrow()).orElse(null);
+                        if (cached != null) {
+                            audioRef = cachedId.orElseThrow();
+                            asset = new MediaAsset("audio", cached.mediaType(), cached.bytes());
+                        }
+                    }
+                    boolean cachedHit = asset != null;
+                    if (!cachedHit) {
+                        asset = provider.audio(audio)
+                                .toCompletableFuture().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                        audioRef = mediaStore.storeUpload(asset);
+                        mediaStore.rememberSource(sourceKey, audioRef);
+                    }
                     Map<String, Object> row = new LinkedHashMap<>();
                     row.put("segmentIndex", audio.index());
                     row.put("audioRef", audioRef);
                     row.put("mediaType", asset.mediaType());
                     row.put("size", asset.size());
+                    row.put("cached", cachedHit);
                     rows.add(row);
+                    if (saveRequested) {
+                        String fileName = MediaDownloadSink.defaultFileName(
+                                messageKey, audio.index(), asset.mediaType());
+                        saved.add(downloadSink.save(saveTo, fileName, asset.bytes()).toString());
+                    }
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     return ToolResult.error("AUDIO_UNAVAILABLE", "音频提取被中断");
@@ -120,6 +167,9 @@ public final class BotAudioGetTool implements AgentTool {
             data.put("errors", errors);
             data.put("asrConfigured", false);
             data.put("transcriptAvailable", false);
+            if (saveRequested) {
+                data.put("saved", saved);
+            }
             return ToolResult.ok(JSON.writeValueAsString(data));
         } catch (IllegalArgumentException invalid) {
             return ToolResult.error("INVALID_ARGUMENTS", invalid.getMessage());
@@ -135,6 +185,21 @@ public final class BotAudioGetTool implements AgentTool {
             throw new IllegalArgumentException(name + " 不能为空");
         }
         return text.trim();
+    }
+
+    private static String optionalText(Map<String, Object> args, String name) {
+        Object raw = args == null ? null : args.get(name);
+        if (raw == null) {
+            return "";
+        }
+        if (!(raw instanceof String text)) {
+            throw new IllegalArgumentException(name + " 必须是字符串");
+        }
+        String normalized = text.trim();
+        if (normalized.length() > 512) {
+            throw new IllegalArgumentException(name + " 超过长度上限");
+        }
+        return normalized;
     }
 
     private static int optionalInt(Map<String, Object> args, String name, int fallback) {

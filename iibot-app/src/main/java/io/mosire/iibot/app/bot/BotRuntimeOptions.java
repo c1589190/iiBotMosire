@@ -36,7 +36,23 @@ public record BotRuntimeOptions(
         String privateTempGroupId,
         Duration minSendInterval,
         WeightSettings weighting,
-        List<AccountOptions> accounts) {
+        List<AccountOptions> accounts,
+        BotConfig.Media media) {
+
+    /** 兼容没有 media 段的调用方：保留 20 参构造，媒体区走默认（7 天、入站预热）。 */
+    public BotRuntimeOptions(Path dataDir, String accountId, String controlHost,
+                             int controlPort, String controlPath, String controlToken,
+                             BotInboxRuntimeOptions inbox, long digestDebounceMillis,
+                             int maxMessagesPerDigest, int inlineMaxChars,
+                             int contextMessages, int contextMaxChars, int summaryMaxChars,
+                             Duration outboxTimeout, String privateTempGroupId,
+                             Duration minSendInterval, WeightSettings weighting,
+                             List<AccountOptions> accounts) {
+        this(dataDir, accountId, controlHost, controlPort, controlPath, controlToken, inbox,
+                digestDebounceMillis, maxMessagesPerDigest, inlineMaxChars, contextMessages,
+                contextMaxChars, summaryMaxChars, outboxTimeout, privateTempGroupId,
+                minSendInterval, weighting, accounts, BotConfig.Media.defaults());
+    }
 
     public BotRuntimeOptions {
         dataDir = Objects.requireNonNull(dataDir, "dataDir").toAbsolutePath().normalize();
@@ -76,6 +92,7 @@ public record BotRuntimeOptions(
         }
         privateTempGroupId = normalizeOptional(privateTempGroupId);
         weighting = weighting == null ? WeightSettings.defaults() : weighting;
+        media = media == null ? BotConfig.Media.defaults() : media;
         if (accounts == null || accounts.isEmpty()) {
             accounts = List.of(new AccountOptions(accountId, accountId, privateTempGroupId));
         } else {

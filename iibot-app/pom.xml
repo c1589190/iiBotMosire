@@ -6,7 +6,7 @@
   <parent>
     <groupId>io.mosire.iibot</groupId>
     <artifactId>iibot-parent</artifactId>
-    <version>Alpha20261103.2</version>
+    <version>Alpha20261106</version>
   </parent>
   <artifactId>iibot-app</artifactId>
   <name>iibot-app</name>
@@ -52,6 +52,11 @@
     <dependency>
       <groupId>io.mosire</groupId>
       <artifactId>inbox-mcp-tools-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.networknt</groupId>
+      <artifactId>json-schema-validator</artifactId>
+      <version>2.0.4</version>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>

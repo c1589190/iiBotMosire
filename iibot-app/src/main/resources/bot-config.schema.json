@@ -1,0 +1,723 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mosire.local/iibot/bot-config.schema.json",
+  "title": "iiBotMosire bot config v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "dataDir",
+    "accounts",
+    "control",
+    "inbox"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "dataDir": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": ".*\\S.*",
+      "description": "消息板、SQLite 和媒体根目录；相对路径以合并后配置目录为基准。"
+    },
+    "accounts": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9._-]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/account"
+      },
+      "description": "alias -> account 映射；P3 runtime 只启动第一个 enabled account。"
+    },
+    "control": {
+      "$ref": "#/$defs/control"
+    },
+    "inbox": {
+      "$ref": "#/$defs/inbox"
+    },
+    "messageBoard": {
+      "$ref": "#/$defs/messageBoard"
+    },
+    "logging": {
+      "$ref": "#/$defs/logging"
+    },
+    "video": {
+      "$ref": "#/$defs/video"
+    },
+    "media": {
+      "$ref": "#/$defs/media"
+    },
+    "x-unknown": {
+      "type": "object",
+      "description": "配置医生（--fix-config）把不认识的键搬到这里，保留内容但不生效；确认后可删除。"
+    }
+  },
+  "$defs": {
+    "envName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "description": "只允许环境变量名，不允许保存 raw secret。"
+    },
+    "level": {
+      "type": "string",
+      "enum": [
+        "TRACE",
+        "DEBUG",
+        "INFO",
+        "WARN",
+        "ERROR",
+        "OFF"
+      ]
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "adapter",
+        "accountId"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "adapter": {
+          "enum": [
+            "onebot11",
+            "bilibili"
+          ]
+        },
+        "accountId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": ".*\\S.*",
+          "description": "稳定业务 accountId，也是消息板分区键；所有账号必须唯一。"
+        },
+        "oneBot": {
+          "$ref": "#/$defs/oneBot"
+        },
+        "bilibili": {
+          "$ref": "#/$defs/bilibili"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "adapter": {
+                "const": "onebot11"
+              }
+            },
+            "required": [
+              "adapter"
+            ]
+          },
+          "then": {
+            "required": [
+              "oneBot"
+            ],
+            "not": {
+              "required": [
+                "bilibili"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "adapter": {
+                "const": "bilibili"
+              }
+            },
+            "required": [
+              "adapter"
+            ]
+          },
+          "then": {
+            "required": [
+              "bilibili"
+            ],
+            "not": {
+              "required": [
+                "oneBot"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "oneBot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventWebSocketUri",
+        "httpBaseUri"
+      ],
+      "properties": {
+        "eventWebSocketUri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^wss?://",
+          "description": "OneBot 11 事件 WebSocket URI，必须带 host。"
+        },
+        "httpBaseUri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://",
+          "description": "OneBot 11 HTTP Action 根 URI，必须带 host。"
+        },
+        "accessTokenEnv": {
+          "type": "string",
+          "pattern": "^(|([A-Za-z_][A-Za-z0-9_]*))$",
+          "description": "可选；oneBot access token 的环境变量名，不保存值。"
+        },
+        "privateTempGroupId": {
+          "type": "string"
+        },
+        "suppressSelfMessages": {
+          "type": "boolean",
+          "default": true
+        },
+        "requestTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10
+        },
+        "maxTextLength": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2000
+        }
+      }
+    },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bearerTokenEnv"
+      ],
+      "properties": {
+        "host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "只允许回环地址。"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 8765
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/[^?#\\s]*$",
+          "default": "/mcp/bot"
+        },
+        "bearerTokenEnv": {
+          "$ref": "#/$defs/envName"
+        }
+      }
+    },
+    "inbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dataDir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inboxId": {
+          "type": "string",
+          "minLength": 1,
+          "default": "iibot-bot"
+        },
+        "bindingLabel": {
+          "type": "string",
+          "minLength": 1,
+          "default": "dsh-bot"
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": [
+            "qq"
+          ]
+        },
+        "programTokenEnv": {
+          "type": "string",
+          "default": "",
+          "description": "固定 program MCP token 的环境变量名（留空=服务端随机签发）。值只在进程环境里，配置文件不含明文。"
+        },
+        "wakeTokenEnv": {
+          "type": "string",
+          "default": "",
+          "description": "固定 wake/adapter token 的环境变量名（留空=服务端随机签发）。固定值可写进部署清单，重启不变。"
+        },
+        "bindingTtlHours": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 87600,
+          "default": 0,
+          "description": "wake token 有效期（小时）。0 = 永不过期（token 只用于识别与授权，本机 program 自用推荐 0；凭据仍可 revoke/rotate）。"
+        },
+        "apiHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "只允许回环地址。"
+        },
+        "apiPort": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 0
+        },
+        "mcpHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "只允许回环地址。"
+        },
+        "mcpPort": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 0
+        },
+        "mcpPath": {
+          "type": "string",
+          "pattern": "^/[^?#\\s]*$",
+          "default": "/mcp"
+        },
+        "heartbeatMillis": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 15000
+        },
+        "claimSweepIntervalMillis": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5000
+        }
+      }
+    },
+    "messageBoard": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "summaryDebounceMillis": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400000,
+          "default": 5000,
+          "description": "所有入站消息共用的 digest 合并窗口；不是按 @/权重分流的快慢通道"
+        },
+        "maxPreviewMessages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 20
+        },
+        "inlineMaxChars": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 512,
+          "description": "digest 完整短文本内联目标长度；0 关闭。实际仍受 Inbox summary 512 字符存储边界约束"
+        },
+        "contextMessages": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200,
+          "default": 6,
+          "description": "未读窗口之前附带多少条上文（滚动窗口长度）；0 不带上文"
+        },
+        "contextMaxChars": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200000,
+          "default": 1200,
+          "description": "上文总字符预算；超预算从最老的开始丢"
+        },
+        "summaryMaxChars": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 20000,
+          "default": 1000,
+          "description": "板里每条消息的正文长度上限（MessageSummaryBuilder）；调大能让 Agent 一次看全，但受 Inbox content 256KiB 约束"
+        },
+        "outbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sendTimeoutSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600,
+              "default": 15
+            },
+            "minSendIntervalMillis": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3600000,
+              "default": 150
+            }
+          }
+        },
+        "weighting": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "defaultPrivateSourceWeight": {
+              "type": "integer",
+              "minimum": -1000,
+              "maximum": 1000,
+              "default": 300
+            },
+            "defaultGroupSourceWeight": {
+              "type": "integer",
+              "minimum": -1000,
+              "maximum": 1000,
+              "default": 0
+            },
+            "defaultNotifyThreshold": {
+              "type": "integer",
+              "minimum": -1000,
+              "maximum": 1000,
+              "default": 100
+            },
+            "signalWeights": {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "DM",
+                  "MENTION",
+                  "REPLY_TO_BOT",
+                  "NAME",
+                  "COMMAND"
+                ]
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": -1000,
+                "maximum": 1000
+              }
+            },
+            "keywordWeights": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": -1000,
+                "maximum": 1000
+              }
+            },
+            "aliases": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "commandPrefixes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "quietMillis": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400000,
+              "default": 180000,
+              "description": "保留字段；当前全唤醒下不参与 wake gate/调度，合并窗口由 messageBoard.summaryDebounceMillis 决定"
+            },
+            "cooldownMillis": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400000,
+              "default": 60000,
+              "description": "保留字段；当前全唤醒下不参与 wake gate/调度"
+            },
+            "normalDelayMillis": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600000,
+              "default": 30000,
+              "description": "普通消息的唤醒延迟（差序激活慢档）"
+            },
+            "importantDelayMillis": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 600000,
+              "default": 1000,
+              "description": "重要消息的唤醒延迟（差序激活快档）"
+            }
+          }
+        },
+        "contextNeighbors": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 1,
+          "description": "每条消息内联的上下文条数（上文/下文各至多 N 条）；0 关闭"
+        },
+        "mergeSameSender": {
+          "type": "boolean",
+          "default": true,
+          "description": "窗口内连续同一发送者（5 分钟内）合并为一段，只保留一次时间与人名"
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "default": "./logs"
+        },
+        "console": {
+          "type": "boolean",
+          "default": true
+        },
+        "file": {
+          "type": "boolean",
+          "default": true
+        },
+        "rootLevel": {
+          "$ref": "#/$defs/level"
+        },
+        "opsLevel": {
+          "$ref": "#/$defs/level"
+        },
+        "levels": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^(io\\.mosire\\.iibot\\.(connect|bot|app|inbox)(\\..+)?|iibot\\.ops)$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/level"
+          },
+          "description": "已支持 connect/bot/app/inbox 包及其子包；未知包名由 loader fail-closed。"
+        },
+        "maxFileSize": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*\\s?(B|KB|MB|GB)$",
+          "default": "20MB"
+        },
+        "maxHistory": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 30
+        }
+      }
+    },
+    "bilibili": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "credentialFileEnv"
+      ],
+      "properties": {
+        "credentialFileEnv": {
+          "$ref": "#/$defs/envName"
+        },
+        "pollIntervalSeconds": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 3600,
+          "default": 60
+        },
+        "receivePrivateMessages": {
+          "type": "boolean",
+          "default": true
+        },
+        "receiveCommentReplies": {
+          "type": "boolean",
+          "default": true
+        },
+        "writeEnabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "maxWritesPerDay": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 3
+        }
+      }
+    },
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultQuality": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "360p",
+            "480p",
+            "720p",
+            "1080p",
+            "best"
+          ],
+          "default": "auto"
+        },
+        "maxHeight": {
+          "type": "integer",
+          "minimum": 144,
+          "maximum": 1080,
+          "default": 720
+        },
+        "defaultFrameCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9,
+          "default": 6
+        },
+        "maxFrameCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9,
+          "default": 9
+        },
+        "comments": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "defaultLimit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 10
+            },
+            "maxLimit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 20
+            },
+            "allowFullScan": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        },
+        "browser": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "embedded",
+                "remote-cdp"
+              ],
+              "default": "embedded"
+            },
+            "executablePath": {
+              "type": "string",
+              "default": ""
+            },
+            "cdpEndpoint": {
+              "type": "string",
+              "default": ""
+            },
+            "headless": {
+              "type": "boolean",
+              "default": true
+            },
+            "maxConcurrentSessions": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8,
+              "default": 2
+            },
+            "timeoutSeconds": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 300,
+              "default": 60
+            },
+            "profileRoot": {
+              "type": "string",
+              "default": ""
+            },
+            "viewportWidth": {
+              "type": "integer",
+              "minimum": 320,
+              "maximum": 3840,
+              "default": 1280
+            },
+            "viewportHeight": {
+              "type": "integer",
+              "minimum": 240,
+              "maximum": 2160,
+              "default": 720
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "mode": {
+                    "const": "remote-cdp"
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              },
+              "then": {
+                "required": [
+                  "cdpEndpoint"
+                ],
+                "properties": {
+                  "cdpEndpoint": {
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "media": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "retentionDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 365,
+          "default": 7,
+          "description": "媒体临时区保留天数；超过即由 iibot-media-sweeper 清理，0 = 不清理"
+        },
+        "prewarm": {
+          "type": "boolean",
+          "default": true,
+          "description": "入站即抓字节落盘（先存后看）；关闭后只能靠平台直链现拉"
+        },
+        "prewarmMaxBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1073741824,
+          "default": 5242880,
+          "description": "语音/文件预热上限；图片始终预热，超限的等 Agent 真要时再拉"
+        }
+      }
+    }
+  }
+}

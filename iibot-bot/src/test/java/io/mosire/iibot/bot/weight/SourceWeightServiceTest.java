@@ -2,6 +2,8 @@ package io.mosire.iibot.bot.weight;
 
 import io.mosire.iibot.bot.chat.ChatMessage;
 import io.mosire.iibot.bot.chat.ChatSourceKey;
+import io.mosire.iibot.bot.note.InMemoryUserNoteStore;
+import io.mosire.iibot.bot.note.UserNoteDraft;
 import io.mosire.iibot.bot.store.InMemoryMessageBoardStore;
 import io.mosire.iibot.connect.core.InboundMessage;
 import org.junit.jupiter.api.Test;
@@ -10,6 +12,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -48,9 +51,31 @@ class SourceWeightServiceTest {
         assertThat(mention.totalScore()).isEqualTo(200);
         assertThat(mention.wakeReason()).isEqualTo(WeightWakeReason.MENTION);
         assertThat(mention.matchedSignals()).contains(WeightSignal.MENTION);
-        // 全唤醒：@ 与普通群消息使用同一调度窗口，不再出现“只有 @ 才即时注入”。
-        assertThat(service.enqueueDelayMillis(afterBootstrap, ambient)).isZero();
-        assertThat(service.enqueueDelayMillis(afterBootstrap, mention)).isZero();
+        // 差序激活（D-005）：档位只看 max(人级标签, 来源权重)，@ 不再单独加速；
+        // 未标记的群默认普通档，走 normalDelayMillis。
+        assertThat(service.enqueueDelayMillis(afterBootstrap, ambient)).isEqualTo(30_000L);
+        assertThat(service.enqueueDelayMillis(afterBootstrap, mention)).isEqualTo(30_000L);
+    }
+
+    @Test
+    void personNotePriorityPromotesCadenceToImportant() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        SourceWeightService service = new SourceWeightService(
+                new InMemorySourceWeightStore(), board, notes,
+                WeightSettings.defaults(), CLOCK);
+        SourceWeightPolicy policy = service.ensurePolicy(GROUP, true);
+        service.markBootstrapDelivered(GROUP.threadId());
+        MessageWeightDecision decision = decide(service, board, policy,
+                inbound("m-1", "普通群聊", false, ""));
+
+        assertThat(service.enqueueDelayMillis(policy, decision)).isEqualTo(30_000L);
+
+        notes.upsert(new UserNoteDraft("bot-1", "qq-1", "Alice",
+                Set.of(), "", 300), null);
+
+        assertThat(service.enqueueDelayMillis(policy, decision, "bot-1", "qq-1"))
+                .isEqualTo(1_000L);
     }
 
     @Test

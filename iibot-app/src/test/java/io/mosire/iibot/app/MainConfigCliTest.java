@@ -100,12 +100,36 @@ class MainConfigCliTest {
     }
 
     @Test
+    void unknownFieldIsQuarantinedInsteadOfBlockingStartup() throws Exception {
+        Path config = Files.writeString(tempDir.resolve("repairable.json"),
+                writeValidConfigText().replace("  \"control\": {",
+                        "  \"unknownTop\": true,\n  \"control\": {"));
+
+        Captured captured = execute(new String[]{"--check-config", "--config",
+                config.toString()}, tempDir.resolve("default"), secrets());
+
+        assertThat(captured.rc()).isZero();
+        assertThat(captured.err())
+                .contains("[config-doctor]")
+                .contains("/unknownTop")
+                .contains("备份");
+        JsonNode rewritten = JSON.readTree(config.toFile());
+        assertThat(rewritten.path("x-unknown").path("unknownTop").asBoolean()).isTrue();
+        assertThat(rewritten.has("unknownTop")).isFalse();
+        try (var backups = Files.list(tempDir)) {
+            assertThat(backups.map(path -> path.getFileName().toString())
+                    .filter(name -> name.startsWith("repairable.json.bak-")))
+                    .hasSize(1);
+        }
+    }
+
+    @Test
     void invalidFieldWritesStructuredErrorToStderrOnly() throws Exception {
         Path config = Files.writeString(tempDir.resolve("invalid.json"),
                 writeValidConfigText().replace("  \"control\": {",
                         "  \"unknownTop\": true,\n  \"control\": {"));
-        Captured captured = execute(new String[]{"--check-config", "--config",
-                config.toString()}, tempDir.resolve("default"), secrets());
+        Captured captured = execute(new String[]{"--check-config", "--no-fix-config",
+                "--config", config.toString()}, tempDir.resolve("default"), secrets());
 
         assertThat(captured.rc()).isEqualTo(1);
         assertThat(captured.out()).isEmpty();

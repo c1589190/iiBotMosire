@@ -35,21 +35,33 @@ public final class BotGroupFileGetTool implements AgentTool {
             "type", "object",
             "properties", Map.of(
                     "fileRef", Map.of("type", "string", "minLength", 1,
-                            "description", "qq_group_files 返回的当前进程内短期句柄")),
+                            "description", "qq_group_files 返回的当前进程内短期句柄"),
+                    "saveTo", Map.of("type", "string", "maxLength", 512,
+                            "description", "相对 downloads 的目录/文件名；提供时把文件落盘"
+                                    + "并返回 saved（省略则不落盘）")),
             "required", List.of("fileRef"),
             "additionalProperties", false);
 
     private final Map<String, GroupFileCapability> providers;
     private final BotGroupFileHandles handles;
     private final BotMediaStore mediaStore;
+    private final MediaDownloadSink downloadSink;
 
     public BotGroupFileGetTool(Map<String, GroupFileCapability> providers,
                                BotGroupFileHandles handles,
                                BotMediaStore mediaStore) {
+        this(providers, handles, mediaStore, null);
+    }
+
+    public BotGroupFileGetTool(Map<String, GroupFileCapability> providers,
+                               BotGroupFileHandles handles,
+                               BotMediaStore mediaStore,
+                               MediaDownloadSink downloadSink) {
         Objects.requireNonNull(providers, "providers");
         this.providers = Collections.unmodifiableMap(new LinkedHashMap<>(providers));
         this.handles = Objects.requireNonNull(handles, "handles");
         this.mediaStore = Objects.requireNonNull(mediaStore, "mediaStore");
+        this.downloadSink = downloadSink;
     }
 
     @Override public String name() { return NAME; }
@@ -80,6 +92,16 @@ public final class BotGroupFileGetTool implements AgentTool {
             if (entry.file().byteSize() > MAX_DOWNLOAD_BYTES) {
                 return ToolResult.error("FILE_TOO_LARGE",
                         "群文件超过 10 MiB 下载上限");
+            }
+            boolean saveRequested = context.arguments() != null
+                    && context.arguments().containsKey("saveTo");
+            if (saveRequested && downloadSink == null) {
+                return ToolResult.error("FILE_UNAVAILABLE", "下载落点当前不可用");
+            }
+            String saveTo = saveRequested
+                    ? optionalText(context.arguments(), "saveTo") : "";
+            if (saveRequested) {
+                downloadSink.validate(saveTo);
             }
             MediaAsset asset = provider.downloadGroupFile(entry.groupId(), entry.file())
                     .toCompletableFuture().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -113,9 +135,17 @@ public final class BotGroupFileGetTool implements AgentTool {
                 data.put("contentOmitted", true);
                 data.put("truncated", false);
             }
+            if (saveRequested) {
+                String fallbackName = asset.fileName() == null || asset.fileName().isBlank()
+                        ? "qq-group-file" : asset.fileName();
+                data.put("saved", List.of(downloadSink.save(
+                        saveTo, fallbackName, asset.bytes()).toString()));
+            }
             return ToolResult.ok(JSON.writeValueAsString(data), assetIds);
         } catch (GroupFileToolException failure) {
             return ToolResult.error(failure.code(), failure.getMessage());
+        } catch (MediaDownloadSink.InvalidSaveToException invalid) {
+            return ToolResult.error("INVALID_ARGUMENTS", invalid.getMessage());
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return ToolResult.error("FILE_UNAVAILABLE", "群文件读取被中断");
@@ -146,6 +176,21 @@ public final class BotGroupFileGetTool implements AgentTool {
                 || name.endsWith(".csv") || name.endsWith(".xml")
                 || name.endsWith(".yaml") || name.endsWith(".yml")
                 || name.endsWith(".log");
+    }
+
+    private static String optionalText(Map<String, Object> args, String name) {
+        Object raw = args == null ? null : args.get(name);
+        if (raw == null) {
+            return "";
+        }
+        if (!(raw instanceof String text)) {
+            throw new GroupFileToolException("INVALID_ARGUMENTS", name + " 必须是字符串");
+        }
+        String normalized = text.trim();
+        if (normalized.length() > 512) {
+            throw new GroupFileToolException("INVALID_ARGUMENTS", name + " 超过长度上限");
+        }
+        return normalized;
     }
 
     private static String requiredText(Map<String, Object> args, String name) {

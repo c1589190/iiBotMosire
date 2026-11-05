@@ -31,11 +31,19 @@ final class BotToolSupport {
     }
 
     static ToolResult ok(String tool, Object data) {
+        return ok(tool, data, List.of());
+    }
+
+    /** 同 {@link #ok(String, Object)}，额外附带受控资产 id。 */
+    static ToolResult ok(String tool, Object data, List<String> assetDocIds) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("tool", tool);
         body.put("ok", true);
         body.put("data", data);
-        return ToolResult.ok(json(body));
+        List<String> assets = assetDocIds == null ? List.of() : List.copyOf(assetDocIds);
+        return assets.isEmpty()
+                ? ToolResult.ok(json(body))
+                : ToolResult.ok(json(body), assets);
     }
 
     static ToolResult failure(String code, String message) {

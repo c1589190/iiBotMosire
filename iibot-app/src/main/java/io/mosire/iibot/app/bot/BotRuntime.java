@@ -39,6 +39,7 @@ import io.mosire.iibot.connect.core.GroupFileUploadCapability;
 import io.mosire.iibot.connect.core.GroupRequestCapability;
 import io.mosire.iibot.connect.core.RecallCapability;
 import io.mosire.iibot.connect.core.MediaCapability;
+import io.mosire.iibot.app.media.MediaCacheMaintenance;
 import io.mosire.iibot.connect.core.QqPlatformCapability;
 import io.mosire.iibot.connect.core.RecentQqProvider;
 import io.mosire.iibot.connect.core.MessagingAdapter;
@@ -109,7 +110,8 @@ public final class BotRuntime implements AutoCloseable {
                        SqliteGroupCatalogueStore groupCatalogue,
                        SqliteInboxDigestAuditStore inboxAudit,
                        SqliteSourceWeightStore sourceWeights,
-                       BotToolCatalog toolCatalog) {
+                       BotToolCatalog toolCatalog,
+                       MediaCacheMaintenance mediaMaintenance) {
         this.options = options;
         this.accountRegistry = accountRegistry;
         this.bindings = List.copyOf(bindings);
@@ -127,6 +129,7 @@ public final class BotRuntime implements AutoCloseable {
         this.inboxAudit = inboxAudit;
         this.sourceWeights = sourceWeights;
         this.toolCatalog = Objects.requireNonNull(toolCatalog, "toolCatalog");
+        this.mediaMaintenance = mediaMaintenance;
     }
 
     /** 单 adapter 兼容入口；内部会建立只含该账号的 AccountRegistry。 */
@@ -232,9 +235,6 @@ public final class BotRuntime implements AutoCloseable {
                             + "requestedLimit={} effectiveLimit={}",
                     options.digestDebounceMillis(), options.maxMessagesPerDigest(),
                     digestLimit);
-            BotIngestionService ingestion = new BotIngestionService(
-                    board, scheduler::enqueue, weightService);
-
             Map<String, OutboxSender> outboxes = new LinkedHashMap<>();
             for (AdapterBinding binding : bindings) {
                 outboxes.put(binding.accountId(), binding.outbox());
@@ -255,6 +255,22 @@ public final class BotRuntime implements AutoCloseable {
                     bindings, RecallCapability.class);
             Map<String, GroupFileUploadCapability> groupFileUploadByAccount =
                     capabilityMap(bindings, GroupFileUploadCapability.class);
+            // 媒体临时区：入站即抓字节，按天滚动清理（D-019）。预热失败不影响入站。
+            MediaCacheMaintenance mediaMaintenance = new MediaCacheMaintenance(
+                    board, mediaByAccount, audioByAccount, mediaStore, mediaStore,
+                    options.media().retentionDays(), options.media().prewarmMaxBytes(), clock);
+
+            BotIngestionService ingestion = new BotIngestionService(
+                    board, scheduler::enqueue, weightService,
+                    options.media().prewarm() ? mediaMaintenance : null);
+            MEDIA_SWEEPER.scheduleWithFixedDelay(() -> {
+                try {
+                    mediaMaintenance.purgeExpired();
+                } catch (RuntimeException failure) {
+                    OpsLog.warn("event=media_purge_failed errorType={}",
+                            failure.getClass().getSimpleName());
+                }
+            }, MEDIA_SWEEP_INTERVAL_MINUTES, MEDIA_SWEEP_INTERVAL_MINUTES, TimeUnit.MINUTES);
             Map<String, RecentQqProvider> recentByAccount = capabilityMap(
                     bindings, RecentQqProvider.class);
             Map<String, GroupRequestCapability> groupRequestByAccount = capabilityMap(
@@ -326,7 +342,7 @@ public final class BotRuntime implements AutoCloseable {
             return new BotRuntime(options, accountRegistry, bindings, outboxes,
                     board, notes, digestStates, consumerStates, inboxRuntime,
                     digestScheduler, ingestion, mcpServer, friendRequests, groupCatalogue,
-                    inboxAudit, sourceWeights, toolCatalog);
+                    inboxAudit, sourceWeights, toolCatalog, mediaMaintenance);
         } catch (IOException | RuntimeException failure) {
             OpsLog.error("event=bot_runtime_start_failed errorType={}",
                     failure.getClass().getSimpleName());
@@ -535,6 +551,17 @@ public final class BotRuntime implements AutoCloseable {
         return mcpServer;
     }
 
+    private static final long MEDIA_SWEEP_INTERVAL_MINUTES = 360L;
+
+    private static final java.util.concurrent.ScheduledExecutorService MEDIA_SWEEPER =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "iibot-media-sweeper");
+                thread.setDaemon(true);
+                return thread;
+            });
+
+    private final MediaCacheMaintenance mediaMaintenance;
+
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) {
@@ -555,6 +582,7 @@ public final class BotRuntime implements AutoCloseable {
         closeQuietly(consumerStates);
         closeQuietly(digestStates);
         closeQuietly(notes);
+        closeQuietly(mediaMaintenance);
         closeQuietly(board);
         OpsLog.info("event=bot_runtime_close phase=completed");
     }

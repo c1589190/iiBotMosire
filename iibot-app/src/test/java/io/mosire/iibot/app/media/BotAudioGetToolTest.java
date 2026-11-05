@@ -61,6 +61,33 @@ class BotAudioGetToolTest {
         assertThat(result.assetDocIds()).isEmpty();
     }
 
+    @Test
+    void readsThePrewarmedCopyInsteadOfHittingTheExpiredLink() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        ChatMessage message = ChatMessage.inbound(GROUP, "m-voice", "qq-1", "Alice",
+                T0, T0, "", "[语音×1]", "");
+        MessageSegment segment = MessageSegment.audio(0, "voice.silk",
+                "https://example.invalid/expired.silk", "audio/silk", 3L);
+        board.append(message, List.of(segment));
+        BotMediaStore store = new BotMediaStore(tempDir);
+        String prewarmedId = store.store(new MediaAsset("voice.silk", "audio/silk",
+                new byte[]{4, 5, 6}));
+        store.rememberSource(
+                io.mosire.iibot.bot.media.MediaSourceKeys.of(message.messageKey(), segment),
+                prewarmedId);
+        AudioCapability expiredUpstream = segment1 -> CompletableFuture.failedFuture(
+                new IllegalStateException("HTTP 400"));
+        BotAudioGetTool tool = new BotAudioGetTool(
+                board, Map.of("bot-1", expiredUpstream), store);
+
+        ToolResult result = execute(tool, Map.of("messageKey", message.messageKey()));
+
+        assertThat(result.success()).isTrue();
+        JsonNode audio = JSON.readTree(result.message()).path("audios").get(0);
+        assertThat(audio.path("cached").asBoolean()).isTrue();
+        assertThat(audio.path("audioRef").asText()).isEqualTo(prewarmedId);
+    }
+
     private static ToolResult execute(BotAudioGetTool tool, Map<String, Object> args) {
         AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
                 .allow(tool.name())

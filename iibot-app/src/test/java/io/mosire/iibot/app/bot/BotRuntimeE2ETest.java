@@ -43,9 +43,20 @@ class BotRuntimeE2ETest {
     private static final String TOKEN = "bot-runtime-token-6d1f";
     private static final String CONTROL_PATH = "/bot/mcp";
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final String GROUP_SOURCE = "qq_group/bot-1/group-9";
 
     @TempDir
     Path tempDir;
+
+    /** 差序激活（D-005）下拉短两档节奏，避免每个用例都等 30s 普通档。 */
+    private static WeightSettings fastWeights() {
+        WeightSettings d = WeightSettings.defaults();
+        return new WeightSettings(
+                d.defaultPrivateSourceWeight(), d.defaultGroupSourceWeight(),
+                d.defaultNotifyThreshold(), d.signalWeights(),
+                d.defaultKeywordWeights(), d.aliases(), d.commandPrefixes(),
+                d.maxMessagesPerDigest(), 20L, 0L, 20L, 5L);
+    }
 
     @Test
     void ingestToInboxToMcpReadAndReplyWithoutGameServices() throws Exception {
@@ -58,7 +69,7 @@ class BotRuntimeE2ETest {
         BotRuntimeOptions options = new BotRuntimeOptions(
                 tempDir.resolve("data"), "bot-1", "127.0.0.1", 0, CONTROL_PATH, TOKEN,
                 inboxOptions, 20L, 100, Duration.ofSeconds(2), null, Duration.ZERO,
-                WeightSettings.defaults());
+                fastWeights());
         BotRuntime runtime = BotRuntime.start(adapter, options);
         McpSyncClient client = null;
         try {
@@ -155,7 +166,7 @@ class BotRuntimeE2ETest {
         BotRuntimeOptions options = new BotRuntimeOptions(
                 tempDir.resolve("data-multi"), "bot-a", "127.0.0.1", 0, CONTROL_PATH,
                 TOKEN, inboxOptions, 20L, 100, Duration.ofSeconds(2), null,
-                Duration.ZERO, WeightSettings.defaults(),
+                Duration.ZERO, fastWeights(),
                 List.of(
                         new BotRuntimeOptions.AccountOptions("alias-a", "bot-a", "temp-a"),
                         new BotRuntimeOptions.AccountOptions("alias-b", "bot-b", "temp-b")));
@@ -219,7 +230,7 @@ class BotRuntimeE2ETest {
         BotRuntimeOptions options = new BotRuntimeOptions(
                 tempDir.resolve("data-rollback"), "bot-a", "127.0.0.1", 0, CONTROL_PATH,
                 TOKEN, inboxOptions, 20L, 100, Duration.ofSeconds(2), null,
-                Duration.ZERO, WeightSettings.defaults(),
+                Duration.ZERO, fastWeights(),
                 List.of(
                         new BotRuntimeOptions.AccountOptions("alias-a", "bot-a", null),
                         new BotRuntimeOptions.AccountOptions("alias-b", "bot-b", null)));
@@ -245,7 +256,7 @@ class BotRuntimeE2ETest {
         BotRuntimeOptions options = new BotRuntimeOptions(
                 tempDir.resolve("data-identity"), "bot-a", "127.0.0.1", 0, CONTROL_PATH,
                 TOKEN, inboxOptions, 20L, 100, Duration.ofSeconds(2), null,
-                Duration.ZERO, WeightSettings.defaults());
+                Duration.ZERO, fastWeights());
 
         assertThatThrownBy(() -> BotRuntime.start(mismatched, options))
                 .isInstanceOf(IllegalStateException.class)
@@ -268,7 +279,7 @@ class BotRuntimeE2ETest {
         BotRuntimeOptions options = new BotRuntimeOptions(
                 tempDir.resolve("data-friend"), "bot-a", "127.0.0.1", 0, CONTROL_PATH,
                 TOKEN, inboxOptions, 20L, 100, Duration.ofSeconds(2), null,
-                Duration.ZERO, WeightSettings.defaults(),
+                Duration.ZERO, fastWeights(),
                 List.of(
                         new BotRuntimeOptions.AccountOptions("alias-a", "bot-a", null),
                         new BotRuntimeOptions.AccountOptions("alias-b", "bot-b", null)));
@@ -339,55 +350,40 @@ class BotRuntimeE2ETest {
     }
 
     @Test
-    void sourceWeightsSuppressAmbientAndWakeOnMention() throws Exception {
+    void normalGroupMessagesPublishRenderedTextWithoutSuppression() throws Exception {
+        // W2-11 / D-005：档位只决定注入节奏，不再"抑制"普通消息；
+        // content 是服务端渲染好的文本（D-002/D-015），不再是 InboxDigest JSON。
         FakeMessagingAdapter adapter = new FakeMessagingAdapter();
-        WeightSettings defaults = WeightSettings.defaults();
-        WeightSettings fast = new WeightSettings(
-                defaults.defaultPrivateSourceWeight(), defaults.defaultGroupSourceWeight(),
-                defaults.defaultNotifyThreshold(), defaults.signalWeights(),
-                defaults.defaultKeywordWeights(), defaults.aliases(),
-                defaults.commandPrefixes(), defaults.maxMessagesPerDigest(),
-                20L, 0L);
         BotRuntimeOptions options = new BotRuntimeOptions(
                 tempDir.resolve("data"), tempDir.resolve("inbox"),
                 "bot-1", "127.0.0.1", 0, CONTROL_PATH, TOKEN,
                 "bot-inbox", "dsh-session-bot", java.util.Set.of("qq"), 1L,
-                20L, 100, Duration.ofSeconds(2), null, Duration.ZERO, fast);
+                20L, 100, Duration.ofSeconds(2), null, Duration.ZERO, fastWeights());
         BotRuntime runtime = BotRuntime.start(adapter, options);
         McpSyncClient client = null;
         try {
             adapter.deliver(groupMessage("m-first", "普通群聊", false));
             String firstItem = awaitInboxItem(runtime);
-            var firstDetail = runtime.inboxRuntime().programClient()
-                    .view("bot-inbox", firstItem);
-            JsonNode firstContent = (JsonNode) firstDetail.content();
-            String source = firstContent.path("source").path("source").asText();
-            assertThat(firstContent.path("wakeReason").asText()).isEqualTo("FIRST_CONTACT");
-            assertThat(firstContent.path("priority").asInt()).isEqualTo(100);
+            String firstContent = (String) runtime.inboxRuntime().programClient()
+                    .view("bot-inbox", firstItem).content();
+            assertThat(firstContent).contains("Alice").contains("普通群聊");
 
             client = mcpClient(runtime);
-            call(client, "qq_conversation_read", Map.of("source", source));
-            call(client, "qq_conversation_ack", Map.of("source", source));
+            call(client, "qq_conversation_read", Map.of("source", GROUP_SOURCE));
+            call(client, "qq_conversation_ack", Map.of("source", GROUP_SOURCE));
 
-            adapter.deliver(groupMessage("m-ambient", "普通群聊", false));
+            adapter.deliver(groupMessage("m-ambient", "随便说说", false));
             String ambientItem = awaitInboxItem(runtime);
-            var ambientDetail = runtime.inboxRuntime().programClient()
-                    .view("bot-inbox", ambientItem);
-            JsonNode ambientContent = (JsonNode) ambientDetail.content();
-            assertThat(ambientContent.path("wakeReason").asText())
-                    .isEqualTo("BELOW_THRESHOLD");
-            assertThat(ambientContent.path("priority").asInt()).isZero();
-            call(client, "qq_conversation_read", Map.of("source", source));
-            call(client, "qq_conversation_ack", Map.of("source", source));
+            String ambientContent = (String) runtime.inboxRuntime().programClient()
+                    .view("bot-inbox", ambientItem).content();
+            assertThat(ambientContent).contains("随便说说");
+            call(client, "qq_conversation_read", Map.of("source", GROUP_SOURCE));
+            call(client, "qq_conversation_ack", Map.of("source", GROUP_SOURCE));
 
             adapter.deliver(groupMessage("m-mention", "你看这个", true));
             String mentionItem = awaitInboxItem(runtime);
-            var mentionDetail = runtime.inboxRuntime().programClient()
-                    .view("bot-inbox", mentionItem);
-            JsonNode mentionContent = (JsonNode) mentionDetail.content();
-            assertThat(mentionContent.path("wakeReason").asText()).isEqualTo("MENTION");
-            assertThat(mentionContent.path("weight").path("totalScore").asInt())
-                    .isEqualTo(200);
+            assertThat((String) runtime.inboxRuntime().programClient()
+                    .view("bot-inbox", mentionItem).content()).contains("你看这个");
         } finally {
             if (client != null) {
                 client.closeGracefully();

@@ -39,6 +39,30 @@ class InboxDigestServiceTest {
             ChatSourceKey.groupChat("bot-1", "group-10");
 
     @Test
+    void senderNoteIsRenderedOnlyOncePerWindow() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
+        InMemoryInboxDigestStateStore states = new InMemoryInboxDigestStateStore();
+        FakePort port = new FakePort();
+        InboxDigestService service = new InboxDigestService(board, notes, states, port);
+        notes.upsert(new UserNoteDraft("bot-1", "qq-1", "Alice", Set.of(),
+                "主人，说话要简短", 500), null);
+
+        board.append(inbound("m-1", "qq-1", "Alice", "第一条"));
+        board.append(inbound("m-2", "qq-1", "Alice", "第二条"));
+        board.append(inbound("m-3", "qq-1", "Alice", "第三条"));
+
+        service.flushThread(GROUP.threadId());
+
+        List<String> lines = port.lastDigest.messages().stream()
+                .map(MessageSummary::summary).toList();
+        assertThat(lines).hasSize(3);
+        long withNote = lines.stream().filter(line -> line.contains("主人，说话要简短")).count();
+        assertThat(withNote).isEqualTo(1);
+        assertThat(lines).allSatisfy(line -> assertThat(line).contains("#"));
+    }
+
+    @Test
     void coalescesUnreadInboundMessagesAndAdvancesPastOwnOutboundMessage() {
         InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
         InMemoryUserNoteStore notes = new InMemoryUserNoteStore(CLOCK);
@@ -580,9 +604,13 @@ class InboxDigestServiceTest {
         assertThat(result.messageCount()).isEqualTo(2);
         assertThat(port.lastDigest.messages()).extracting(MessageSummary::localSeq)
                 .containsExactly(1L, 2L);
-        assertThat(port.lastDigest.priority()).isEqualTo(200);
+        // 档位只看 max(人级标签, 来源权重)：未标记的群里 @ 只是一条普通消息，
+        // 信号权重仍然计入 weight().totalScore() 供展示。
+        assertThat(port.lastDigest.priority()).isZero();
         assertThat(port.lastDigest.wakeReason()).isEqualTo("MENTION");
-        assertThat(port.lastDigest.weight().totalScore()).isEqualTo(200);
+        // InboxWeight 的 totalScore 槽位现在承载档位 priority（D-005），信号分只留在解释里。
+        assertThat(port.lastDigest.weight().signalWeight()).isEqualTo(200);
+        assertThat(port.lastDigest.weight().totalScore()).isZero();
     }
 
     @Test

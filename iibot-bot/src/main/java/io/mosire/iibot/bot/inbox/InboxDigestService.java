@@ -19,8 +19,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -42,6 +45,8 @@ public final class InboxDigestService {
      * 并把 ``hasMoreUnread`` 置真，而不是让 push 直接失败。
      */
     public static final int DEFAULT_CONTENT_BUDGET_CHARS = 192_000;
+    /** 未配置来源策略时的档位阈值（D-005）：>=200 视为重要消息。 */
+    public static final int DEFAULT_NOTIFY_THRESHOLD = 200;
 
     private final MessageBoardStore board;
     private final UserNoteStore notes;
@@ -206,60 +211,77 @@ public final class InboxDigestService {
                         .filter(InboxDigestItem::available)
                         .map(InboxDigestItem::digest)
                         .orElse(active.digest());
-                if (existing != null) {
-                    UnreadWindow window = unreadWindow(threadId,
-                            Math.max(0L, existing.fromSeq() - 1L), maxMessagesPerFlush);
-                    if (window.preview.isEmpty()) {
-                        if (window.toSeq() > afterSeq) {
-                            states.save(state.orElseThrow().withLastSeq(window.toSeq()));
-                        }
-                        return new FlushResult(threadId, false, "",
-                                existing.fromSeq(), existing.toSeq(),
-                                existing.messages().size(), existing.priority());
-                    }
-                    if (existing.messages().equals(window.preview())
-                            && existing.unreadCount() == window.unreadCount()) {
-                        if (window.toSeq() > afterSeq) {
-                            states.save(state.orElseThrow().withLastSeq(window.toSeq()));
-                        }
-                        return new FlushResult(threadId, false, "",
-                                existing.fromSeq(), existing.toSeq(),
-                                existing.messages().size(), existing.priority());
-                    }
-                    InboxDigest merged = buildDigest(threadId, window,
-                            existing.trigger());
-                    InboxDigestItem updated;
-                    try {
-                        updated = port.update(active.itemId(), active.revision(), merged);
-                    } catch (InboxDigestConflictException conflict) {
-                        // A concurrent ack/update won the revision.  The next
-                        // scheduler pass will re-read the item and retry.
-                        OpsLog.warn("event=inbox_digest_append_conflict threadId={} "
-                                        + "itemId={}", threadId, active.itemId());
-                        return new FlushResult(threadId, false, "",
-                                existing.fromSeq(), existing.toSeq(),
-                                existing.messages().size(), existing.priority());
-                    }
-                    states.save(new InboxDigestState(threadId, updated.itemId(),
-                            updated.revision(), window.toSeq()));
-                    recordAudit(threadId, updated, merged, "available", clock.instant());
-                    OpsLog.info("event=inbox_digest_appended threadId={} itemId={} "
-                                    + "revision={} fromSeq={} toSeq={} messages={} "
-                                    + "unreadCount={} priority={} wakeReason={}",
-                            threadId, updated.itemId(), updated.revision(),
-                            merged.fromSeq(), merged.toSeq(), merged.messages().size(),
-                            merged.unreadCount(), merged.priority(), merged.wakeReason());
-                    return new FlushResult(threadId, true, updated.itemId(),
-                            merged.fromSeq(), merged.toSeq(), merged.messages().size(),
-                            merged.priority());
+                InboxDigestState current = state.orElseThrow();
+                // content 换成服务端渲染的文本后（D-015）不再解析正文取窗口：
+                // fromSeq/toSeq/unreadCount 以本地 state 为准，existing 只是旧内容的快路径。
+                long knownFrom = existing != null ? existing.fromSeq() : current.fromSeq();
+                long knownTo = existing != null ? existing.toSeq() : current.toSeq();
+                int knownUnread = existing != null ? existing.unreadCount()
+                        : current.unreadCount();
+                int knownPriority = existing != null ? existing.priority() : 0;
+                if (existing == null && !current.hasWindow()) {
+                    // 旧内容无法解析、本地也没有窗口信息：保留原来的保守行为。
+                    long frozenSeq = afterSeq;
+                    OpsLog.debug("event=inbox_digest_frozen threadId={} itemId={} seq={}",
+                            threadId, active.itemId(), frozenSeq);
+                    return new FlushResult(threadId, false, "",
+                            frozenSeq, frozenSeq, 0, 0);
                 }
-                // Legacy/foreign content cannot be appended safely: retain the
-                // old conservative behavior until the operator acknowledges it.
-                long frozenSeq = state.map(InboxDigestState::lastSeq).orElse(active.toSeq());
-                OpsLog.debug("event=inbox_digest_frozen threadId={} itemId={} seq={}",
-                        threadId, active.itemId(), frozenSeq);
-                return new FlushResult(threadId, false, "",
-                        frozenSeq, frozenSeq, 0, 0);
+                UnreadWindow window = unreadWindow(threadId,
+                        Math.max(0L, knownFrom - 1L), maxMessagesPerFlush);
+                if (window.preview.isEmpty()) {
+                    if (window.toSeq() > afterSeq) {
+                        states.save(current.withLastSeq(window.toSeq()));
+                    }
+                    return new FlushResult(threadId, false, "",
+                            knownFrom, knownTo, knownUnread, knownPriority);
+                }
+                boolean sameKnownWindow = current.hasWindow()
+                        && current.fromSeq() == window.fromSeq()
+                        && current.toSeq() == window.toSeq()
+                        && current.unreadCount() == window.unreadCount();
+                if (existing == null && sameKnownWindow) {
+                    // content 已不再携带机器信息：窗口没变就不必再改 item revision。
+                    if (window.toSeq() > afterSeq) {
+                        states.save(current.withLastSeq(window.toSeq()));
+                    }
+                    return new FlushResult(threadId, false, "",
+                            knownFrom, knownTo, knownUnread, knownPriority);
+                }
+                if (existing != null && existing.messages().equals(window.preview())
+                        && knownUnread == window.unreadCount()) {
+                    if (window.toSeq() > afterSeq) {
+                        states.save(current.withLastSeq(window.toSeq()));
+                    }
+                    return new FlushResult(threadId, false, "",
+                            knownFrom, knownTo, knownUnread, knownPriority);
+                }
+                InboxDigest merged = buildDigest(threadId, window,
+                        existing == null ? null : existing.trigger());
+                InboxDigestItem updated;
+                try {
+                    updated = port.update(active.itemId(), active.revision(), merged);
+                } catch (InboxDigestConflictException conflict) {
+                    // A concurrent ack/update won the revision.  The next
+                    // scheduler pass will re-read the item and retry.
+                    OpsLog.warn("event=inbox_digest_append_conflict threadId={} "
+                                    + "itemId={}", threadId, active.itemId());
+                    return new FlushResult(threadId, false, "",
+                            knownFrom, knownTo, knownUnread, knownPriority);
+                }
+                states.save(new InboxDigestState(threadId, updated.itemId(),
+                        updated.revision(), window.toSeq())
+                        .withWindow(merged.fromSeq(), merged.toSeq(), merged.unreadCount()));
+                recordAudit(threadId, updated, merged, "available", clock.instant());
+                OpsLog.info("event=inbox_digest_appended threadId={} itemId={} "
+                                + "revision={} fromSeq={} toSeq={} messages={} "
+                                + "unreadCount={} priority={} wakeReason={}",
+                        threadId, updated.itemId(), updated.revision(),
+                        merged.fromSeq(), merged.toSeq(), merged.messages().size(),
+                        merged.unreadCount(), merged.priority(), merged.wakeReason());
+                return new FlushResult(threadId, true, updated.itemId(),
+                        merged.fromSeq(), merged.toSeq(), merged.messages().size(),
+                        merged.priority());
             }
         }
 
@@ -280,7 +302,8 @@ public final class InboxDigestService {
         InboxDigest digest = buildDigest(threadId, window, null);
         InboxDigestItem item = port.push(activeDedupeKey(threadId), digest);
         InboxDigestState next = new InboxDigestState(threadId, item.itemId(),
-                item.revision(), window.toSeq());
+                item.revision(), window.toSeq())
+                .withWindow(digest.fromSeq(), digest.toSeq(), digest.unreadCount());
         states.save(next);
         recordAudit(threadId, item, digest, "available", clock.instant());
         OpsLog.info("event=inbox_digest_published threadId={} itemId={} revision={} "
@@ -313,8 +336,8 @@ public final class InboxDigestService {
         InboxTrigger previous = active.digest() == null ? null : active.digest().trigger();
         InboxDigest digest = buildDigest(threadId, window, previous);
         InboxDigestItem updated = port.update(active.itemId(), active.revision(), digest);
-        states.save(new InboxDigestState(threadId, updated.itemId(),
-                updated.revision(), window.toSeq()));
+        states.save(new InboxDigestState(threadId, updated.itemId(), updated.revision(),
+                window.toSeq(), digest.fromSeq(), digest.toSeq(), digest.unreadCount()));
         recordAudit(threadId, updated, digest, "available", clock.instant());
         OpsLog.info("event=inbox_digest_reconciled threadId={} itemId={} revision={} "
                         + "fromSeq={} toSeq={} unreadCount={}",
@@ -341,14 +364,28 @@ public final class InboxDigestService {
     }
 
     private List<MessageSummary> summariesFor(List<ChatMessage> messages) {
+        // 引用只在本窗口内解析：被引消息不在窗口里时省略引用行，正文仍然是完整的。
+        Map<String, ChatMessage> byMessageId = new HashMap<>();
+        for (ChatMessage message : messages) {
+            if (!message.messageId().isEmpty()) {
+                byMessageId.putIfAbsent(message.messageId(), message);
+            }
+        }
         List<MessageSummary> summaries = new ArrayList<>();
+        // 同一次注入里每个发送者的备注只渲染一次：主人那条 note 48 字 × 33 条 ≈ 1600 字纯浪费。
+        Set<String> notedSenders = new HashSet<>();
         for (ChatMessage message : messages) {
             if (message.direction() != ChatDirection.IN) {
                 continue;
             }
             UserNote note = notes.find(message.source().accountId(), message.senderId())
                     .orElse(null);
-            summaries.add(summaryBuilder.build(message, note));
+            ChatMessage replyTo = message.replyToMessageId().isEmpty()
+                    ? null : byMessageId.get(message.replyToMessageId());
+            boolean includeNote = note == null || note.note() == null
+                    || note.note().isBlank() || notedSenders.add(message.senderId());
+            summaries.add(summaryBuilder.build(message, note, replyTo,
+                    board.segments(message.messageKey()), includeNote));
         }
         return List.copyOf(summaries);
     }
@@ -444,16 +481,16 @@ public final class InboxDigestService {
                         .thenComparingLong(decision -> sequenceOf(sourceMessages,
                                 decision.messageKey())))
                 .orElse(null);
-        SourceWeightPolicy policy = strongest == null || weights == null
+        // 档位判据（D-005 / inbox-push-contract §2.2）：priority = max(人级标签, 来源权重)，
+        // 与 notifyThreshold 比较即可分档；信号权重只用于展示，不再决定档位。
+        SourceWeightPolicy policy = weights == null
                 ? null : weights.findPolicy(threadId).orElse(null);
-        int threshold = strongest == null
-                ? summaries.stream().mapToInt(MessageSummary::priority).max().orElse(0)
-                : policy == null ? strongest.totalScore() : policy.notifyThreshold();
-        int priority = strongest == null
-                ? summaries.stream().mapToInt(MessageSummary::priority).max().orElse(0)
-                : strongest.bootstrap()
-                        ? Math.max(strongest.totalScore(), threshold)
-                        : strongest.totalScore();
+        int notePriority = summaries.stream()
+                .mapToInt(MessageSummary::priority).max().orElse(0);
+        int priority = policy == null
+                ? notePriority : Math.max(notePriority, policy.sourceWeight());
+        int threshold = policy == null
+                ? DEFAULT_NOTIFY_THRESHOLD : policy.notifyThreshold();
         InboxWeight weight = strongest == null
                 ? InboxWeight.none(priority)
                 : new InboxWeight(
@@ -680,7 +717,7 @@ public final class InboxDigestService {
             Optional<InboxDigestState> initial = states.find(threadId);
             if (initial.isPresent() && initial.orElseThrow().hasActiveItem()) {
                 InboxDigestItem item = viewAvailable(initial.orElseThrow().itemId());
-                if (deliveredSeq > item.toSeq()) {
+                if (deliveredSeq > toSeqOf(threadId, item)) {
                     // 消息板可能已有未 flush 的消息；先把 active item 拉平到最新范围。
                     flushThread(threadId);
                 }
@@ -700,16 +737,18 @@ public final class InboxDigestService {
             }
 
             InboxDigestItem item = viewAvailable(state.itemId());
-            if (deliveredSeq <= 0L || deliveredSeq < item.fromSeq()) {
+            long itemFromSeq = fromSeqOf(threadId, item);
+            long itemToSeq = toSeqOf(threadId, item);
+            if (deliveredSeq <= 0L || deliveredSeq < itemFromSeq) {
                 // delivered 范围早于 active unread item；不能为了 ack 丢掉更新的未读。
                 OpsLog.info("event=inbox_ack_through threadId={} deliveredSeq={} "
                                 + "outcome=before_active_range itemId={} itemFromSeq={} "
                                 + "itemToSeq={}", threadId, deliveredSeq, item.itemId(),
-                        item.fromSeq(), item.toSeq());
-                return new AckResult(deliveredSeq, false, item.itemId(), item.toSeq());
+                        itemFromSeq, itemToSeq);
+                return new AckResult(deliveredSeq, false, item.itemId(), itemToSeq);
             }
 
-            if (deliveredSeq >= item.toSeq()) {
+            if (deliveredSeq >= itemToSeq) {
                 // CONSUMER 已处理到 item 末尾之后：以 deliveredSeq 作为 cursor 归档，
                 // 让后续 flush 只为 deliveredSeq 之后的新消息建立未读 item。
                 archiveAndCursor(threadId, item.itemId(), item.revision(), deliveredSeq);
@@ -720,9 +759,9 @@ public final class InboxDigestService {
                     OpsLog.info("event=inbox_ack_through threadId={} deliveredSeq={} "
                                     + "outcome=archived_with_remaining remainingItemId={} "
                                     + "remainingToSeq={}", threadId, deliveredSeq,
-                            remainingItem.itemId(), remainingItem.toSeq());
+                            remainingItem.itemId(), toSeqOf(threadId, remainingItem));
                     return new AckResult(deliveredSeq, true, remainingItem.itemId(),
-                            remainingItem.toSeq());
+                            toSeqOf(threadId, remainingItem));
                 }
                 OpsLog.info("event=inbox_ack_through threadId={} deliveredSeq={} "
                                 + "outcome=archived cursor={}", threadId, deliveredSeq,
@@ -756,7 +795,7 @@ public final class InboxDigestService {
             return new AckResult(0L, false, "", 0L);
         }
         InboxDigestItem item = viewAvailable(state.orElseThrow().itemId());
-        return ackThrough(threadId, item.toSeq());
+        return ackThrough(threadId, toSeqOf(threadId, item));
     }
 
     /** 主 Agent 处理完一个 digest 后归档，并保留已处理到的 thread 游标。 */
@@ -790,11 +829,13 @@ public final class InboxDigestService {
             throw revisionConflict(current, expectedRevision);
         }
         long stateLastSeq = state.map(InboxDigestState::lastSeq).orElse(0L);
+        long currentFrom = fromSeqOf(threadId, current);
+        long currentTo = toSeqOf(threadId, current);
         long snapshot = snapshotToSeq > 0L ? snapshotToSeq
-                : current.toSeq() > 0L ? current.toSeq() : stateLastSeq;
-        validateSnapshot(current, snapshot);
+                : currentTo > 0L ? currentTo : stateLastSeq;
+        validateSnapshot(current, currentFrom, currentTo, snapshot);
 
-        if (snapshot < current.toSeq()) {
+        if (snapshot < currentTo) {
             return consumeSnapshot(threadId, itemId, expectedRevision, snapshot, stateLastSeq);
         }
         archiveAndCursor(threadId, itemId, current.revision(), snapshot);
@@ -804,23 +845,26 @@ public final class InboxDigestService {
     private AckResult consumeSnapshot(String threadId, String itemId, long expectedRevision,
                                       long snapshot, long stateLastSeq) {
         InboxDigestItem current = viewAvailable(itemId);
-        validateSnapshot(current, snapshot);
-        if (snapshot >= current.toSeq()) {
+        long currentFrom = fromSeqOf(threadId, current);
+        long currentTo = toSeqOf(threadId, current);
+        validateSnapshot(current, currentFrom, currentTo, snapshot);
+        if (snapshot >= currentTo) {
             archiveAndCursor(threadId, itemId, current.revision(), snapshot);
             return new AckResult(snapshot, true, "", 0L);
         }
         UnreadWindow window = unreadWindow(threadId, snapshot, maxMessagesPerFlush);
         if (window.preview().isEmpty()) {
             // Only OUT messages remain after the snapshot: no unread item to keep.
-            archiveAndCursor(threadId, itemId, current.revision(), current.toSeq());
-            return new AckResult(current.toSeq(), true, "", 0L);
+            archiveAndCursor(threadId, itemId, current.revision(), currentTo);
+            return new AckResult(currentTo, true, "", 0L);
         }
         InboxTrigger previous = current.digest() == null ? null : current.digest().trigger();
         InboxDigest remainder = buildDigest(threadId, window, previous);
         try {
             InboxDigestItem updated = port.update(itemId, current.revision(), remainder);
-            states.save(new InboxDigestState(threadId, itemId,
-                    updated.revision(), window.toSeq()));
+            states.save(new InboxDigestState(threadId, itemId, updated.revision(),
+                    window.toSeq(), remainder.fromSeq(), remainder.toSeq(),
+                    remainder.unreadCount()));
             recordAudit(threadId, updated, remainder, "available", clock.instant());
             OpsLog.info("event=inbox_ack threadId={} itemId={} outcome=remaining "
                             + "digestedThroughSeq={} remainingToSeq={} unreadCount={} revision={}",
@@ -830,22 +874,25 @@ public final class InboxDigestService {
         } catch (InboxDigestConflictException conflict) {
             // Only one retry, against the freshest item revision.
             InboxDigestItem latest = viewAvailable(itemId);
-            validateSnapshot(latest, snapshot);
-            if (snapshot >= latest.toSeq()) {
+            long latestFrom = fromSeqOf(threadId, latest);
+            long latestTo = toSeqOf(threadId, latest);
+            validateSnapshot(latest, latestFrom, latestTo, snapshot);
+            if (snapshot >= latestTo) {
                 archiveAndCursor(threadId, itemId, latest.revision(), snapshot);
                 return new AckResult(snapshot, true, "", 0L);
             }
             UnreadWindow retryWindow = unreadWindow(threadId, snapshot, maxMessagesPerFlush);
             if (retryWindow.preview().isEmpty()) {
-                archiveAndCursor(threadId, itemId, latest.revision(), latest.toSeq());
-                return new AckResult(latest.toSeq(), true, "", 0L);
+                archiveAndCursor(threadId, itemId, latest.revision(), latestTo);
+                return new AckResult(latestTo, true, "", 0L);
             }
             InboxTrigger retryPrevious = latest.digest() == null
                     ? null : latest.digest().trigger();
             InboxDigest retryDigest = buildDigest(threadId, retryWindow, retryPrevious);
             InboxDigestItem updated = port.update(itemId, latest.revision(), retryDigest);
-            states.save(new InboxDigestState(threadId, itemId,
-                    updated.revision(), retryWindow.toSeq()));
+            states.save(new InboxDigestState(threadId, itemId, updated.revision(),
+                    retryWindow.toSeq(), retryDigest.fromSeq(), retryDigest.toSeq(),
+                    retryDigest.unreadCount()));
             recordAudit(threadId, updated, retryDigest, "available", clock.instant());
             OpsLog.info("event=inbox_ack threadId={} itemId={} outcome=remaining "
                             + "digestedThroughSeq={} remainingToSeq={} unreadCount={} revision={} retried=true",
@@ -853,6 +900,24 @@ public final class InboxDigestService {
                     retryDigest.unreadCount(), updated.revision());
             return new AckResult(snapshot, false, itemId, retryDigest.toSeq());
         }
+    }
+
+    /**
+     * item 上的窗口来自 content；content 已改为渲染文本（D-002/D-015），
+     * 解析不到时退回本地 inbox_digest_state 记录的窗口。
+     */
+    private long fromSeqOf(String threadId, InboxDigestItem item) {
+        if (item.fromSeq() > 0L) {
+            return item.fromSeq();
+        }
+        return states.find(threadId).map(InboxDigestState::fromSeq).orElse(0L);
+    }
+
+    private long toSeqOf(String threadId, InboxDigestItem item) {
+        if (item.toSeq() > 0L) {
+            return item.toSeq();
+        }
+        return states.find(threadId).map(InboxDigestState::toSeq).orElse(0L);
     }
 
     private InboxDigestItem viewAvailable(String itemId) {
@@ -865,23 +930,24 @@ public final class InboxDigestService {
         return current;
     }
 
-    private void validateSnapshot(InboxDigestItem item, long snapshot) {
+    private void validateSnapshot(InboxDigestItem item, long itemFromSeq, long itemToSeq,
+                                  long snapshot) {
         if (snapshot <= 0L) {
             throw new InboxDigestConflictException("SNAPSHOT_REQUIRED",
                     "snapshotToSeq 必须为正", Map.of("itemId", item.itemId()), null);
         }
-        if (item.fromSeq() > 0L && snapshot < item.fromSeq()) {
+        if (itemFromSeq > 0L && snapshot < itemFromSeq) {
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("itemId", item.itemId());
-            details.put("itemFromSeq", item.fromSeq());
+            details.put("itemFromSeq", itemFromSeq);
             details.put("snapshotToSeq", snapshot);
             throw new InboxDigestConflictException("SNAPSHOT_STALE",
                     "snapshotToSeq 早于当前 item 范围，请重新 inbox_view", details, null);
         }
-        if (item.toSeq() > 0L && snapshot > item.toSeq()) {
+        if (itemToSeq > 0L && snapshot > itemToSeq) {
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("itemId", item.itemId());
-            details.put("itemToSeq", item.toSeq());
+            details.put("itemToSeq", itemToSeq);
             details.put("snapshotToSeq", snapshot);
             throw new InboxDigestConflictException("SNAPSHOT_AHEAD",
                     "snapshotToSeq 超出当前 item 范围，请重新 inbox_view", details, null);

@@ -75,6 +75,7 @@ config/
 | `control` | 是 | Bot MCP 监听设置与 bearer token 环境变量名 |
 | `inbox` | 是 | embedded Inbox 设置 |
 | `messageBoard` | 否 | 摘要防抖、预览上限、短正文内联阈值、outbox 和 weighting |
+| `media` | 否 | 媒体临时区：保留天数与入站预热开关（D-019） |
 | `video` | 否 | 默认清晰度、抽帧数量、评论查询默认值与硬上限 |
 | `logging` | 否 | 日志目录、console/file、root/ops/包级级别和轮转 |
 
@@ -123,6 +124,12 @@ config/
   Inbox `summary` 的 512 字符存储边界约束；
 - `messageBoard.contextMessages`（默认 `6`）、`messageBoard.contextMaxChars`（默认 `1200`）
   控制未读窗口前带多少条上文；这两个数就是「滚动窗口」的长度，调大后 Agent 看到的上下文更连续；
+- `media.retentionDays`（默认 `7`，范围 0..365）是媒体临时区的保留天数：入站图片/语音/文件
+  的字节会在消息落板后立刻抓进 `<dataDir>/media`，`qq_media_get` 等工具一律读本地副本，
+  不再依赖 QQ 的短时效直链；超过保留期的文件每 6 小时清一次（`0` = 不清理）；
+- `media.prewarm`（默认 `true`）关闭后只在 Agent 真正取媒体时才下载，旧图大概率直接 `MEDIA_UNAVAILABLE`；
+- 预热范围：图片全部预热；语音/文件只在 `byteSize <= media.prewarmMaxBytes`（默认 `5242880` = 5 MiB，
+  范围 0..1073741824）时预热，超限的等 Agent 真要时再拉——大文件不该占满临时区；
 - `messageBoard.summaryMaxChars`（默认 `1000`，范围 16..20000）是板里每条消息的正文长度上限。
   调大能让唤醒消息里的对话接近原文，但 digest 塞进 Inbox `content` 有 256KiB 硬上限，
   超预算时 iiBot 会丢最老的未读并置 `hasMoreUnread`，而不是让 push 失败；
@@ -307,6 +314,29 @@ hint: URI 缺少 host: not-a-uri
 fallback > 内置默认。包级 `logging.levels` 按配置应用；`--log-level` 不覆盖显式包级级别。
 日志文件 `iibot.log`/`iibot-ops.log` 使用 0600 权限，按天和大小滚动并 gzip。
 日志禁止正文、token、Authorization 和完整协议 JSON。
+
+## 配置医生（自动纠正）
+
+启动时会先跑一次配置医生：按 `config/schema/bot-config.schema.json` 检查每个源文件，
+把两类**安全且可逆**的问题就地改好（写回前先备份成 `bot.json.bak-<时间戳>`）：
+
+| 问题 | 处理 |
+|---|---|
+| schema 里不存在的键 | 整棵子树搬到顶层 `x-unknown`（内容保留、不生效、随时可删） |
+| 旧版本的键名 | 按下面迁移表改名到新位置 |
+
+类型不对、超出范围、必填缺失这类**语义**问题**不自动改**，照旧 fail-closed：
+自动把 `retentionDays: 400` 改成 7 只会把真实的配置错误藏起来。
+
+```bash
+java -jar iibot-app.jar --check-config            # 自动修（默认）
+java -jar iibot-app.jar --check-config --no-fix-config   # 只看报告，不动文件
+```
+
+医生的诊断输出以 `[config-doctor]` 开头，写 stderr（不污染 `--print-effective-config` 的 JSON）。
+schema 随 jar 发布，仓内 `config/schema/bot-config.schema.json` 是同一份；
+`BotConfigDoctorTest.liveBot2ConfigIsFullyDescribedByTheSchema` 会拿真实 `bot2` 配置做回归，
+新增配置键却忘了写进 schema 时测试直接红。
 
 ## 旧配置手工迁移
 

@@ -480,6 +480,42 @@ class BotConfigLoaderTest {
                 .hasMessageContaining("bindingTtlHours");
     }
 
+    @Test
+    void mediaSectionDefaultsToSevenDaysAndPrewarm() throws Exception {
+        Path config = write("bot.json", validConfig("main", "10001", true));
+
+        BotConfig loaded = BotConfigLoader.load(config, SECRETS);
+
+        assertThat(loaded.media().retentionDays()).isEqualTo(7);
+        assertThat(loaded.media().prewarm()).isTrue();
+    }
+
+    @Test
+    void mediaSectionIsConfigurable() throws Exception {
+        String json = validConfig("main", "10001", true).replace(
+                "\"logging\": {",
+                "\"media\": {\"retentionDays\": 3, \"prewarm\": false},\n  \"logging\": {");
+        Path config = write("bot.json", json);
+
+        BotConfig loaded = BotConfigLoader.load(config, SECRETS);
+
+        assertThat(loaded.media().retentionDays()).isEqualTo(3);
+        assertThat(loaded.media().prewarm()).isFalse();
+    }
+
+    @Test
+    void mediaSectionRejectsUnknownKeysAndOutOfRangeRetention() throws Exception {
+        Path unknown = write("unknown.json", validConfig("main", "10001", true).replace(
+                "\"logging\": {", "\"media\": {\"ttlDays\": 3},\n  \"logging\": {"));
+        assertThatThrownBy(() -> BotConfigLoader.load(unknown, SECRETS))
+                .isInstanceOf(ConfigException.class);
+
+        Path outOfRange = write("range.json", validConfig("main", "10001", true).replace(
+                "\"logging\": {", "\"media\": {\"retentionDays\": 400},\n  \"logging\": {"));
+        assertThatThrownBy(() -> BotConfigLoader.load(outOfRange, SECRETS))
+                .isInstanceOf(ConfigException.class);
+    }
+
     private static String validConfig(String alias, String accountId, boolean enabled) {
         return """
                 {

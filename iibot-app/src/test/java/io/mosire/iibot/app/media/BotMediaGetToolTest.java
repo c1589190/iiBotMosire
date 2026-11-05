@@ -1,5 +1,7 @@
 package io.mosire.iibot.app.media;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.mosire.agentlib.llm.ToolAsset;
 import io.mosire.agentlib.permission.AccessToken;
 import io.mosire.agentlib.permission.AgentPermissionSet;
@@ -14,6 +16,7 @@ import io.mosire.iibot.connect.core.MessageSegment;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -25,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class BotMediaGetToolTest {
 
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final Instant T0 = Instant.parse("2026-10-27T00:00:00Z");
     private static final ChatSourceKey GROUP = ChatSourceKey.groupChat("bot-1", "group-9");
 
@@ -160,4 +164,88 @@ class BotMediaGetToolTest {
         assertThat(asset.bytes()).containsExactly(7, 8);
     }
 
+
+    @Test
+    void savesImagesUnderDownloadsWhenSaveToProvided() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        ChatMessage message = ChatMessage.inbound(GROUP, "m-save", "qq-1", "Alice",
+                T0, T0, "", "[图片×1]", "");
+        board.append(message, List.of(MessageSegment.image(
+                0, "file-save", "https://example.invalid/save.png", "image/png", 3)));
+        MediaCapability provider = segment -> CompletableFuture.completedFuture(
+                new MediaAsset("save.png", "image/png", new byte[]{7, 8, 9}));
+        BotMediaStore store = new BotMediaStore(tempDir);
+        BotMediaGetTool tool = new BotMediaGetTool(board, provider, store,
+                new MediaDownloadSink(tempDir));
+
+        ToolResult result = tool.execute(context(tool, Map.of(
+                "messageKey", message.messageKey(),
+                "saveTo", "pics/")));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.assetDocIds()).hasSize(1);
+        JsonNode data = JSON.readTree(result.message());
+        assertThat(data.path("saved")).hasSize(1);
+        Path saved = Path.of(data.path("saved").get(0).asText());
+        assertThat(saved).startsWith(
+                tempDir.toAbsolutePath().normalize().resolve("downloads").resolve("pics"));
+        assertThat(Files.readAllBytes(saved)).containsExactly(7, 8, 9);
+        assertThat(data.path("images").get(0).path("assetId").asText())
+                .isEqualTo(result.assetDocIds().getFirst());
+    }
+
+    @Test
+    void omittedSaveToKeepsBackwardCompatibleEmptySavedList() throws Exception {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        ChatMessage message = ChatMessage.inbound(GROUP, "m-nosave", "qq-1", "Alice",
+                T0, T0, "", "[图片×1]", "");
+        board.append(message, List.of(MessageSegment.image(
+                0, "file-nosave", "https://example.invalid/nosave.png", "image/png", 3)));
+        MediaCapability provider = segment -> CompletableFuture.completedFuture(
+                new MediaAsset("nosave.png", "image/png", new byte[]{1, 2, 3}));
+        BotMediaStore store = new BotMediaStore(tempDir);
+        BotMediaGetTool tool = new BotMediaGetTool(board, provider, store,
+                new MediaDownloadSink(tempDir));
+
+        ToolResult result = tool.execute(context(tool,
+                Map.of("messageKey", message.messageKey())));
+
+        assertThat(result.success()).isTrue();
+        JsonNode data = JSON.readTree(result.message());
+        assertThat(data.path("saved")).isEmpty();
+        assertThat(data.path("images")).hasSize(1);
+    }
+
+    @Test
+    void rejectsTraversalSaveToWithoutLeakingPaths() {
+        InMemoryMessageBoardStore board = new InMemoryMessageBoardStore();
+        ChatMessage message = ChatMessage.inbound(GROUP, "m-bad-save", "qq-1", "Alice",
+                T0, T0, "", "[图片×1]", "");
+        board.append(message, List.of(MessageSegment.image(
+                0, "file-bad-save", "https://example.invalid/bad.png", "image/png", 3)));
+        MediaCapability provider = segment -> CompletableFuture.completedFuture(
+                new MediaAsset("bad.png", "image/png", new byte[]{1}));
+        BotMediaStore store = new BotMediaStore(tempDir);
+        BotMediaGetTool tool = new BotMediaGetTool(board, provider, store,
+                new MediaDownloadSink(tempDir));
+
+        ToolResult traversal = tool.execute(context(tool, Map.of(
+                "messageKey", message.messageKey(),
+                "saveTo", "../../etc/passwd")));
+        ToolResult absolute = tool.execute(context(tool, Map.of(
+                "messageKey", message.messageKey(),
+                "saveTo", "/etc/passwd")));
+
+        assertThat(traversal.code()).isEqualTo("INVALID_ARGUMENTS");
+        assertThat(absolute.code()).isEqualTo("INVALID_ARGUMENTS");
+        assertThat(traversal.message()).doesNotContain(tempDir.toString())
+                .doesNotContain("etc/passwd");
+    }
+
+    private static ToolContext context(BotMediaGetTool tool, Map<String, Object> args) {
+        AgentPermissionSet permissions = AgentPermissionSet.builder(AccessToken.DEFAULT)
+                .allow(tool.name())
+                .build();
+        return new ToolContext(AccessToken.DEFAULT, permissions, Map.of(), args);
+    }
 }
